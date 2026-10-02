@@ -203,6 +203,15 @@ def _build_metadata() -> MetaData:
         Column("summary", _TYPES["json"]()),
         Column("error", Text),
     )
+    # The web service's collection schedule (see ``scheduler``): its latest attempt at each job.
+    Table(
+        "schedule", metadata,
+        Column("job", Text, primary_key=True),
+        Column("started_at", DateTime(timezone=True)),
+        Column("finished_at", DateTime(timezone=True)),
+        Column("ok", Boolean),
+        Column("error", Text),
+    )
     _advice_tables(metadata)
     _pumpfun_tables(metadata)
     for name, spec in TABLES.items():

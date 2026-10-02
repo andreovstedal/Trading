@@ -4,8 +4,9 @@
 <div class="page-head">
   <div>
     <h1>Data</h1>
-    <p class="muted">Innsamlingen går vanligvis etter sin egen timeplan. Bruk knappene til den første innlastingen eller
-      til en manuell oppdatering.</p>
+    <p class="muted">{% if scheduler_on %}Web-tjenesten henter data automatisk: pump.fun hvert 5. minutt, og børsdata
+      etter tidsplanen på hverdager.{% else %}Den automatiske innsamlingen er slått av her (SCHEDULER).{% endif %} Bruk
+      knappene til den første innlastingen eller til en manuell oppdatering.</p>
   </div>
 </div>
 {% if message %}<div class="notice">{{ message }}</div>{% endif %}

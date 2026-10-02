@@ -31,7 +31,7 @@ from jinja2 import Undefined
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import jobs, pumpfun, text
+from .. import jobs, pumpfun, scheduler, text
 from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
@@ -76,9 +76,16 @@ def create_app(db: str | None = None) -> FastAPI:
     password = os.environ.get("APP_PASSWORD")
     on_railway = bool(os.environ.get("RAILWAY_ENVIRONMENT_ID"))
 
+    schedule = scheduler.Scheduler(store, busy=lambda: runner.current is not None) \
+        if scheduler.enabled(os.environ) else None
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI):  # noqa: ANN202
+        if schedule:
+            schedule.start()
         yield
+        if schedule:
+            schedule.stop()
         store.close()
 
     app = FastAPI(title="Nordic signals", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
@@ -86,7 +93,8 @@ def create_app(db: str | None = None) -> FastAPI:
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(nok=fmt_nok, pct=fmt_pct, points=fmt_points, num=fmt_num, when=fmt_when,
                                  day=fmt_day, ago=fmt_ago, label=fmt_label)
-    templates.env.globals.update(model_version=MODEL_VERSION, runner=runner, auth_enabled=bool(password))
+    templates.env.globals.update(model_version=MODEL_VERSION, runner=runner, auth_enabled=bool(password),
+                                 scheduler_on=schedule is not None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
 
     @app.middleware("http")

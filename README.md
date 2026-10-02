@@ -54,7 +54,7 @@ nordic-signals evaluate                        # score past recommendations agai
 
 A separate experiment, on the **pump.fun** page: can a filter tell pump.fun's pump-and-dump launches apart from the rest, well enough that the tokens it lets through mostly don't collapse? Nothing is traded. It only measures, so the answer exists before any money is involved.
 
-Every 5 minutes the `collect-pumpfun` job:
+Every 5 minutes the web service's schedule (see [Scheduling](#scheduling)):
 
 1. **Discovers launches:** it reads pump.fun's list of the newest tokens and stores all of them, so creators who launch token after token can be recognised. It then picks a random sample of 20 to follow.
 2. **Scores each sampled token** about 10 minutes after launch, on warning signs from rug-pull research:
@@ -117,21 +117,28 @@ All endpoints were checked against the live sites on 2026-10-02; each collector'
 
 ### Scheduling
 
-Some registers keep no history: Norway's short register keeps two years, FI's aggregate short file keeps only the latest value, and Nordnet owner counts are a daily snapshot. Run the jobs every weekday from the start.
+The web service runs the collection itself, in two background threads (`src/nordic_signals/scheduler.py`), so no cron services are needed. Some registers keep no history: Norway's short register keeps two years, FI's aggregate short file keeps only the latest value, and Nordnet owner counts are a daily snapshot. Collection should therefore run every weekday from the start.
 
-| Job | Command | When (UTC, weekdays) |
+| Job | Equivalent command | When (UTC) |
 |---|---|---|
-| `collect-intraday` | `nordic-signals collect intraday` | `*/15 5-18 * * 1-5`: every 15 min, 07:00–20:45 Oslo summer time |
-| `collect-daily` | `nordic-signals nightly` | `30 20 * * 1-5`: after both closes and the evening owner-count update; then scores past recommendations |
-| `collect-mfn` | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | `0 21 * * 1-5`: needs the universe from `collect-daily` |
-| `collect-prices` | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | `30 21 * * 1-5`: about 90 minutes at 4 s per symbol |
-| `collect-pumpfun` | `nordic-signals collect pumpfun` | `*/5 * * * *`: around the clock, for the pump.fun measurement |
+| pump.fun | `nordic-signals collect pumpfun` | every 5 minutes, around the clock |
+| intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
+| nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
+| MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
+| prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
 
-The times are in UTC because Railway's cron is UTC-only; they hold in both summer (UTC+2) and winter (UTC+1) Nordic time.
+How it behaves:
+- **Nothing runs twice.** A job is due when the `runs` log shows it hasn't run recently. Whatever already ran, from the schedule, a button on the Data page or a separate cron service, is not repeated.
+- **Missed jobs catch up.** A job missed while the service was down runs once it is back, the same evening for the daily jobs.
+- **Failures retry.** A daily job that failed is retried after an hour.
+- **Web-page jobs come first.** The Nordic jobs wait while a job started from the web page runs. pump.fun doesn't wait.
+- **Restarts are cleaned up.** Runs cut off by a restart are marked as interrupted.
+
+The scheduler is on by default on Railway and off elsewhere. Set `SCHEDULER=off` or `SCHEDULER=on` to override. The commands still work on their own, for example as Railway cron services; the schedule skips what they have already done. The times are in UTC and hold in both summer (UTC+2) and winter (UTC+1) Nordic time.
 
 ## Deploying on Railway
 
-The `Dockerfile` builds one image for the web app and every job, and Railway uses it automatically; by default it starts the web app. Each job is a Railway cron service with its own start command: it starts on schedule, runs one command and exits. Everything shares one PostgreSQL database. Data volume is small, roughly 1 GB a year.
+The project needs two things: PostgreSQL and the web service, which also runs the data collection (see [Scheduling](#scheduling)). Railway builds the web service from the `Dockerfile` automatically. Data volume is small, roughly 1–2 GB a year with the pump.fun measurement.
 
 ### In the dashboard
 
@@ -140,17 +147,16 @@ The `Dockerfile` builds one image for the web app and every job, and Railway use
    - **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (a reference to the database's private URL), `APP_PASSWORD` = a password of your choice, and `SECRET_KEY` = a long random string (for example from `openssl rand -hex 32`).
    - **Settings → Deploy:** set **Healthcheck Path** to `/health`. The start command comes from the `Dockerfile`.
    - **Settings → Networking:** choose **Generate Domain** to get the app's address.
-3. Create one more service from the same repository per job in the table above. For each one:
-   - **Variables:** add `DATABASE_URL` as above.
-   - **Settings → Deploy:** set the **Custom Start Command** and **Cron Schedule** from the table, and set **Restart Policy** to **Never**.
-4. For every service, pick the branch to deploy from under **Settings → Source**.
-5. Open the app, sign in, and press **Hent historikk** on the **Data** page once. It loads the history the model needs (a year of prices, insider trades, announcements and short positions) in one to two hours; the app stays usable meanwhile. After that, the cron jobs keep the data current.
+3. Under **Settings → Source**, pick the branch to deploy from.
+4. Open the app, sign in, and press **Hent historikk** on the **Data** page once. It loads the history the model needs (a year of prices, insider trades, announcements and short positions) in one to two hours; the app stays usable meanwhile. After that, the schedule keeps the data current.
 
-Without `DATABASE_URL`, a job on Railway stops with an error rather than writing to a throwaway SQLite file. If you deploy with `railway up` instead of GitHub, pull the latest commit first so the `Dockerfile` is included.
+Optional variables on the web service: `SOLANA_RPC_URL`, a private Solana RPC node (for example with a free Helius key), for the pump.fun measurement's holder concentration; and `SCHEDULER=off` to stop the automatic collection. Cron services from an earlier setup can be deleted, or left: the schedule skips what they have already done.
+
+Without `DATABASE_URL`, a command on Railway stops with an error rather than writing to a throwaway SQLite file. If you deploy with `railway up` instead of GitHub, pull the latest commit first so the `Dockerfile` is included.
 
 ### As code
 
-[`.railway/railway.ts`](.railway/railway.ts) describes the same setup (Postgres, the web app and the four cron services) for Railway's infrastructure-as-code tooling (Railway CLI 5.42.1 or newer):
+[`.railway/railway.ts`](.railway/railway.ts) describes the same setup (Postgres and the web app) for Railway's infrastructure-as-code tooling (Railway CLI 5.42.1 or newer):
 
 ```sh
 npm install --prefix .railway    # installs the "railway" SDK the file imports
@@ -159,7 +165,7 @@ railway config plan              # preview
 railway config apply             # create or update the services
 ```
 
-The file describes the whole project: anything not listed in it is proposed for deletion. Either start from an empty project or read the plan carefully. The name in `project("nordic-signals", ...)` and the repository in `REPO` should match yours. Set `APP_PASSWORD` and `SECRET_KEY` on the web service in the dashboard; the file keeps whatever values are there. Generating the domain and the first history load are still done by hand, as in steps 2 and 5 above.
+The file describes the whole project: anything not listed in it is proposed for deletion. Either start from an empty project or read the plan carefully. The name in `project("nordic-signals", ...)` and the repository in `REPO` should match yours. Set `APP_PASSWORD` and `SECRET_KEY` (and optionally `SCHEDULER` and `SOLANA_RPC_URL`) on the web service in the dashboard; the file keeps whatever values are there. Generating the domain and the first history load are still done by hand, as in steps 2 and 4 above.
 
 ## How data is stored
 

@@ -233,6 +233,7 @@ def test_measurement_page(server, store, db_url, monkeypatch):
 
     monkeypatch.delenv("APP_PASSWORD", raising=False)
     monkeypatch.delenv("RAILWAY_ENVIRONMENT_ID", raising=False)
+    monkeypatch.setenv("SCHEDULER", "off")
     with TestClient(web.create_app(db_url)) as client:
         assert "Ingen ferdige målinger ennå" in client.get("/pumpfun").text
 

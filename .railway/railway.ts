@@ -1,4 +1,7 @@
-// Railway project: PostgreSQL, the web app, and the scheduled collector jobs.
+// Railway project: PostgreSQL and the web app. The web app also runs the data
+// collection on its own schedule (src/nordic_signals/scheduler.py): pump.fun every
+// 5 minutes, and the Nordic collectors at set times on weekdays. No separate cron
+// services are needed.
 //
 // Apply with the Railway CLI (5.42.1 or newer) from the repository root:
 //   npm install --prefix .railway    # once: installs the "railway" SDK this file imports
@@ -9,62 +12,38 @@
 // The file describes the whole project: anything in the Railway project that is
 // not listed here is proposed for deletion, so start from an empty project or
 // review the plan carefully.
-//
-// Railway runs cron schedules in UTC. Oslo and Stockholm are UTC+2 in summer and
-// UTC+1 in winter, so each time below is chosen to work in both.
-import { defineRailway, github, group, postgres, preserve, project, service } from "railway/iac";
+import { defineRailway, github, postgres, preserve, project, service } from "railway/iac";
 
 const REPO = "andreovstedal/Trading";
 
 export default defineRailway(() => {
   const db = postgres("postgres");
 
-  const build = {
-    builder: "DOCKERFILE" as const,
-    dockerfilePath: "Dockerfile",
-    watchPatterns: ["src/**", "pyproject.toml", "Dockerfile"],
-  };
-
-  // The web app. APP_PASSWORD (required) and SECRET_KEY are set in the dashboard;
-  // preserve() keeps whatever value is there. Generate a public domain under
-  // Settings -> Networking after the first deploy.
+  // The web app, which also runs the collection schedule. Set in the dashboard;
+  // preserve() keeps whatever value is there:
+  //   APP_PASSWORD (required) and SECRET_KEY;
+  //   SCHEDULER=off to stop the automatic collection;
+  //   SOLANA_RPC_URL (optional): a private Solana RPC node, for the pump.fun
+  //   measurement's holder-concentration check.
+  // Generate a public domain under Settings -> Networking after the first deploy.
   const web = service("web", {
     source: github(REPO),
-    build,
+    build: {
+      builder: "DOCKERFILE",
+      dockerfilePath: "Dockerfile",
+      watchPatterns: ["src/**", "pyproject.toml", "Dockerfile"],
+    },
     deploy: { startCommand: "nordic-signals web --host 0.0.0.0", healthcheckPath: "/health" },
-    env: { DATABASE_URL: db.env.DATABASE_URL, APP_PASSWORD: preserve(), SECRET_KEY: preserve() },
+    env: {
+      DATABASE_URL: db.env.DATABASE_URL,
+      APP_PASSWORD: preserve(),
+      SECRET_KEY: preserve(),
+      SCHEDULER: preserve(),
+      SOLANA_RPC_URL: preserve(),
+    },
   });
 
-  // Every job runs the same image with its own start command, then exits.
-  const job = (name: string, cronSchedule: string, startCommand: string, extraEnv = {}) =>
-    service(name, {
-      source: github(REPO),
-      build,
-      deploy: { startCommand, cronSchedule, restartPolicyType: "NEVER" },
-      env: { DATABASE_URL: db.env.DATABASE_URL, ...extraEnv },
-    });
-
-  const collectors = group("Collectors", [
-    // Every 15 minutes on weekdays, 07:00-20:45 Oslo summer time (06:00-19:45 winter):
-    // new Oslo announcements and Swedish insider trades.
-    job("collect-intraday", "*/15 5-18 * * 1-5", "nordic-signals collect intraday"),
-    // 20:30 UTC: after both closes, the 15:30 short-register updates and Nordnet's
-    // evening owner counts. Looks back far enough to cover a weekend, then scores
-    // past recommendations against the new prices.
-    job("collect-daily", "30 20 * * 1-5", "nordic-signals nightly"),
-    // Swedish press releases for the whole universe. The first run matches company
-    // names to MFN pages (about 30 minutes); later runs reuse the matches.
-    job("collect-mfn", "0 21 * * 1-5", "nordic-signals collect mfn --universe SE --days 3 --max-pages 1"),
-    // End-of-day prices for every tradable Norwegian and Swedish share, about 4 s per
-    // symbol (roughly 90 minutes) to stay under Yahoo's rate limit.
-    job("collect-prices", "30 21 * * 1-5", "nordic-signals collect yahoo --universe NO --universe SE --range 5d"),
-    // pump.fun launches for the pump-and-dump measurement, around the clock: new tokens are scored
-    // 10 minutes after launch and their price followed for 24 hours. No trading. SOLANA_RPC_URL is
-    // optional (a private Solana RPC node, set in the dashboard) and adds holder concentration.
-    job("collect-pumpfun", "*/5 * * * *", "nordic-signals collect pumpfun", { SOLANA_RPC_URL: preserve() }),
-  ]);
-
   return project("nordic-signals", {
-    resources: [db, web, collectors],
+    resources: [db, web],
   });
 });

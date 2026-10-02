@@ -14,6 +14,7 @@ def make_client(db_url, monkeypatch):
     def make(**env: str) -> TestClient:
         for name in ("APP_PASSWORD", "RAILWAY_ENVIRONMENT_ID", "SECRET_KEY"):
             monkeypatch.delenv(name, raising=False)
+        monkeypatch.setenv("SCHEDULER", "off")  # no background collection in tests
         for name, value in env.items():
             monkeypatch.setenv(name, value)
         return TestClient(web.create_app(db_url))
