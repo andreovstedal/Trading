@@ -22,6 +22,7 @@ SOURCES = {
     "no-short": "Norske shortposisjoner (Finanstilsynet)",
     "mfn": "Svenske pressemeldinger (MFN)",
     "yahoo": "Kurshistorikk og kursen SEK/NOK (Yahoo)",
+    "pumpfun": "pump.fun-lanseringer til målingen av pump-and-dump-filteret (DexScreener, Solana)",
 }
 
 

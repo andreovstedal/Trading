@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}pump.fun-måling · Nordic signals{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>pump.fun-måling</h1>
+    <p class="muted">Måler om et filter kan skille ut pump-and-dump-tokens på pump.fun, før det eventuelt brukes ekte
+      penger. Her handles ingenting, og bare tokens som er ferdig målt (eldre enn et døgn) vises.</p>
+  </div>
+</div>
+
+<div class="tiles">
+  <div class="tile"><div class="label">Lanseringer sett</div><div class="value">{{ r.seen | num }}</div>
+    <div class="sub">{{ (r.status.skipped or 0) | num }} brukes bare til å kjenne igjen utstedere</div></div>
+  <div class="tile"><div class="label">Følges nå</div>
+    <div class="value">{{ ((r.status.new or 0) + (r.status.tracking or 0)) | num }}</div>
+    <div class="sub">i 24 timer etter vurderingen</div></div>
+  <div class="tile"><div class="label">Ferdig målt</div><div class="value">{{ (r.status.done or 0) | num }}</div>
+    <div class="sub">{{ r.inactive | num }} uten handel og {{ r.incomplete | num }} ufullstendig vurdert</div></div>
+  <div class="tile"><div class="label">Mangler kursdata</div><div class="value">{{ (r.status.missing or 0) | num }}</div>
+    <div class="sub">ikke funnet hos DexScreener</div></div>
+</div>
+
+<div class="card">
+  <h2>Resultat</h2>
+  {% if r.measured %}
+  <dl class="kv">
+    <dt>Målte tokens</dt><dd>{{ r.measured | num }} <span class="muted">(med handel da de ble vurdert)</span></dd>
+    <dt>Kollapset innen 24 timer</dt><dd>{{ r.collapse_rate | pct }}</dd>
+    <dt>Filteret stoppet</dt><dd>{{ r.caught | pct }} av dem som kollapset</dd>
+    <dt>Filteret slapp gjennom</dt><dd>{{ r.kept | pct }} av dem som holdt seg</dd>
+    <dt>Bestod filteret</dt><dd>{{ r.passed | num }} tokens, og {{ r.passed_collapse_rate | pct }} av dem kollapset likevel</dd>
+  </dl>
+  <p class="small muted" style="margin-top:10px">Kollapset betyr at kursen 24 timer etter vurderingen var 10&nbsp;% eller
+    mindre av den høyeste kursen etter vurderingen. Filteret er nyttig først når andelen som kollapser blant tokenene som
+    består, er langt lavere enn blant alle. Med rundt 98&nbsp;% pump-and-dump blant lanseringene må filteret stoppe godt
+    over 99&nbsp;% av dem før flertallet av det som består, er ærlige tokens.</p>
+  {% else %}
+  <p class="muted">Ingen ferdige målinger ennå. Hvert token vurderes omtrent ti minutter etter lansering og følges i
+    24 timer, så de første resultatene kommer et døgn etter at innsamlingen startet. Railway-jobben collect-pumpfun
+    kjører hvert 5. minutt.</p>
+  {% endif %}
+</div>
+
+{% if r.measured %}
+<div class="card">
+  <h2>Avkastning etter gebyrer</h2>
+  <p class="small muted">Som om tokenet ble kjøpt til kursen ved vurderingen og solgt etter 1, 6 og 24 timer, etter
+    pump.funs gebyr på {{ (fee * 100) | num(2) }}&nbsp;% ved både kjøp og salg. Glidning i kursen ved selve handelen er
+    ikke med, så virkeligheten blir dårligere.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Horisont</th>
+      {% for g in r.returns %}<th class="num">{{ g.group }}: median</th><th class="num">snitt</th><th class="num">andel positive</th>{% endfor %}</tr></thead>
+    <tbody>
+    {% for _, label in horizons %}{% set i = loop.index0 %}
+      <tr><td>{{ label }}</td>
+        {% for g in r.returns %}{% set h = g.horizons[i] %}
+        <td class="num">{{ h.median | pct(1, True) }}</td><td class="num">{{ h.mean | pct(1, True) }}</td>
+        <td class="num">{{ h.positive | pct(0) }}</td>{% endfor %}</tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small muted">{% for g in r.returns %}{{ g.group }}: {{ g.n | num }} tokens{{ ". " if loop.last else ", " }}{% endfor %}</p>
+</div>
+
+<div class="card">
+  <h2>Varseltegn</h2>
+  <p class="small muted">Hvor ofte hvert tegn dukket opp, og hvor stor andel som kollapset med og uten det. Et tegn
+    hjelper når andelen med tegnet er klart høyere enn uten.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Varseltegn</th><th class="num">Tokens</th><th class="num">Kollapset med</th><th class="num">Kollapset uten</th></tr></thead>
+    <tbody>{% for w in r.warnings %}<tr><td>{{ w.label }}</td><td class="num">{{ w.n | num }}</td>
+      <td class="num">{{ w.collapse_with | pct }}</td><td class="num">{{ w.collapse_without | pct }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% if not (r.warnings | selectattr("key", "equalto", "concentrated") | sum(attribute="n")) %}<p class="small muted">
+    Eierkonsentrasjon måles bare når SOLANA_RPC_URL på tjenesten collect-pumpfun peker på en egen Solana-node (for
+    eksempel med en gratis Helius-nøkkel); den offentlige noden avviser det kallet.</p>{% endif %}
+</div>
+{% endif %}
+
+{% if r.recent %}
+<div class="card">
+  <h2>Siste ferdige tokens</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Token</th><th>Vurdert</th><th>Varseltegn</th><th>Filter</th>
+      {% for _, label in horizons %}<th class="num">{{ label }}</th>{% endfor %}<th>Utfall</th></tr></thead>
+    <tbody>
+    {% for t in r.recent %}
+      <tr>
+        <td><a href="https://dexscreener.com/solana/{{ t.mint }}" target="_blank" rel="noopener">{{ t.name or t.mint[:8] }}</a>
+          <div class="ticker">{{ t.symbol }}</div></td>
+        <td class="nowrap">{{ t.scored_at | when }}</td>
+        <td>{% if t.warning_labels %}<div class="chips">{% for w in t.warning_labels %}<span class="chip">{{ w }}</span>{% endfor %}</div>{% else %}<span class="muted">Ingen</span>{% endif %}</td>
+        <td>{% if not t.active %}<span class="muted">Ingen handel</span>{% elif t.passed %}Bestod{% else %}Stoppet{% endif %}</td>
+        {% for value in t.returns %}<td class="num">{{ value | pct(0, True) }}</td>{% endfor %}
+        <td>{% if t.collapsed %}<span class="status failed">✕ Kollapset</span>{% else %}<span class="status ok">✓ Holdt seg</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+{% endblock %}

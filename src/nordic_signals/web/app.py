@@ -31,7 +31,7 @@ from jinja2 import Undefined
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import jobs, text
+from .. import jobs, pumpfun, text
 from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
@@ -218,6 +218,10 @@ def create_app(db: str | None = None) -> FastAPI:
     @app.get("/track-record", response_class=HTMLResponse)
     def track_record(request: Request) -> HTMLResponse:
         return render(request, "track_record.html", record=evaluation.track_record(store))
+
+    @app.get("/pumpfun", response_class=HTMLResponse)
+    def pumpfun_page(request: Request) -> HTMLResponse:
+        return render(request, "pumpfun.html", r=pumpfun.results(store), horizons=pumpfun.HORIZONS, fee=pumpfun.FEE)
 
     @app.get("/data", response_class=HTMLResponse)
     def data(request: Request, message: str | None = None) -> HTMLResponse:

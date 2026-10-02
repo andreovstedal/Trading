@@ -50,6 +50,39 @@ nordic-signals recommend --account-value 300000 [--long 85 --short 10 --cash 5] 
 nordic-signals evaluate                        # score past recommendations against later closing prices
 ```
 
+## pump.fun measurement
+
+A separate experiment, on the **pump.fun** page: can a filter tell pump.fun's pump-and-dump launches apart from the rest, well enough that the tokens it lets through mostly don't collapse? Nothing is traded. It only measures, so the answer exists before any money is involved.
+
+Every 5 minutes the `collect-pumpfun` job:
+
+1. **Discovers launches:** it reads pump.fun's list of the newest tokens and stores all of them, so creators who launch token after token can be recognised. It then picks a random sample of 20 to follow.
+2. **Scores each sampled token** about 10 minutes after launch, on warning signs from rug-pull research:
+   - the creator has launched other tokens in the last day
+   - the creator's wallet is less than a day old, or behaves like a bot
+   - the ten largest holders own more than 30 % (needs `SOLANA_RPC_URL`)
+   - the price has already fallen below half its peak
+   - the whole bonding curve was bought within minutes
+
+   A token with no warning signs and trades in the last 5 minutes passes.
+3. **Follows the price on DexScreener for 24 hours:** every 5 minutes for the first 6 hours, then every 30 minutes.
+
+After 24 hours each token is labelled *collapsed* if its price is at most 10 % of its peak since scoring. The page then shows:
+- how often active launches collapse
+- the share of collapses the filter caught, and the share of survivors it let through
+- how many of the tokens that passed still collapsed
+- the returns after 1, 6 and 24 hours, after pump.fun's 1.25 % fee on each trade
+- how well each warning sign separates collapses from survivors
+
+Slippage is not included, so real results would be worse. With about 98 % of launches ending as pump-and-dumps, the filter has to catch well over 99 % of them before what passes is mostly honest.
+
+Sources:
+- pump.fun's unofficial list API (`frontend-api-v3.pump.fun`), for the newest launches
+- DexScreener's documented token API, for prices and trades
+- Solana JSON-RPC, for the creator wallet's history and the largest holders. The public node refuses the holders call, so set `SOLANA_RPC_URL` to a private node (for example a free Helius key) to measure concentration.
+
+The screen is versioned (`pf1`), and only the current version's results are shown. Code: `src/nordic_signals/pumpfun.py` (screen and results) and `src/nordic_signals/collectors/pumpfun.py` (collection).
+
 ## Collecting data
 
 ```sh
@@ -63,6 +96,7 @@ nordic-signals collect yahoo --symbol EQNR.OL --symbol VOLV-B.ST --range 1y
 nordic-signals collect intraday                # today's NewsWeb announcements and FI insider trades
 nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate
 nordic-signals collect backfill                # one-off history load for a new database (1-2 hours)
+nordic-signals collect pumpfun                 # pump.fun launches for the pump-and-dump measurement
 nordic-signals nightly                         # the daily set, then evaluate past recommendations
 nordic-signals status                          # row counts and the latest run per source
 ```
@@ -91,6 +125,7 @@ Some registers keep no history: Norway's short register keeps two years, FI's ag
 | `collect-daily` | `nordic-signals nightly` | `30 20 * * 1-5`: after both closes and the evening owner-count update; then scores past recommendations |
 | `collect-mfn` | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | `0 21 * * 1-5`: needs the universe from `collect-daily` |
 | `collect-prices` | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | `30 21 * * 1-5`: about 90 minutes at 4 s per symbol |
+| `collect-pumpfun` | `nordic-signals collect pumpfun` | `*/5 * * * *`: around the clock, for the pump.fun measurement |
 
 The times are in UTC because Railway's cron is UTC-only; they hold in both summer (UTC+2) and winter (UTC+1) Nordic time.
 
@@ -144,6 +179,10 @@ This is for personal, non-commercial use, and the collectors poll slowly and ide
 - **Finansinspektionen:** data may be reused with attribution.
 - **Personal data:** the insider and short registers contain names, so keep the database private.
 - **Sharing:** if the app's advice is ever shared with other people, it likely becomes licensable investment advice. See the report's allocation section.
+- **pump.fun and DexScreener:**
+  - pump.fun's list API is unofficial and rate-limits bursts, so the job reads it once per run.
+  - DexScreener's API is documented, with a limit of 300 requests a minute; the job stays well under it.
+  - These responses (pump.fun, DexScreener and Solana RPC) are not stored in the raw layer; at this frequency they would add gigabytes a year.
 
 ## Tests
 

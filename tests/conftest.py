@@ -32,15 +32,25 @@ class FakeServer:
 
     def __init__(self) -> None:
         self.routes: dict[tuple[str, str, str], Callable[[httpx.Request], httpx.Response]] = {}
+        self.prefix_routes: list[tuple[str, str, str, Callable[[httpx.Request], httpx.Response]]] = []
         self.requests: list[httpx.Request] = []
 
     def add(self, method: str, url: str, handler: Callable[[httpx.Request], httpx.Response] | httpx.Response) -> None:
         u = httpx.URL(url)
         self.routes[(method, u.host, u.path)] = handler if callable(handler) else (lambda _r, h=handler: h)
 
+    def add_prefix(self, method: str, url: str, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+        """Route every path under ``url``, for APIs that put parameters in the path."""
+        u = httpx.URL(url)
+        self.prefix_routes.append((method, u.host, u.path, handler))
+
     def __call__(self, request: httpx.Request) -> httpx.Response:
         self.requests.append(request)
         handler = self.routes.get((request.method, request.url.host, request.url.path))
+        for method, host, prefix, prefix_handler in self.prefix_routes:
+            if handler is None and (method, host) == (request.method, request.url.host) \
+                    and request.url.path.startswith(prefix):
+                handler = prefix_handler
         if handler is None:
             return httpx.Response(404, text=f"no route for {request.method} {request.url}")
         return handler(request)

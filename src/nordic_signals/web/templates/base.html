@@ -17,6 +17,7 @@
         <a href="/" class="{{ 'active' if path == '/' or path.startswith('/recommendations') }}">Råd</a>
         <a href="/signals" class="{{ 'active' if path.startswith('/signals') }}">Signaler</a>
         <a href="/track-record" class="{{ 'active' if path.startswith('/track-record') }}">Resultater</a>
+        <a href="/pumpfun" class="{{ 'active' if path.startswith('/pumpfun') }}">pump.fun</a>
         <a href="/data" class="{{ 'active' if path.startswith('/data') }}">Data</a>
       </nav>
       {% if runner.current %}<span class="busy"><span class="spinner"></span>{{ runner.current }} pågår…</span>{% endif %}

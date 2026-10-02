@@ -29,6 +29,7 @@ DEFAULT_USER_AGENT = "Mozilla/5.0 (compatible; nordic-signals/0.1; personal rese
 DEFAULT_HOST_INTERVALS = {
     "query1.finance.yahoo.com": 4.0,
     "query2.finance.yahoo.com": 4.0,
+    "api.dexscreener.com": 0.3,  # documented limit: 300 requests a minute
 }
 
 RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
@@ -108,6 +109,7 @@ class PoliteClient:
         params: Mapping[str, Any] | None = None,
         headers: Mapping[str, str] | None = None,
         data: Any = None,
+        content: bytes | str | None = None,
         allow_status: Collection[int] = (),
     ) -> FetchedResponse:
         """Send a request; raise FetchError for HTTP errors not in ``allow_status``."""
@@ -115,7 +117,7 @@ class PoliteClient:
         for attempt in range(self._max_retries + 1):
             self._wait_for(host)
             try:
-                r = self._client.request(method, url, params=params, headers=headers, data=data)
+                r = self._client.request(method, url, params=params, headers=headers, data=data, content=content)
             except httpx.TransportError as exc:
                 if attempt == self._max_retries:
                     raise FetchError(f"{method} {url}: {exc}") from exc

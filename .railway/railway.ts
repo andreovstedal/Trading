@@ -36,12 +36,12 @@ export default defineRailway(() => {
   });
 
   // Every job runs the same image with its own start command, then exits.
-  const job = (name: string, cronSchedule: string, startCommand: string) =>
+  const job = (name: string, cronSchedule: string, startCommand: string, extraEnv = {}) =>
     service(name, {
       source: github(REPO),
       build,
       deploy: { startCommand, cronSchedule, restartPolicyType: "NEVER" },
-      env: { DATABASE_URL: db.env.DATABASE_URL },
+      env: { DATABASE_URL: db.env.DATABASE_URL, ...extraEnv },
     });
 
   const collectors = group("Collectors", [
@@ -58,6 +58,10 @@ export default defineRailway(() => {
     // End-of-day prices for every tradable Norwegian and Swedish share, about 4 s per
     // symbol (roughly 90 minutes) to stay under Yahoo's rate limit.
     job("collect-prices", "30 21 * * 1-5", "nordic-signals collect yahoo --universe NO --universe SE --range 5d"),
+    // pump.fun launches for the pump-and-dump measurement, around the clock: new tokens are scored
+    // 10 minutes after launch and their price followed for 24 hours. No trading. SOLANA_RPC_URL is
+    // optional (a private Solana RPC node, set in the dashboard) and adds holder concentration.
+    job("collect-pumpfun", "*/5 * * * *", "nordic-signals collect pumpfun", { SOLANA_RPC_URL: preserve() }),
   ]);
 
   return project("nordic-signals", {

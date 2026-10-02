@@ -7,6 +7,7 @@ from .mfn import MfnCollector
 from .newsweb import NewsWebCollector
 from .no_short import NoShortCollector
 from .nordnet import NordnetCollector
+from .pumpfun import PumpFunCollector
 from .yahoo import YahooCollector
 
 COLLECTORS: dict[str, type[Collector]] = {
@@ -19,6 +20,7 @@ COLLECTORS: dict[str, type[Collector]] = {
         MfnCollector,
         YahooCollector,
         NordnetCollector,
+        PumpFunCollector,
     )
 }
 

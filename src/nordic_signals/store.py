@@ -204,6 +204,7 @@ def _build_metadata() -> MetaData:
         Column("error", Text),
     )
     _advice_tables(metadata)
+    _pumpfun_tables(metadata)
     for name, spec in TABLES.items():
         columns = {**spec.columns, **_BOOKKEEPING}
         Table(
@@ -286,6 +287,43 @@ def _advice_tables(metadata: MetaData) -> None:
         Column("end_price", Float),
         Column("ret", Float),
         Column("computed_at", DateTime(timezone=True)),
+    )
+
+
+def _pumpfun_tables(metadata: MetaData) -> None:
+    """The pump.fun measurement (see ``collectors.pumpfun``): every launch seen, and for a random sample,
+    the warning signs when it was scored and its price for the next 24 hours. Prices are SOL per token."""
+    json = _TYPES["json"]
+    Table(
+        "pf_tokens", metadata,
+        Column("mint", Text, primary_key=True),
+        Column("name", Text),
+        Column("symbol", Text),
+        Column("creator", Text, index=True),
+        Column("created_at", DateTime(timezone=True), nullable=False, index=True),
+        Column("discovered_at", DateTime(timezone=True), nullable=False),
+        Column("sampled", Boolean, nullable=False),  # scored and followed, or kept only to spot serial creators
+        Column("status", Text, nullable=False, index=True),  # new, tracking, done, missing, skipped
+        Column("launch", json()),  # pump.fun's fields when discovered
+        Column("scored_at", DateTime(timezone=True)),
+        Column("screen_version", Text),
+        Column("features", json()),
+        Column("warnings", json()),
+        Column("active", Boolean),  # traded in the 5 minutes before scoring
+        Column("complete", Boolean),  # every check could be made (no RPC failure)
+        Column("passed", Boolean),
+        Column("peak_before", Float),  # highest price seen before scoring
+        Column("price_t", Float),  # price when scored
+        Column("peak_after", Float),  # highest and lowest price seen from scoring on
+        Column("low_after", Float),
+        Column("price_1h", Float),
+        Column("price_6h", Float),
+        Column("price_24h", Float),
+        Column("last_price", Float),
+        Column("last_checked_at", DateTime(timezone=True)),
+        Column("misses", Integer, nullable=False, default=0),  # price lookups that found nothing
+        Column("graduated", Boolean),
+        Column("collapsed", Boolean),
     )
 
 
@@ -431,7 +469,8 @@ class Store:
             )
 
     def table_counts(self) -> dict[str, int]:
-        return {name: self.scalar(select(func.count()).select_from(self.table(name))) for name in TABLES}
+        return {name: self.scalar(select(func.count()).select_from(self.table(name)))
+                for name in (*TABLES, "pf_tokens")}
 
     def last_runs(self) -> list[RowMapping]:
         runs = self.table("runs")
