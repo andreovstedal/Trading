@@ -123,10 +123,7 @@ class NewsWebCollector(Collector):
         return list(by_id.values())
 
     def _has_body(self, message_id: int) -> bool:
-        row = self.store.conn.execute(
-            "SELECT 1 FROM newsweb_bodies WHERE message_id = ?", (message_id,)
-        ).fetchone()
-        return row is not None
+        return self.store.get("newsweb_bodies", message_id=message_id) is not None
 
     def _detail(self, message_id: int, download_attachments: bool) -> None:
         resp, fetch_id = self.fetch("GET", f"{API}/message", params={"messageId": message_id})

@@ -1,0 +1,15 @@
+{
+  "name": "nordic-signals-railway",
+  "private": true,
+  "description": "Railway infrastructure definition (railway.ts) for the nordic-signals collectors",
+  "type": "module",
+  "dependencies": {
+    "railway": "^3.12.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0"
+  },
+  "scripts": {
+    "check": "tsc --noEmit"
+  }
+}

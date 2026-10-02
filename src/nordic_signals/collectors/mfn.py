@@ -113,11 +113,9 @@ class MfnCollector(Collector):
 
     def resolve(self, slug: str) -> str | None:
         """Entity UUID for a company slug, read from its mfn.se page once."""
-        row = self.store.conn.execute(
-            "SELECT entity_id FROM mfn_entities WHERE slug = ?", (slug,)
-        ).fetchone()
+        row = self.store.get("mfn_entities", slug=slug)
         if row is not None:
-            return row[0] or None
+            return row["entity_id"] or None
         resp, fetch_id = self.fetch("GET", COMPANY_PAGE.format(slug=slug), allow_status=(404,))
         entity_id = parse_entity_id(resp.body.decode("utf-8", "replace")) if resp.status == 200 else None
         # Misses are cached too (entity_id NULL) so a large name list isn't re-probed every run;

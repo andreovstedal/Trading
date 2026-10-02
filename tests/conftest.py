@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import zipfile
 from collections.abc import Callable
 from pathlib import Path
@@ -53,9 +54,24 @@ def server() -> FakeServer:
     return FakeServer()
 
 
+# Tests run on SQLite, and also on PostgreSQL when TEST_DATABASE_URL points at
+# a scratch database (its tables are dropped and recreated for every test).
+BACKENDS = ["sqlite"] + (["postgresql"] if os.environ.get("TEST_DATABASE_URL") else [])
+
+
+@pytest.fixture(params=BACKENDS)
+def db_url(request, tmp_path) -> str:
+    if request.param == "sqlite":
+        return str(tmp_path / "signals.sqlite")
+    url = os.environ["TEST_DATABASE_URL"]
+    with Store(url) as s:
+        s.metadata.drop_all(s.engine)
+    return url
+
+
 @pytest.fixture
-def store():
-    with Store(":memory:") as s:
+def store(db_url):
+    with Store(db_url) as s:
         yield s
 
 

@@ -21,16 +21,16 @@ once a day and never redistribute the data.
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 
-from ..store import iso
 from .base import Collector, RunSummary, ms_to_iso, ms_to_local_date
 
 URL = "https://www.nordnet.no/api/2/instrument_search/query/stocklist"
 HEADERS = {"client-id": "NEXT", "Accept": "application/json"}
 
 
-def parse_stocklist(payload: dict[str, Any], observed_at: str) -> tuple[list[dict], list[dict]]:
+def parse_stocklist(payload: dict[str, Any], observed_at: datetime | str) -> tuple[list[dict], list[dict]]:
     instruments, observations = [], []
     for r in payload.get("results", []):
         info = r.get("instrument_info") or {}
@@ -124,7 +124,7 @@ class NordnetCollector(Collector):
                 resp, fetch_id = self.fetch("GET", URL, params=params, headers=HEADERS)
                 payload = resp.json()
                 total = payload.get("total_hits", 0)
-                instruments, observations = parse_stocklist(payload, iso(resp.fetched_at))
+                instruments, observations = parse_stocklist(payload, resp.fetched_at)
                 self.save("instruments", instruments, fetch_id)
                 self.save("nordnet_observations", observations, fetch_id)
                 if not payload.get("results"):

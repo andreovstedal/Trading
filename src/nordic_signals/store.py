@@ -1,4 +1,8 @@
-"""SQLite storage: an append-only log of raw fetches plus parsed tables.
+"""Storage: an append-only log of raw fetches plus parsed tables.
+
+Runs on PostgreSQL in production (Railway provides ``DATABASE_URL``) and on
+SQLite for local development and tests; SQLAlchemy Core hides the dialect
+differences.
 
 Two layers, so the advice formula can always be re-evaluated point-in-time:
 
@@ -14,141 +18,221 @@ Two layers, so the advice formula can always be re-evaluated point-in-time:
 from __future__ import annotations
 
 import hashlib
-import json
-import sqlite3
+import os
 import zlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    Float,
+    Integer,
+    LargeBinary,
+    MetaData,
+    Table,
+    Text,
+    create_engine,
+    event,
+    func,
+    insert,
+    select,
+)
+from sqlalchemy.dialects import postgresql, sqlite
+from sqlalchemy.engine import Engine, RowMapping
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.sql import Select
+from sqlalchemy.types import TypeEngine
+
 from .http import FetchedResponse
+
+DEFAULT_URL = "sqlite:///data/signals.sqlite"
+
+_TYPES: dict[str, Callable[[], TypeEngine]] = {
+    "text": Text,
+    "int": BigInteger,
+    "float": Float,
+    "bool": Boolean,
+    "date": Date,
+    "ts": lambda: DateTime(timezone=True),
+    "json": lambda: JSON().with_variant(postgresql.JSONB(), "postgresql"),
+}
+# SQLite only auto-increments a plain INTEGER primary key.
+_SERIAL = BigInteger().with_variant(Integer(), "sqlite")
 
 
 @dataclass(frozen=True)
 class TableSpec:
-    columns: tuple[str, ...]
+    columns: dict[str, str]  # column name -> type key in _TYPES
     key: tuple[str, ...]
     mutable: tuple[str, ...] = ()
 
 
 def _spec(columns: str, key: str, mutable: str = "") -> TableSpec:
-    return TableSpec(tuple(columns.split()), tuple(key.split()), tuple(mutable.split()))
+    """Columns as "name:type" words, type defaulting to text."""
+    parsed = {}
+    for word in columns.split():
+        name, _, kind = word.partition(":")
+        parsed[name] = kind or "text"
+    return TableSpec(parsed, tuple(key.split()), tuple(mutable.split()))
 
 
 TABLES: dict[str, TableSpec] = {
     # Euronext Oslo Børs NewsWeb
-    "newsweb_categories": _spec("category_id name_no name_en", "category_id", "name_no name_en"),
+    "newsweb_categories": _spec("category_id:int name_no name_en", "category_id", "name_no name_en"),
     "newsweb_messages": _spec(
-        "message_id news_id published_at issuer_id issuer_sign issuer_name title category_ids"
-        " category_en markets instrument_id instrument_name correction_for_message_id"
-        " corrected_by_message_id num_attachments is_test client_announcement_id",
+        "message_id:int news_id:int published_at:ts issuer_id:int issuer_sign issuer_name title"
+        " category_ids:json category_en markets:json instrument_id:int instrument_name"
+        " correction_for_message_id:int corrected_by_message_id:int num_attachments:int is_test:bool"
+        " client_announcement_id",
         "message_id",
         "title category_ids category_en corrected_by_message_id num_attachments",
     ),
-    "newsweb_bodies": _spec("message_id body attachments", "message_id", "body attachments"),
+    "newsweb_bodies": _spec("message_id:int body attachments:json", "message_id", "body attachments"),
     "newsweb_attachments": _spec(
-        "message_id attachment_id name sha256 content_type size",
+        "message_id:int attachment_id:int name sha256 content_type size:int",
         "message_id attachment_id",
         "name sha256 content_type size",
     ),
     # Finansinspektionen: insider register (marknadssok.fi.se) and short-selling register
     "se_insider_trades": _spec(
-        "row_hash published_at issuer lei notifier pdmr position closely_associated is_correction"
-        " correction_description is_first_report linked_to_share_program nature instrument_type"
-        " instrument_name isin transaction_date volume volume_unit price currency venue status",
+        "row_hash published_at:ts issuer lei notifier pdmr position closely_associated:bool"
+        " is_correction:bool correction_description is_first_report:bool linked_to_share_program:bool"
+        " nature instrument_type instrument_name isin transaction_date:date volume:float volume_unit"
+        " price:float currency venue status",
         "row_hash",
     ),
     "se_short_positions": _spec(
-        "holder issuer isin position_pct position_date comment",
+        "holder issuer isin position_pct:float position_date:date comment",
         "holder isin position_date",
         "issuer position_pct comment",
     ),
     "se_short_aggregate": _spec(
-        "issuer lei total_pct position_date", "lei position_date", "issuer total_pct"
+        "issuer lei total_pct:float position_date:date", "lei position_date", "issuer total_pct"
     ),
     # Finanstilsynet short-sale register (ssr.finanstilsynet.no)
     "no_short_totals": _spec(
-        "isin date issuer_name short_pct short_shares", "isin date", "issuer_name short_pct short_shares"
+        "isin date:date issuer_name short_pct:float short_shares:int",
+        "isin date",
+        "issuer_name short_pct short_shares",
     ),
     "no_short_positions": _spec(
-        "isin date holder position_date short_pct short_shares",
+        "isin date:date holder position_date:date short_pct:float short_shares:int",
         "isin date holder",
         "position_date short_pct short_shares",
     ),
     # MFN (Modular Finance News)
     "mfn_entities": _spec("slug entity_id name", "slug", "entity_id name"),
     "mfn_items": _spec(
-        "news_id group_id entity_id issuer_name slug isins leis tickers lang type tags scopes"
-        " title publish_date url html attachments",
+        "news_id group_id entity_id issuer_name slug isins:json leis:json tickers:json lang type"
+        " tags:json scopes:json title publish_date:ts url html attachments:json",
         "news_id",
         "title tags html attachments",
     ),
     # Yahoo Finance chart API
     "price_bars": _spec(
-        "symbol interval ts ts_utc currency open high low close adjclose volume",
+        "symbol interval ts:int ts_utc:ts currency open:float high:float low:float close:float"
+        " adjclose:float volume:int",
         "symbol interval ts",
         "open high low close adjclose volume",
     ),
-    "dividends": _spec("symbol ts ex_date amount currency", "symbol ts", "amount"),
-    "splits": _spec("symbol ts ex_date numerator denominator", "symbol ts", "numerator denominator"),
+    "dividends": _spec("symbol ts:int ex_date:date amount:float currency", "symbol ts", "amount"),
+    "splits": _spec(
+        "symbol ts:int ex_date:date numerator:float denominator:float", "symbol ts", "numerator denominator"
+    ),
     # Nordnet stock list (tradable universe plus daily observations)
     "instruments": _spec(
-        "instrument_id isin symbol name long_name issuer_id issuer_name instrument_type currency"
-        " exchange_country exchanges market_id identifier is_tradable is_shortable display_slug",
+        "instrument_id:int isin symbol name long_name issuer_id:int issuer_name instrument_type currency"
+        " exchange_country exchanges:json market_id:int identifier is_tradable:bool is_shortable:bool"
+        " display_slug",
         "instrument_id",
         "isin symbol name long_name issuer_id issuer_name instrument_type currency exchange_country"
         " exchanges market_id identifier is_tradable is_shortable display_slug",
     ),
     "nordnet_observations": _spec(
-        "instrument_id observed_at tick_at realtime last open high low close bid ask spread_pct"
-        " diff_pct turnover turnover_volume market_cap pe pb ps eps dividend_per_share"
-        " dividend_yield number_of_owners statistics_at report_date report_type ex_date"
-        " dividend_date dividend_amount dividend_currency yield_1w yield_1m yield_3m yield_ytd"
-        " yield_1y",
+        "instrument_id:int observed_at:ts tick_at:ts realtime:bool last:float open:float high:float"
+        " low:float close:float bid:float ask:float spread_pct:float diff_pct:float turnover:float"
+        " turnover_volume:float market_cap:float pe:float pb:float ps:float eps:float"
+        " dividend_per_share:float dividend_yield:float number_of_owners:int statistics_at:ts"
+        " report_date:date report_type ex_date:date dividend_date:date dividend_amount:float"
+        " dividend_currency yield_1w:float yield_1m:float yield_3m:float yield_ytd:float yield_1y:float",
         "instrument_id observed_at",
     ),
 }
 
-BOOKKEEPING = ("first_seen_at", "last_seen_at", "first_fetch_id", "last_fetch_id")
+_BOOKKEEPING = {"first_seen_at": "ts", "last_seen_at": "ts", "first_fetch_id": "int", "last_fetch_id": "int"}
 
-_BASE_SCHEMA = """
-CREATE TABLE IF NOT EXISTS blobs (
-    sha256 TEXT PRIMARY KEY,
-    size INTEGER NOT NULL,
-    body BLOB NOT NULL
-);
-CREATE TABLE IF NOT EXISTS fetches (
-    id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,
-    method TEXT NOT NULL,
-    url TEXT NOT NULL,
-    status INTEGER NOT NULL,
-    content_type TEXT,
-    fetched_at TEXT NOT NULL,
-    sha256 TEXT NOT NULL REFERENCES blobs(sha256),
-    size INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS fetches_source_time ON fetches(source, fetched_at);
-CREATE TABLE IF NOT EXISTS runs (
-    id INTEGER PRIMARY KEY,
-    source TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    finished_at TEXT,
-    ok INTEGER,
-    summary TEXT,
-    error TEXT
-);
-"""
+# Rows per INSERT statement; keeps every dialect well under its bind-parameter limit.
+_BATCH = 500
+
+
+def _build_metadata() -> MetaData:
+    metadata = MetaData()
+    Table(
+        "blobs", metadata,
+        Column("sha256", Text, primary_key=True),
+        Column("size", BigInteger, nullable=False),
+        Column("body", LargeBinary, nullable=False),
+    )
+    Table(
+        "fetches", metadata,
+        Column("id", _SERIAL, primary_key=True, autoincrement=True),
+        Column("source", Text, nullable=False, index=True),
+        Column("method", Text, nullable=False),
+        Column("url", Text, nullable=False),
+        Column("status", Integer, nullable=False),
+        Column("content_type", Text),
+        Column("fetched_at", DateTime(timezone=True), nullable=False, index=True),
+        Column("sha256", Text, nullable=False),
+        Column("size", BigInteger, nullable=False),
+    )
+    Table(
+        "runs", metadata,
+        Column("id", _SERIAL, primary_key=True, autoincrement=True),
+        Column("source", Text, nullable=False),
+        Column("started_at", DateTime(timezone=True), nullable=False),
+        Column("finished_at", DateTime(timezone=True)),
+        Column("ok", Boolean),
+        Column("summary", _TYPES["json"]()),
+        Column("error", Text),
+    )
+    for name, spec in TABLES.items():
+        columns = {**spec.columns, **_BOOKKEEPING}
+        Table(
+            name, metadata,
+            *(
+                Column(col, _TYPES[kind](), primary_key=col in spec.key, index=col == "first_seen_at")
+                for col, kind in columns.items()
+            ),
+        )
+    return metadata
+
+
+def database_url(value: str | None = None) -> str:
+    """Normalise ``--db``/``DATABASE_URL`` into an SQLAlchemy URL.
+
+    Accepts a plain file path (SQLite), ``sqlite:///...``, and the
+    ``postgres://`` / ``postgresql://`` URLs that Railway and Heroku hand out,
+    which are pointed at the psycopg 3 driver.
+    """
+    value = value or os.environ.get("DATABASE_URL") or DEFAULT_URL
+    if "://" not in value:
+        return f"sqlite:///{value}"
+    for prefix in ("postgres://", "postgresql://"):
+        if value.startswith(prefix):
+            return "postgresql+psycopg://" + value[len(prefix):]
+    return value
 
 
 def utcnow() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def iso(dt: datetime) -> str:
-    return dt.astimezone(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
 
 
 @dataclass
@@ -163,17 +247,15 @@ class UpsertResult:
 
 
 class Store:
-    def __init__(self, path: str | Path):
-        if str(path) != ":memory:":
-            Path(path).parent.mkdir(parents=True, exist_ok=True)
-        self.conn = sqlite3.connect(str(path))
-        self.conn.row_factory = sqlite3.Row
-        self.conn.execute("PRAGMA journal_mode=WAL")
-        self.conn.execute("PRAGMA foreign_keys=ON")
-        self._create_schema()
+    def __init__(self, url: str | None = None):
+        self.url = database_url(url)
+        self.engine = _create_engine(self.url)
+        self.metadata = _build_metadata()
+        self.metadata.create_all(self.engine)
+        self._fetch_times: dict[int, datetime] = {}
 
     def close(self) -> None:
-        self.conn.close()
+        self.engine.dispose()
 
     def __enter__(self) -> Store:
         return self
@@ -181,106 +263,165 @@ class Store:
     def __exit__(self, *exc: object) -> None:
         self.close()
 
-    def _create_schema(self) -> None:
-        with self.conn:
-            self.conn.executescript(_BASE_SCHEMA)
-            for name, spec in TABLES.items():
-                cols = ", ".join(spec.columns + BOOKKEEPING)
-                key = ", ".join(spec.key)
-                self.conn.execute(f"CREATE TABLE IF NOT EXISTS {name} ({cols}, PRIMARY KEY ({key}))")
-                self.conn.execute(
-                    f"CREATE INDEX IF NOT EXISTS {name}_first_seen ON {name}(first_seen_at)"
-                )
+    def table(self, name: str) -> Table:
+        return self.metadata.tables[name]
 
     # Raw layer
 
     def record_fetch(self, source: str, resp: FetchedResponse) -> int:
         digest = hashlib.sha256(resp.body).hexdigest()
-        with self.conn:
-            self.conn.execute(
-                "INSERT OR IGNORE INTO blobs (sha256, size, body) VALUES (?, ?, ?)",
-                (digest, len(resp.body), zlib.compress(resp.body, 6)),
+        blobs, fetches = self.table("blobs"), self.table("fetches")
+        with self.engine.begin() as conn:
+            conn.execute(
+                self._insert(blobs)
+                .values(sha256=digest, size=len(resp.body), body=zlib.compress(resp.body, 6))
+                .on_conflict_do_nothing(index_elements=["sha256"])
             )
-            cur = self.conn.execute(
-                "INSERT INTO fetches (source, method, url, status, content_type, fetched_at, sha256, size)"
-                " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (source, resp.method, resp.url, resp.status, resp.content_type,
-                 iso(resp.fetched_at), digest, len(resp.body)),
-            )
-        return int(cur.lastrowid)
+            fetch_id = conn.execute(
+                insert(fetches)
+                .values(source=source, method=resp.method, url=resp.url, status=resp.status,
+                        content_type=resp.content_type, fetched_at=_utc(resp.fetched_at),
+                        sha256=digest, size=len(resp.body))
+                .returning(fetches.c.id)
+            ).scalar_one()
+        self._fetch_times[fetch_id] = _utc(resp.fetched_at)
+        return fetch_id
 
     def blob(self, sha256: str) -> bytes:
-        row = self.conn.execute("SELECT body FROM blobs WHERE sha256 = ?", (sha256,)).fetchone()
-        if row is None:
+        body = self.scalar(select(self.table("blobs").c.body).where(self.table("blobs").c.sha256 == sha256))
+        if body is None:
             raise KeyError(sha256)
-        return zlib.decompress(row["body"])
-
-    def fetch_time(self, fetch_id: int) -> str:
-        return self.conn.execute("SELECT fetched_at FROM fetches WHERE id = ?", (fetch_id,)).fetchone()[0]
+        return zlib.decompress(body)
 
     # Parsed layer
 
     def upsert(self, table: str, rows: Iterable[Mapping[str, Any]], *, fetch_id: int) -> UpsertResult:
-        spec = TABLES[table]
-        seen_at = self.fetch_time(fetch_id)
-        unique: dict[tuple, Mapping[str, Any]] = {}
+        spec, target = TABLES[table], self.table(table)
+        seen_at = self._fetch_time(fetch_id)
+        unique: dict[tuple, dict[str, Any]] = {}
         for row in rows:
-            key = tuple(row.get(k) for k in spec.key)
+            values = {col: _convert(kind, row.get(col)) for col, kind in spec.columns.items()}
+            key = tuple(values[k] for k in spec.key)
             if any(v is None or v == "" for v in key):
                 raise ValueError(f"{table}: row without key {spec.key}: {dict(row)}")
-            unique[key] = row
+            values.update(first_seen_at=seen_at, last_seen_at=seen_at,
+                          first_fetch_id=fetch_id, last_fetch_id=fetch_id)
+            unique[key] = values
 
-        cols = spec.columns + BOOKKEEPING
-        updates = ["last_seen_at = excluded.last_seen_at", "last_fetch_id = excluded.last_fetch_id"]
-        updates += [f"{c} = excluded.{c}" for c in spec.mutable]
-        sql = (
-            f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' * len(cols))})"
-            f" ON CONFLICT ({', '.join(spec.key)}) DO UPDATE SET {', '.join(updates)}"
-            " RETURNING first_fetch_id"
-        )
+        stmt = self._insert(target)
+        updates = {c: stmt.excluded[c] for c in (*spec.mutable, "last_seen_at", "last_fetch_id")}
+        stmt = stmt.on_conflict_do_update(index_elements=list(spec.key), set_=updates)
+        stmt = stmt.returning(target.c.first_fetch_id)
+
         result = UpsertResult()
-        with self.conn:
-            for row in unique.values():
-                values = [_to_sql(row.get(c)) for c in spec.columns]
-                values += [seen_at, seen_at, fetch_id, fetch_id]
-                (first_fetch_id,) = self.conn.execute(sql, values).fetchone()
-                if first_fetch_id == fetch_id:
-                    result.inserted += 1
-                else:
-                    result.updated += 1
+        batch = list(unique.values())
+        with self.engine.begin() as conn:
+            for start in range(0, len(batch), _BATCH):
+                for first_fetch_id in conn.execute(stmt.values(batch[start:start + _BATCH])).scalars():
+                    if first_fetch_id == fetch_id:
+                        result.inserted += 1
+                    else:
+                        result.updated += 1
         return result
+
+    # Queries
+
+    def query(self, stmt: Select) -> list[RowMapping]:
+        with self.engine.connect() as conn:
+            return list(conn.execute(stmt).mappings())
+
+    def scalar(self, stmt: Select) -> Any:
+        with self.engine.connect() as conn:
+            return conn.execute(stmt).scalar()
+
+    def get(self, table: str, **key: Any) -> RowMapping | None:
+        t = self.table(table)
+        rows = self.query(select(t).where(*(t.c[k] == v for k, v in key.items())).limit(1))
+        return rows[0] if rows else None
 
     # Run log
 
     def start_run(self, source: str) -> int:
-        with self.conn:
-            cur = self.conn.execute(
-                "INSERT INTO runs (source, started_at) VALUES (?, ?)", (source, iso(utcnow()))
-            )
-        return int(cur.lastrowid)
+        runs = self.table("runs")
+        with self.engine.begin() as conn:
+            return conn.execute(
+                insert(runs).values(source=source, started_at=utcnow()).returning(runs.c.id)
+            ).scalar_one()
 
     def finish_run(self, run_id: int, *, ok: bool, summary: Mapping[str, Any], error: str | None = None) -> None:
-        with self.conn:
-            self.conn.execute(
-                "UPDATE runs SET finished_at = ?, ok = ?, summary = ?, error = ? WHERE id = ?",
-                (iso(utcnow()), int(ok), json.dumps(summary, ensure_ascii=False), error, run_id),
+        runs = self.table("runs")
+        with self.engine.begin() as conn:
+            conn.execute(
+                runs.update().where(runs.c.id == run_id)
+                .values(finished_at=utcnow(), ok=ok, summary=dict(summary), error=error)
             )
 
     def table_counts(self) -> dict[str, int]:
-        return {
-            name: self.conn.execute(f"SELECT COUNT(*) FROM {name}").fetchone()[0] for name in TABLES
-        }
+        return {name: self.scalar(select(func.count()).select_from(self.table(name))) for name in TABLES}
 
-    def last_runs(self) -> list[sqlite3.Row]:
-        return self.conn.execute(
-            "SELECT source, MAX(started_at) AS started_at, ok, summary, error FROM runs GROUP BY source"
-            " ORDER BY source"
-        ).fetchall()
+    def last_runs(self) -> list[RowMapping]:
+        runs = self.table("runs")
+        latest = select(func.max(runs.c.id).label("id")).group_by(runs.c.source).subquery()
+        return self.query(select(runs).join(latest, runs.c.id == latest.c.id).order_by(runs.c.source))
+
+    # Helpers
+
+    def _insert(self, table: Table):
+        dialect = self.engine.dialect.name
+        if dialect == "postgresql":
+            return postgresql.insert(table)
+        if dialect == "sqlite":
+            return sqlite.insert(table)
+        raise NotImplementedError(f"unsupported database: {dialect}")
+
+    def _fetch_time(self, fetch_id: int) -> datetime:
+        if fetch_id not in self._fetch_times:
+            fetches = self.table("fetches")
+            fetched_at = self.scalar(select(fetches.c.fetched_at).where(fetches.c.id == fetch_id))
+            self._fetch_times[fetch_id] = _utc(fetched_at)
+        return self._fetch_times[fetch_id]
 
 
-def _to_sql(value: Any) -> Any:
-    if isinstance(value, bool):
+def _create_engine(url: str) -> Engine:
+    if not url.startswith("sqlite"):
+        return create_engine(url, pool_pre_ping=True)
+    if url in ("sqlite://", "sqlite:///:memory:"):
+        # One shared connection, or every pooled connection gets its own empty database.
+        engine = create_engine(url, poolclass=StaticPool, connect_args={"check_same_thread": False})
+    else:
+        Path(url.removeprefix("sqlite:///")).parent.mkdir(parents=True, exist_ok=True)
+        engine = create_engine(url)
+
+    @event.listens_for(engine, "connect")
+    def _pragmas(dbapi_conn, _record):  # noqa: ANN001
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.close()
+
+    return engine
+
+
+def _utc(dt: datetime) -> datetime:
+    """Aware UTC datetime; naive values (as SQLite returns them) are taken to be UTC."""
+    return dt.replace(tzinfo=timezone.utc) if dt.tzinfo is None else dt.astimezone(timezone.utc)
+
+
+def _convert(kind: str, value: Any) -> Any:
+    """Coerce a parsed value to its column type (ISO strings to dates/datetimes, etc.)."""
+    if value is None or (value == "" and kind != "text"):
+        return None
+    if kind == "ts":
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value)
+        return _utc(value)
+    if kind == "date":
+        if isinstance(value, datetime):
+            return value.date()
+        return value if isinstance(value, date) else date.fromisoformat(str(value)[:10])
+    if kind == "int":
         return int(value)
-    if isinstance(value, (list, dict, tuple)):
-        return json.dumps(value, ensure_ascii=False)
+    if kind == "float":
+        return float(value)
+    if kind == "bool":
+        return bool(value)
     return value

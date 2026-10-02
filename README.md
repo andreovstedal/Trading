@@ -7,7 +7,7 @@ A personal web app, in progress, for Nordnet-tradable Norwegian and Swedish shar
 | Part | State |
 |---|---|
 | Research | Done: [`reports/Nordic stock signal data sources.md`](reports/Nordic%20stock%20signal%20data%20sources.md) covers sources, evidence per sleeve, allocation rules and the logging design. The per-topic notes are in `research_notes/` |
-| Collectors | Done for the six core sources (this package, see below) |
+| Collectors | Done for the six core sources (this package, see below), deployable on Railway with PostgreSQL |
 | Features, scoring and allocation | Not started |
 | Prediction and outcome log | Not started (raw-data layer is in place) |
 | Dashboard | Not started |
@@ -31,11 +31,12 @@ nordic-signals collect fi-short                # Swedish short positions (named 
 nordic-signals collect no-short                # Norwegian short positions
 nordic-signals collect mfn --slug nibe-industrier --days 30
 nordic-signals collect yahoo --symbol EQNR.OL --symbol VOLV-B.ST --range 1y
+nordic-signals collect intraday                # today's NewsWeb announcements and FI insider trades
 nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short
 nordic-signals status                          # row counts and the latest run per source
 ```
 
-Data goes to `data/signals.sqlite` (`--db` to change it); `data/` is git-ignored. Use `--start`/`--end` for backfills, for example `collect fi-insider --start 2016-07-01`. MFN and Yahoo need a watchlist: pass `--slug`/`--symbol`, or `--universe SE` to derive one from the stored Nordnet universe. Universe-wide Yahoo runs are slow by design, at about 4 s per symbol.
+The database is `--db` if given, else the `DATABASE_URL` environment variable (PostgreSQL, as on Railway), else a local SQLite file at `data/signals.sqlite` (git-ignored). Use `--start`/`--end` for backfills, for example `collect fi-insider --start 2016-07-01`. MFN and Yahoo need a watchlist: pass `--slug`/`--symbol`, or `--universe SE` to derive one from the stored Nordnet universe. Universe-wide Yahoo runs are slow by design, at about 4 s per symbol.
 
 | Source | Collector | Endpoint | Tables |
 |---|---|---|---|
@@ -51,14 +52,44 @@ All endpoints were checked against the live sites on 2026-10-02; each collector'
 
 ### Scheduling
 
-Some registers keep no history: Norway's short register keeps two years, FI's aggregate short file keeps only the latest value, and Nordnet owner counts are a daily snapshot. Run the daily set every weekday from the start. A crontab example, assuming the machine runs on Oslo time:
+Some registers keep no history: Norway's short register keeps two years, FI's aggregate short file keeps only the latest value, and Nordnet owner counts are a daily snapshot. Run the jobs every weekday from the start.
 
-```cron
-# End of day, after both closes and the short registers' 15:30 update
-30 19 * * 1-5  cd ~/Trading && .venv/bin/nordic-signals collect daily >> data/collect.log 2>&1
-# Fresh announcements and insider trades during the day
-*/15 7-18 * * 1-5  cd ~/Trading && .venv/bin/nordic-signals collect newsweb && .venv/bin/nordic-signals collect fi-insider --days 1
+| Job | Command | When (UTC, weekdays) |
+|---|---|---|
+| `collect-intraday` | `nordic-signals collect intraday` | `*/15 5-18 * * 1-5`: every 15 min, 07:00–20:45 Oslo summer time |
+| `collect-daily` | `nordic-signals collect daily` | `30 20 * * 1-5`: after both closes and the evening owner-count update |
+| `collect-mfn` | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | `0 21 * * 1-5`: needs the universe from `collect-daily` |
+| `collect-prices` | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | `30 21 * * 1-5`: about 90 minutes at 4 s per symbol |
+
+The times are in UTC because Railway's cron is UTC-only; they hold in both summer (UTC+2) and winter (UTC+1) Nordic time.
+
+## Deploying on Railway
+
+The `Dockerfile` builds one image for every job, and Railway uses it automatically. Each job is a Railway cron service: it starts on schedule, runs one command and exits. All jobs share one PostgreSQL database. Data volume is small, roughly 1 GB a year.
+
+### In the dashboard
+
+1. In the project, choose **+ New → Database → PostgreSQL**.
+2. Create one service per job in the table above (**+ New → GitHub Repo**, this repository). For each one:
+   - **Variables:** add `DATABASE_URL` with the value `${{Postgres.DATABASE_URL}}`. This is a reference to the database's private URL.
+   - **Settings → Deploy:** set the **Custom Start Command** and **Cron Schedule** from the table, and set **Restart Policy** to **Never**.
+   - **Settings → Source:** pick the branch to deploy from.
+3. The jobs then run on schedule. `collect-daily` must have run once before `collect-mfn` and `collect-prices` have a universe to work through.
+
+Without `DATABASE_URL`, a job on Railway stops with an error rather than writing to a throwaway SQLite file. If you deploy with `railway up` instead of GitHub, pull the latest commit first so the `Dockerfile` is included.
+
+### As code
+
+[`.railway/railway.ts`](.railway/railway.ts) describes the same setup (Postgres plus the four cron services) for Railway's infrastructure-as-code tooling (Railway CLI 5.42.1 or newer):
+
+```sh
+npm install --prefix .railway    # installs the "railway" SDK the file imports
+railway link                     # choose the project and environment
+railway config plan              # preview
+railway config apply             # create or update the services
 ```
+
+The file describes the whole project: anything not listed in it is proposed for deletion. Either start from an empty project or read the plan carefully. The name in `project("nordic-signals", ...)` and the repository in `REPO` should match yours.
 
 ## How data is stored
 
@@ -66,7 +97,7 @@ Some registers keep no history: Norway's short register keeps two years, FI's ag
 - **Parsed tables.** These hold one row per natural key, with `first_seen_at`/`last_seen_at` and the fetch IDs. Backtests filter on `first_seen_at` to see only what was known at the time. Columns that legitimately change, such as a NewsWeb correction link or a short position's size, are refreshed; everything else keeps its first value.
 - **`runs`** records each collector run with its counts, warnings and errors.
 
-SQLite is used because a web app and scheduled collectors can share it safely. DuckDB can read it directly for analysis (`ATTACH 'data/signals.sqlite' (TYPE sqlite)`).
+Production runs on PostgreSQL, with typed columns: timestamps with time zone, dates, numbers, booleans and JSONB lists. Local development and tests can use SQLite with the same schema. Tables are created automatically on first run; there are no migrations yet, so a schema change to an existing table needs Alembic or a manual `ALTER TABLE`.
 
 ## Terms of use and privacy
 
@@ -82,7 +113,8 @@ This is for personal, non-commercial use, and the collectors poll slowly and ide
 ## Tests
 
 ```sh
-.venv/bin/pytest
+.venv/bin/pytest                                                   # SQLite
+TEST_DATABASE_URL=postgresql://localhost/signals_test .venv/bin/pytest   # SQLite and PostgreSQL
 ```
 
-The tests run offline against trimmed copies of real responses in `tests/fixtures/`, with personal names anonymised.
+The tests run offline against trimmed copies of real responses in `tests/fixtures/`, with personal names anonymised. `TEST_DATABASE_URL` must point at a scratch database, because its tables are dropped between tests.

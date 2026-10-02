@@ -1,0 +1,9 @@
+.git
+.venv
+.railway
+.pytest_cache
+**/__pycache__
+data
+reports
+research_notes
+tests

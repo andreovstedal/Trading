@@ -1,6 +1,5 @@
 """Collectors end to end against a fake server serving recorded responses."""
 
-import json
 from datetime import date
 
 import httpx
@@ -59,7 +58,7 @@ def test_newsweb_fetches_details_only_for_key_categories(server, store):
     assert detailed == [683454, 683462]
     assert paths.count(("GET", "attachment")) == 2
     assert summary.tables["newsweb_messages"].inserted == 3
-    assert store.conn.execute("SELECT COUNT(*) FROM newsweb_attachments").fetchone()[0] == 2
+    assert store.table_counts()["newsweb_attachments"] == 2
 
     # A second run re-lists the day but does not re-fetch stored bodies.
     server.requests.clear()
@@ -74,7 +73,7 @@ def test_newsweb_splits_an_overflowing_day_by_category(server, store):
 
     per_category = [r for r in server.requests if r.url.path.endswith("/list") and "category" in r.url.params]
     assert len(per_category) == 25
-    assert store.conn.execute("SELECT COUNT(*) FROM newsweb_messages").fetchone()[0] == 3
+    assert store.table_counts()["newsweb_messages"] == 3
 
 
 def test_fi_insider_halves_windows_that_hit_the_row_cap(server, store, monkeypatch):
@@ -125,8 +124,8 @@ def test_nordnet_pages_through_each_country(server, store):
     run("nordnet", server, store, countries=["NO"], page_size=1)
 
     assert offsets == [("exchange_country=NO", 0), ("exchange_country=NO", 1)]
-    assert store.conn.execute("SELECT COUNT(*) FROM instruments").fetchone()[0] == 2
-    assert store.conn.execute("SELECT COUNT(*) FROM nordnet_observations").fetchone()[0] == 2
+    assert store.table_counts()["instruments"] == 2
+    assert store.table_counts()["nordnet_observations"] == 2
 
 
 def test_mfn_resolves_slugs_once_and_caches_misses(server, store):
@@ -157,7 +156,7 @@ def test_yahoo_warns_on_bad_symbol_and_continues(server, store):
     assert len(summary.warnings) == 1 and summary.warnings[0].startswith("NOPE.OL")
 
 
-def test_cli_daily_runs_every_source_and_logs_runs(server, tmp_path, monkeypatch, capsys):
+def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, capsys):
     add_newsweb_routes(server)
     server.add("GET", fi_insider.EXPORT_URL, httpx.Response(200, content=fixture_bytes("fi_insider.csv")))
     server.add("GET", f"{FI_SHORT}/GetAktuellFile", httpx.Response(200, content=make_ods(FI_POSITION_ROWS)))
@@ -167,30 +166,37 @@ def test_cli_daily_runs_every_source_and_logs_runs(server, tmp_path, monkeypatch
     server.add("GET", STOCKLIST,
                httpx.Response(200, json=fixture_json("nordnet_stocklist.json") | {"total_hits": 2}))
     monkeypatch.setattr(cli, "PoliteClient", server.client)
-    db = tmp_path / "signals.sqlite"
-
-    assert cli.main(["--db", str(db), "collect", "daily"]) == 0
-    assert cli.main(["--db", str(db), "status"]) == 0
+    assert cli.main(["--db", db_url, "collect", "daily"]) == 0
+    assert cli.main(["--db", db_url, "status"]) == 0
 
     out = capsys.readouterr().out
     assert "fi-insider: 1 requests; se_insider_trades +3 new" in out
-    with Store(db) as store:
+    with Store(db_url) as store:
         runs = {r["source"]: r for r in store.last_runs()}
         assert set(runs) == {"nordnet", "newsweb", "fi-insider", "fi-short", "no-short"}
-        assert all(r["ok"] == 1 for r in runs.values())
-        assert json.loads(runs["no-short"]["summary"])["tables"]["no_short_totals"]["inserted"] == 4
+        assert all(r["ok"] is True for r in runs.values())
+        assert runs["no-short"]["summary"]["tables"]["no_short_totals"]["inserted"] == 4
 
 
-def test_cli_reports_failures_without_stopping_other_sources(server, tmp_path, monkeypatch):
+def test_cli_records_failed_runs(server, db_url, monkeypatch):
     server.add("GET", SSR, httpx.Response(500))
     monkeypatch.setattr(cli, "PoliteClient", server.client)
 
-    assert cli.main(["--db", str(tmp_path / "s.sqlite"), "collect", "no-short"]) == 1
-    with Store(tmp_path / "s.sqlite") as store:
+    assert cli.main(["--db", db_url, "collect", "no-short"]) == 1
+    with Store(db_url) as store:
         (run_row,) = store.last_runs()
-        assert run_row["ok"] == 0 and "HTTP 500" in run_row["error"]
+        assert run_row["ok"] is False and "HTTP 500" in run_row["error"]
 
 
 @pytest.mark.parametrize("source", sorted(COLLECTORS))
 def test_every_collector_has_a_source_name(source):
     assert COLLECTORS[source].source == source
+
+
+def test_cli_refuses_to_run_on_railway_without_a_database(monkeypatch, tmp_path):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT_ID", "env-123")
+
+    assert cli.main(["status"]) == 2
+    assert not (tmp_path / "data").exists()  # no throwaway SQLite file was created

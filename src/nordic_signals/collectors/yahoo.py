@@ -17,6 +17,9 @@ from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy import select
+
+from ..store import Store
 from .base import NORDIC_TZ, Collector, RunSummary
 
 CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -100,13 +103,13 @@ class YahooCollector(Collector):
         return self.summary
 
 
-def universe_symbols(store, countries: Iterable[str], limit: int | None = None) -> list[str]:
+def universe_symbols(store: Store, countries: Iterable[str], limit: int | None = None) -> list[str]:
     """Yahoo symbols for tradable shares in the stored Nordnet universe."""
-    countries = list(countries)
-    sql = (
-        "SELECT symbol, exchange_country FROM instruments WHERE is_tradable = 1"
-        f" AND exchange_country IN ({', '.join('?' * len(countries))}) ORDER BY instrument_id"
+    t = store.table("instruments")
+    rows = store.query(
+        select(t.c.symbol, t.c.exchange_country)
+        .where(t.c.is_tradable.is_(True), t.c.exchange_country.in_(list(countries)))
+        .order_by(t.c.instrument_id)
     )
-    rows = store.conn.execute(sql, countries).fetchall()
     symbols = [yahoo_symbol(r["symbol"], r["exchange_country"]) for r in rows if r["symbol"]]
     return symbols[:limit] if limit else symbols

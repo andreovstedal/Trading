@@ -7,17 +7,24 @@
     nordic-signals collect no-short                 # Norwegian short positions
     nordic-signals collect mfn --slug nibe-industrier
     nordic-signals collect yahoo --symbol EQNR.OL --range 1y
+    nordic-signals collect intraday                 # today's announcements and insider trades
     nordic-signals collect daily                    # the end-of-day set
     nordic-signals status
+
+The database is taken from --db, else the DATABASE_URL environment variable
+(PostgreSQL on Railway), else a local SQLite file at data/signals.sqlite.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
+
+from sqlalchemy import func, select
 
 from .collectors import COLLECTORS, RunSummary
 from .collectors.base import days_back, local_today
@@ -29,15 +36,23 @@ log = logging.getLogger("nordic_signals")
 
 COUNTRIES = ["NO", "SE", "DK", "FI"]
 
-# What "collect daily" runs, in order. MFN and Yahoo need a watchlist, so
-# they are scheduled separately.
-DAILY = [
-    ("nordnet", {"countries": ("NO", "SE")}),
-    ("newsweb", {"days": 2}),
-    ("fi-insider", {"days": 3}),
-    ("fi-short", {}),
-    ("no-short", {}),
-]
+# Named sets of collector runs. "intraday" is light enough to run every 15
+# minutes in market hours; "daily" runs after both closes, and its look-back
+# covers a weekend. MFN and Yahoo walk the whole universe, so they are
+# scheduled as separate jobs.
+SETS = {
+    "intraday": [
+        ("newsweb", {"days": 1}),
+        ("fi-insider", {"days": 1}),
+    ],
+    "daily": [
+        ("nordnet", {"countries": ("NO", "SE")}),
+        ("newsweb", {"days": 3}),
+        ("fi-insider", {"days": 4}),
+        ("fi-short", {}),
+        ("no-short", {}),
+    ],
+}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -48,13 +63,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     logging.getLogger("httpx").setLevel(logging.INFO if args.verbose else logging.WARNING)
 
+    if not args.db and not os.environ.get("DATABASE_URL") and os.environ.get("RAILWAY_ENVIRONMENT_ID"):
+        # A container's filesystem is thrown away after each run, so a local SQLite file would lose everything.
+        log.error("DATABASE_URL is not set. Add a PostgreSQL database to the Railway project and set this"
+                  " service's DATABASE_URL variable to ${{Postgres.DATABASE_URL}}.")
+        return 2
+
     with Store(args.db) as store:
         if args.command == "status":
             _print_status(store)
             return 0
         with PoliteClient() as client:
-            if args.source == "daily":
-                results = [_run(store, client, name, **_options(store, name, opts)) for name, opts in DAILY]
+            if args.source in SETS:
+                runs = SETS[args.source]
+                results = [_run(store, client, name, **_options(store, name, opts)) for name, opts in runs]
                 return 0 if all(results) else 1
             return 0 if _run(store, client, args.source, **_options(store, args.source, vars(args))) else 1
 
@@ -62,7 +84,8 @@ def main(argv: list[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nordic-signals", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--db", default="data/signals.sqlite", help="SQLite file (default: %(default)s)")
+    parser.add_argument("--db", help="database URL or SQLite file path"
+                                     " (default: $DATABASE_URL, else data/signals.sqlite)")
     parser.add_argument("-v", "--verbose", action="store_true")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status", help="row counts and the latest run per source")
@@ -106,7 +129,8 @@ def _parser() -> argparse.ArgumentParser:
     p = sources.add_parser("nordnet", help="Nordnet stock list: universe, owners, key ratios")
     p.add_argument("--country", action="append", choices=COUNTRIES, dest="countries")
 
-    sources.add_parser("daily", help="end-of-day set: " + ", ".join(name for name, _ in DAILY))
+    for set_name, runs in SETS.items():
+        sources.add_parser(set_name, help=f"{set_name} set: " + ", ".join(name for name, _ in runs))
     return parser
 
 
@@ -152,12 +176,12 @@ def _options(store: Store, source: str, raw: dict[str, Any]) -> dict[str, Any]:
 def _universe_names(store: Store, countries: list[str], limit: int | None) -> list[str]:
     if not countries:
         return []
-    rows = store.conn.execute(
-        "SELECT DISTINCT COALESCE(issuer_name, long_name, name) FROM instruments"
-        f" WHERE is_tradable = 1 AND exchange_country IN ({', '.join('?' * len(countries))})",
-        countries,
-    ).fetchall()
-    names = sorted(r[0] for r in rows if r[0])
+    t = store.table("instruments")
+    name = func.coalesce(t.c.issuer_name, t.c.long_name, t.c.name).label("name")
+    rows = store.query(
+        select(name).distinct().where(t.c.is_tradable.is_(True), t.c.exchange_country.in_(countries))
+    )
+    names = sorted(r["name"] for r in rows if r["name"])
     return names[:limit] if limit else names
 
 
@@ -190,8 +214,11 @@ def _print_status(store: Store) -> None:
         print(f"  {table:<22} {count:>9}")
     print("Latest run per source:")
     for row in store.last_runs():
-        state = "ok" if row["ok"] else f"FAILED ({row['error']})"
-        print(f"  {row['source']:<12} {row['started_at']}  {state}")
+        state = "ok" if row["ok"] else ("running" if row["ok"] is None else f"FAILED ({row['error']})")
+        started = row["started_at"]
+        if started.tzinfo is not None:  # PostgreSQL returns aware datetimes in the session time zone
+            started = started.astimezone(timezone.utc)
+        print(f"  {row['source']:<12} {started:%Y-%m-%d %H:%M} UTC  {state}")
 
 
 if __name__ == "__main__":
