@@ -18,8 +18,13 @@ Each run (every 5 minutes on Railway):
      RPC node (Helius, QuickNode, ...), because the public node refuses that call with HTTP 429.
 3. **Follow** the price on DexScreener every run for the first 6 hours after scoring, then every 30
    minutes, recording it (and the peak so far) 1, 6 and 24 hours after scoring. At 24 hours the token is
-   done and labelled.
+   done and labelled. Every price seen for a token that passed also goes into ``pf_prices``, for the charts.
 4. **Record** the fake-money portfolio's value (``pumpfun.snapshot``).
+
+Between runs, ``PumpFunCollector.quote`` (every minute on Railway) fetches the open fake-money positions'
+prices from DexScreener, so the page moves while it is open. Those quotes only feed the charts and the
+positions' current value; the measurement keeps to the checks above, so its numbers do not depend on how
+often anyone looks.
 
 A token whose wallet (or, with a private node, holder) lookup failed is scored as incomplete and left out
 of the results, so an outage cannot let tokens pass unchecked. A DexScreener request that fails counts
@@ -62,6 +67,7 @@ MISSING_BEFORE_SCORING = 3  # runs without a DexScreener pair before a new token
 MISSING_AFTER_SCORING = 12
 SERIAL_WINDOW = timedelta(hours=24)
 KEEP_SKIPPED = timedelta(days=7)
+PRICE_HISTORY = timedelta(days=7)  # pf_prices; the checkpoint prices in pf_tokens are kept for good
 DEX_BATCH = 30
 SIGNATURE_LIMIT = 200  # enough to see a new wallet's first transaction, or a busy wallet's pace
 LAUNCH_FIELDS = ("market_cap", "usd_market_cap", "ath_market_cap", "complete", "reply_count", "real_sol_reserves",
@@ -115,6 +121,7 @@ class PumpFunCollector(Collector):
         due = [dict(r) for r in self.store.query(
             select(t).where(t.c.status == "new", t.c.created_at <= now - SCORE_AGE))]
         pairs, unchecked = self._pairs([r["mint"] for r in due])
+        prices = []
         for r in due:
             pair = pairs.get(r["mint"])
             if pair is None:
@@ -127,11 +134,14 @@ class PumpFunCollector(Collector):
             signs = pumpfun.warning_signs(features)
             active = features["trades_5m"] > 0
             price = features["price"]
+            passed = active and features["complete"] and not signs
             self._update(r["mint"], status="tracking", scored_at=now, screen_version=pumpfun.SCREEN_VERSION,
                          features=features, warnings=signs, active=active, complete=features["complete"],
-                         passed=active and features["complete"] and not signs,
-                         price_t=price, peak_after=price, low_after=price, last_price=price, last_checked_at=now,
-                         graduated=features["graduated"])
+                         passed=passed, price_t=price, peak_after=price, low_after=price, last_price=price,
+                         last_checked_at=now, graduated=features["graduated"])
+            if passed:
+                prices.append({"mint": r["mint"], "at": now, "price": price})
+        self._record_prices(prices)
         self.summary.add("pf_tokens", UpsertResult(updated=len(due)))
 
     def _features(self, r: dict[str, Any], pair: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -197,6 +207,7 @@ class PumpFunCollector(Collector):
         rows = [dict(r) for r in self.store.query(select(t).where(t.c.status.in_(("new", "tracking"))))]
         due = [r for r in rows if _due(r, now)]
         pairs, unchecked = self._pairs([r["mint"] for r in due])
+        prices = []
         for r in due:
             pair = pairs.get(r["mint"])
             if r["status"] == "new":  # not scored yet: only keep the peak, for the "already collapsed" sign
@@ -211,6 +222,8 @@ class PumpFunCollector(Collector):
                              status="missing" if misses >= MISSING_AFTER_SCORING else "tracking")
                 continue
             price = pair["price"]
+            if r["passed"]:
+                prices.append({"mint": r["mint"], "at": now, "price": price})
             changes: dict[str, Any] = {
                 "last_price": price, "last_checked_at": now,
                 "peak_after": max(r["peak_after"] or price, price), "low_after": min(r["low_after"] or price, price),
@@ -226,13 +239,35 @@ class PumpFunCollector(Collector):
                 final = changes.get("price_24h", r["price_24h"])
                 changes.update(status="done", collapsed=final <= pumpfun.COLLAPSE_LEVEL * changes["peak_after"])
             self._update(r["mint"], **changes)
+        self._record_prices(prices)
         self.summary.add("pf_tokens", UpsertResult(updated=len(due)))
 
     def _prune(self, now: datetime) -> None:
-        """Launches outside the sample are only needed to spot serial creators."""
-        t = self._table()
+        """Launches outside the sample are only needed to spot serial creators; price history only for a week."""
+        t, p = self._table(), self.store.table("pf_prices")
         with self.store.engine.begin() as conn:
             conn.execute(delete(t).where(t.c.status == "skipped", t.c.created_at < now - KEEP_SKIPPED))
+            conn.execute(delete(p).where(p.c.at < now - PRICE_HISTORY))
+
+    # Live quotes
+
+    def quote(self, now: datetime | None = None) -> int:
+        """The open fake-money positions' prices, stored when they changed; returns how many were stored."""
+        now = now or utcnow()
+        self._warned = set()
+        mints = [position["mint"] for position in pumpfun.paper(self.store)["open"]]
+        pairs, _ = self._pairs(mints)
+        latest = pumpfun.latest_prices(self.store, list(pairs))
+        changed = [{"mint": mint, "at": now, "price": pair["price"]} for mint, pair in pairs.items()
+                   if mint not in latest or latest[mint][1] != pair["price"]]
+        self._record_prices(changed)
+        return len(changed)
+
+    def _record_prices(self, rows: list[dict[str, Any]]) -> None:
+        if rows:
+            p = self.store.table("pf_prices")
+            with self.store.engine.begin() as conn:
+                conn.execute(self.store._insert(p).on_conflict_do_nothing(index_elements=["mint", "at"]), rows)
 
     # Sources
 

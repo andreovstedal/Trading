@@ -1,55 +1,179 @@
 {% extends "base.html" %}
 {% block title %}pump.fun · Nordic signals{% endblock %}
+{% block body_class %}degen{% endblock %}
+{% block head %}<link rel="preload" as="image" href="/static/pumpfun-hero.webp">{% endblock %}
 {% block content %}
+{#- ▲/▼ beside every signed number, so gains and losses never rely on colour alone. -#}
+{% macro arrow(value) -%}
+  {%- if value is not none %}<span class="dir {{ 'up' if value >= 0 else 'down' }}" aria-hidden="true">{{ '▲' if value >= 0 else '▼' }}</span>{% endif -%}
+{%- endmacro %}
+{% macro badge(b) -%}
+  {%- if b %}<span class="badge" title="{{ b[2] }}"><span aria-hidden="true">{{ b[0] }}</span>{% if b[1] %} {{ b[1] }}{% endif %}<span class="sr">{{ b[2] }}</span></span>{% endif -%}
+{%- endmacro %}
+{% macro cut(value, unit) -%}
+  {%- if unit == "percent" %}{{ value | pct(0) }}{% elif unit == "decimal" %}{{ value | num(1) }}{% else %}{{ value | num(0) }}{% endif -%}
+{%- endmacro %}
 {% set p = paper %}
-<div class="page-head">
-  <div>
+<div class="pf" data-live-page data-version="{{ version }}">
+
+<section class="hero">
+  <img class="hero-art" src="/static/pumpfun-hero.webp" alt="" width="1600" height="914" decoding="async">
+  <div class="hero-text">
+    <p class="kicker">gm, degen 👋</p>
     <h1>pump.fun</h1>
-    <p class="muted">Måler om et filter kan skille ut pump-and-dump-tokens på pump.fun, og prøver det med fiktive
-      penger. Her handles det ikke med ekte penger.</p>
+    <p class="lede">Fiktive penger, ekte kurser. Filteret prøver seg på ekte lanseringer med lekepenger, så vi ser
+      hvordan det ville gått uten å sette en eneste ekte SOL på spill.</p>
+    <p id="pf-status" class="live-status {{ 'is-live' if fresh else 'is-stale' }}" data-live
+       {%- if updated %} data-updated="{{ updated.isoformat() }}"{% endif %}>
+      <span class="dot" aria-hidden="true"></span><span class="state">{{ "Live" if fresh else "Ikke live" }}</span>
+      <span class="age">{% if updated %}· oppdatert {{ updated | ago }}{% else %}· ingen data ennå{% endif %}</span>
+    </p>
+    {% if not scheduler_on %}<p class="hint">Nye data hentes bare når innsamlingsplanen er på. På Railway er den
+      på av seg selv.</p>{% endif %}
+  </div>
+</section>
+
+<div id="pf-tape" class="tape" data-live aria-hidden="true"{% if not tape %} hidden{% endif %}>
+  <div class="tape-track" style="--n: {{ tape | length }}">
+    {%- for _ in range(2) %}
+    <ul>{% for o in tape %}<li><b>${{ o.symbol or o.mint[:6] }}</b>{{ arrow(o.result) }}<span>{{ o.result | pct(1, True) }}</span></li>{% endfor %}</ul>
+    {%- endfor %}
   </div>
 </div>
 
-<h2>Fiktiv handel</h2>
-<div class="tiles">
-  <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ p.equity | num(2) }}&nbsp;SOL</div>
+<div id="pf-tiles" class="tiles" data-live>
+  <div class="tile"><div class="label">Kontoverdi</div>
+    <div class="value mono" data-tick="equity" data-value="{{ p.equity }}">{{ p.equity | num(3) }}&nbsp;SOL</div>
     <div class="sub">startet med {{ p.start | num(0) }}&nbsp;SOL{% if p.started_at %} · {{ p.started_at | when }}{% endif %}</div></div>
-  <div class="tile"><div class="label">Resultat</div><div class="value">{{ p.result | pct(1, True) }}</div>
-    <div class="sub">{{ (p.equity - p.start) | num(2, True) }}&nbsp;SOL etter gebyrer</div></div>
-  <div class="tile"><div class="label">Åpne posisjoner</div><div class="value">{{ p.open | length }}</div>
-    <div class="sub">verdt {{ p.positions_value | num(2) }}&nbsp;SOL, kontanter {{ p.cash | num(2) }}&nbsp;SOL</div></div>
-  <div class="tile"><div class="label">Lukkede handler</div><div class="value">{{ p.trades }}</div>
-    <div class="sub">{% if p.trades %}{{ p.win_rate | pct(0) }} med gevinst{% else %}selges etter 24 timer{% endif %}</div></div>
+  <div class="tile"><div class="label">PnL</div>
+    <div class="value mono" data-tick="result" data-value="{{ p.result }}">{{ arrow(p.result) }}{{ p.result | pct(2, True) }}</div>
+    <div class="sub">{{ (p.equity - p.start) | num(3, True) }}&nbsp;SOL etter gebyrer</div></div>
+  <div class="tile"><div class="label">Bags</div>
+    <div class="value mono" data-tick="bags" data-value="{{ p.open | length }}">{{ p.open | length }}</div>
+    <div class="sub">åpne posisjoner, verdt {{ p.positions_value | num(2) }}&nbsp;SOL · {{ p.cash | num(2) }}&nbsp;SOL i kontanter</div></div>
+  <div class="tile"><div class="label">Salg</div>
+    <div class="value mono" data-tick="trades" data-value="{{ p.trades }}">{{ p.trades }}</div>
+    <div class="sub">{% if p.trades %}{{ p.win_rate | pct(0) }} i pluss{% else %}selges 24 timer etter kjøpet{% endif %}</div></div>
 </div>
 
-<div class="card">
-  <h2>Kontoverdi</h2>
-  {% if account_chart %}
-  {{ account_chart }}
-  <details><summary class="small">Vis tallene</summary>
+<div id="pf-account" class="card" data-live>
+  <div class="card-head">
+    <h2><span aria-hidden="true">📈</span> Kontoverdi</h2>
+    <nav class="seg" aria-label="Periode">
+      {%- for key, (label, _) in periods.items() %}<a href="?periode={{ key }}" data-periode="{{ key }}"{% if key == periode %} class="on" aria-current="page"{% endif %}>{{ label }}</a>{% endfor -%}
+    </nav>
+  </div>
+  <div class="account-body{% if movers %} with-movers{% endif %}">
+    <div>
+      {% if account_chart %}
+      {{ account_chart }}
+      <details data-key="account-table"><summary class="small">Vis tallene</summary>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Tidspunkt</th><th class="num">Kontoverdi</th></tr></thead>
+          <tbody>{% for when, value in history[-12:] | reverse %}<tr><td>{{ when | when }}</td><td class="num">{{ value | num(3) }}&nbsp;SOL</td></tr>{% endfor %}</tbody>
+        </table></div>
+      </details>
+      {% else %}
+      <p class="muted">Grafen kommer når kontoen har handlet og det finnes minst to målinger i perioden. Kontoverdien
+        registreres hvert 5. minutt, og kursene på åpne posisjoner hentes hvert minutt.</p>
+      {% endif %}
+    </div>
+    {% if movers %}
+    <aside class="movers" aria-label="Åpne posisjoner som går best og dårligst">
+      {% for key, title in (("best", "🔥 Best nå"), ("worst", "🧊 Dårligst nå")) %}
+      <h3>{{ title }}</h3>
+      <ol>{% for o in movers[key] %}<li><span class="name">{{ o.name or o.mint[:8] }}<span class="sym">${{ o.symbol }}</span></span>
+        <span class="mono nowrap">{{ arrow(o.result) }}{{ o.result | pct(0, True) }}</span></li>{% endfor %}</ol>
+      {% endfor %}
+    </aside>
+    {% endif %}
+  </div>
+  <p class="small muted rules">Kontoen starter med {{ p.start | num(0) }}&nbsp;SOL. Hvert token som består filteret,
+    kjøpes for {{ p.stake | num(1) }}&nbsp;SOL til kursen da det ble vurdert (så lenge det er kontanter igjen), og
+    selges etter {{ p.hold_hours | num(0) }} timer. Pump.funs gebyr på {{ (fee * 100) | num(2) }}&nbsp;% trekkes ved
+    både kjøp og salg. Et token som forsvinner fra DexScreener, regnes som tapt. Glidning i kursen er ikke med, så
+    ekte handel blir dårligere.{% if p.skipped %} {{ p.skipped }} tokens ble hoppet over fordi kontantene var brukt
+    opp.{% endif %}</p>
+</div>
+
+<section id="pf-positions" class="positions" data-live>
+  <div class="section-head">
+    <h2><span aria-hidden="true">💎🙌</span> Diamanthender</h2>
+    <p class="muted small">Hver posisjon holdes i 24 timer, uansett hva som skjer. Ingen panikksalg, ingen FOMO.
+      Grafene viser resultatet etter gebyrer siden kjøpet, med null som stiplet linje. Streken under viser hvor mye
+      av de 24 timene som er gått.</p>
+  </div>
+  {% if p.open %}
+  <div class="pos-grid">
+    {% for o in p.open %}
+    <article class="pos {{ o.side }}{% if loop.index > cards %} extra{% endif %}" data-mint="{{ o.mint }}">
+      <header>
+        <span class="avatar" style="--a: {{ o.colors[0] }}; --b: {{ o.colors[1] }}" aria-hidden="true">{{ o.initial }}</span>
+        <div class="who">
+          <a href="https://dexscreener.com/solana/{{ o.mint }}" target="_blank" rel="noopener">{{ o.name or o.mint[:8] }}</a>
+          <span class="sym">${{ o.symbol }}</span>
+        </div>
+        {% if o.new %}<span class="chip new">Ny</span>{% endif %}
+        {{ badge(o.badge) }}
+      </header>
+      <p class="pnl">{{ arrow(o.result) }}<span class="mono" data-tick="pos-{{ o.mint }}" data-value="{{ o.result }}">{{ o.result | pct(1, True) }}</span></p>
+      {{ o.chart }}
+      <div class="held" role="img" aria-label="{{ (o.held * 100) | num(0) }} % av de 24 timene er gått"><span style="width: {{ (o.held * 100) | round(1) }}%"></span></div>
+      <footer>
+        <span>Kjøpt {{ o.opened_at | clock }} · selges {{ o.left }}</span>
+        <span class="mono">{{ o.value | num(4) }}&nbsp;SOL</span>
+      </footer>
+    </article>
+    {% endfor %}
+  </div>
+  {% if p.open | length > cards %}<p class="more"><button type="button" class="secondary" data-show-all
+    data-count="{{ p.open | length }}" aria-expanded="false">Vis alle {{ p.open | length }}</button></p>{% endif %}
+  <details data-key="positions-table"><summary class="small">Vis som tabell</summary>
     <div class="table-wrap"><table>
-      <thead><tr><th>Tidspunkt</th><th class="num">Kontoverdi</th></tr></thead>
-      <tbody>{% for when, value in history[-12:] | reverse %}<tr><td>{{ when | when }}</td><td class="num">{{ value | num(3) }}&nbsp;SOL</td></tr>{% endfor %}</tbody>
+      <thead><tr><th>Token</th><th>Kjøpt</th><th class="num">Innsats</th><th class="num">Verdi nå</th><th class="num">Resultat</th></tr></thead>
+      <tbody>{% for o in p.open %}
+        <tr><td>{{ o.name or o.mint[:8] }}<div class="ticker">${{ o.symbol }}</div></td>
+          <td class="nowrap">{{ o.opened_at | when }}</td>
+          <td class="num nowrap">{{ p.stake | num(2) }}&nbsp;SOL</td>
+          <td class="num nowrap">{{ o.value | num(4) }}&nbsp;SOL</td>
+          <td class="num nowrap">{{ arrow(o.result) }} {{ o.result | pct(1, True) }}</td></tr>
+      {% endfor %}</tbody>
     </table></div>
+    <p class="small muted">Verdi nå er hva et salg til siste kurs ville gitt etter gebyr.</p>
   </details>
   {% else %}
-  <p class="muted">Grafen kommer når det er gjort minst to målinger med åpne eller lukkede handler. Kontoverdien
-    registreres hvert 5. minutt.</p>
+  <div class="card empty">
+    <p>Ingen bags akkurat nå <span aria-hidden="true">🫡</span></p>
+    <p class="muted small">Neste token som består filteret, kjøpes automatisk med lekepenger, så lenge det er
+      kontanter igjen.</p>
+  </div>
   {% endif %}
-  <p class="small muted" style="margin-top:10px">Kontoen starter med {{ p.start | num(0) }}&nbsp;SOL. Hvert token som
-    består filteret, kjøpes for {{ p.stake | num(1) }}&nbsp;SOL til kursen da det ble vurdert (så lenge det er
-    kontanter igjen), og selges etter {{ p.hold_hours | num(0) }} timer. Pump.funs gebyr på
-    {{ (fee * 100) | num(2) }}&nbsp;% trekkes ved både kjøp og salg. Et token som forsvinner fra DexScreener, regnes som
-    tapt. Glidning i kursen er ikke med, så ekte handel blir dårligere.{% if p.skipped %} {{ p.skipped }} tokens ble
-    hoppet over fordi kontantene var brukt opp.{% endif %}</p>
+</section>
+
+<div id="pf-closed" data-live>
+{% if closed %}
+<div class="card">
+  <h2><span aria-hidden="true">🧾</span> Siste salg</h2>
+  <div class="table-wrap"><table class="trades">
+    <thead><tr><th>Token</th><th>Forløp</th><th>Kjøpt</th><th>Solgt</th><th class="num">Utbetalt</th><th class="num">Resultat</th></tr></thead>
+    <tbody>{% for c in closed %}
+      <tr><td>{{ c.name or c.mint[:8] }}<div class="ticker">${{ c.symbol }}</div></td>
+        <td class="spark-cell">{{ c.chart }}</td>
+        <td class="nowrap">{{ c.opened_at | when }}</td>
+        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, regnet som tapt</span>{% endif %}</td>
+        <td class="num nowrap">{{ c.proceeds | num(4) }}&nbsp;SOL</td>
+        <td class="num nowrap">{{ arrow(c.result) }} {{ c.result | pct(0, True) }}{% if c.badge %} {{ badge(c.badge) }}{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% if p.closed | length > closed | length %}<p class="small muted">De {{ closed | length }} siste av
+    {{ p.closed | length }} salg. Alle er med i loggen nederst på siden.</p>{% endif %}
 </div>
 
-{% if p.trades %}
 <div class="card">
-  <h2>Resultat per lukket handel</h2>
+  <h2>Resultat per salg</h2>
   {{ result_chart }}
-  <p class="small muted">Prosent etter gebyrer. Blått er gevinst, oransje tap og grått omtrent null.</p>
-  <details><summary class="small">Vis tallene</summary>
+  <p class="small muted">Prosent etter gebyrer. Grønt er gevinst, rosa er tap og grått er omtrent null.</p>
+  <details data-key="bins-table"><summary class="small">Vis tallene</summary>
     <div class="table-wrap"><table>
       <thead><tr><th>Resultat (%)</th><th class="num">Handler</th></tr></thead>
       <tbody>{% for b in p.bins %}<tr><td>{{ b.label }}</td><td class="num">{{ b.count }}</td></tr>{% endfor %}</tbody>
@@ -57,52 +181,19 @@
   </details>
 </div>
 {% endif %}
-
-<div class="card">
-  <h2>Åpne posisjoner</h2>
-  {% if p.open %}
-  <div class="table-wrap"><table>
-    <thead><tr><th>Token</th><th>Kjøpt</th><th class="num">Innsats</th><th class="num">Verdi nå</th><th class="num">Resultat</th></tr></thead>
-    <tbody>{% for o in p.open %}
-      <tr><td>{{ o.name or o.mint[:8] }}<div class="ticker">{{ o.symbol }}</div></td>
-        <td class="nowrap">{{ o.opened_at | when }}</td>
-        <td class="num nowrap">{{ p.stake | num(2) }}&nbsp;SOL</td>
-        <td class="num nowrap">{{ o.value | num(3) }}&nbsp;SOL</td>
-        <td class="num">{{ o.result | pct(0, True) }}</td></tr>
-    {% endfor %}</tbody>
-  </table></div>
-  <p class="small muted">Verdi nå er hva et salg til siste kurs ville gitt etter gebyr.</p>
-  {% else %}
-  <p class="muted">Ingen åpne posisjoner.</p>
-  {% endif %}
 </div>
 
-{% if p.closed %}
-<div class="card">
-  <h2>Siste lukkede handler</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Token</th><th>Kjøpt</th><th>Solgt</th><th class="num">Utbetalt</th><th class="num">Resultat</th></tr></thead>
-    <tbody>{% for c in p.closed[:30] %}
-      <tr><td>{{ c.name or c.mint[:8] }}<div class="ticker">{{ c.symbol }}</div></td>
-        <td class="nowrap">{{ c.opened_at | when }}</td>
-        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, regnet som tapt</span>{% endif %}</td>
-        <td class="num nowrap">{{ c.proceeds | num(3) }}&nbsp;SOL</td>
-        <td class="num">{{ c.result | pct(0, True) }}</td></tr>
-    {% endfor %}</tbody>
-  </table></div>
-</div>
-{% endif %}
-
-<h2 style="margin-top:28px">Måling av filteret</h2>
+<div id="pf-measure" data-live>
+<h2 class="section-title"><span aria-hidden="true">🔬</span> Måling av filteret</h2>
 <div class="tiles">
-  <div class="tile"><div class="label">Lanseringer sett</div><div class="value">{{ r.seen | num }}</div>
+  <div class="tile"><div class="label">Lanseringer sett</div><div class="value mono">{{ r.seen | num }}</div>
     <div class="sub">{{ (r.status.skipped or 0) | num }} brukes bare til å kjenne igjen utstedere</div></div>
   <div class="tile"><div class="label">Følges nå</div>
-    <div class="value">{{ ((r.status.new or 0) + (r.status.tracking or 0)) | num }}</div>
+    <div class="value mono">{{ ((r.status.new or 0) + (r.status.tracking or 0)) | num }}</div>
     <div class="sub">i 24 timer etter vurderingen</div></div>
-  <div class="tile"><div class="label">Vurdert</div><div class="value">{{ r.scored | num }}</div>
+  <div class="tile"><div class="label">Vurdert</div><div class="value mono">{{ r.scored | num }}</div>
     <div class="sub">{{ r.inactive | num }} uten handel og {{ r.incomplete | num }} ufullstendig vurdert</div></div>
-  <div class="tile"><div class="label">Mangler kursdata</div><div class="value">{{ (r.status.missing or 0) | num }}</div>
+  <div class="tile"><div class="label">Mangler kursdata</div><div class="value mono">{{ (r.status.missing or 0) | num }}</div>
     <div class="sub">ikke funnet hos DexScreener</div></div>
 </div>
 
@@ -172,5 +263,57 @@
   </table></div>
 </div>
 {% endif %}
+</div>
+
+<div id="pf-patterns" class="card" data-live>
+  <div class="card-head">
+    <h2><span aria-hidden="true">🧩</span> Mønstre i galskapen</h2>
+    {% if patterns.populations %}<div class="seg" role="group" aria-label="Hvilke tokens">
+      <button type="button" data-population="all" aria-pressed="true" class="on">Alle med handel</button>
+      <button type="button" data-population="passed" aria-pressed="false">Bestod filteret</button>
+    </div>{% endif %}
+  </div>
+  {% if patterns.populations %}
+  <p class="small muted">Etter {{ patterns.label }}. Tokens delt i fire like store grupper etter hvert kjennetegn ved
+    vurderingen, fra laveste til høyeste verdi. Hver celle viser hvor stor andel som kollapset, og under det median
+    avkastning etter gebyrer. Kjennetegnene der gruppene skiller seg mest, står øverst: der kan neste regel i filteret
+    ligge.</p>
+  {% for key, pop in patterns.populations.items() %}
+  <div class="pattern" data-population="{{ key }}"{% if key != "all" %} hidden{% endif %}>
+    <p class="small"><strong>{{ pop.n | num }} tokens</strong>{% if pop.n %} · {{ pop.collapse_rate | pct(0) }} kollapset ·
+      median {{ pop.median_return | pct(0, True) }}{% endif %}</p>
+    <div class="table-wrap"><table class="patterns">
+      <thead><tr><th>Kjennetegn ved vurderingen</th><th class="num">Laveste fjerdedel</th><th class="num">Nest laveste</th>
+        <th class="num">Nest høyeste</th><th class="num">Høyeste fjerdedel</th></tr></thead>
+      <tbody>{% for f in pop.features %}
+        <tr><td>{{ f.label }}<div class="ticker">{% if f.cuts %}grenser {% for c in f.cuts %}{{ cut(c, f.unit) }}{% if not loop.last %} · {% endif %}{% endfor %}{% else %}{{ f.n | num }} med data{% endif %}</div></td>
+        {%- if f.quarters %}{% for q in f.quarters %}<td class="num">{% if q.collapse_rate is not none %}{{ q.collapse_rate | pct(0) }}<div class="ticker">{{ q.median_return | pct(0, True) }}</div>{% else %}<span class="muted" title="Under 10 tokens">–</span>{% endif %}</td>{% endfor %}
+        {%- else %}<td colspan="4" class="muted small">For få data ennå</td>{% endif %}</tr>
+      {% endfor %}</tbody>
+    </table></div>
+  </div>
+  {% endfor %}
+  <p class="small muted">Med mange kjennetegn vil noen se sterke ut ved en tilfeldighet. Et mønster bør holde seg over
+    flere dager med nye tokens før det blir en regel i filteret, og en ny regel gir en ny filterversjon som måles fra
+    start.</p>
+  {% else %}
+  <p class="muted">Mønstrene kommer når de første tokens er målt, litt over en time etter at innsamlingen startet.</p>
+  {% endif %}
+</div>
+
+<div class="card">
+  <h2><span aria-hidden="true">📥</span> Last ned loggen</h2>
+  <p>Alt som er målt: hvert token som er fulgt, med kjennetegn og varseltegn ved vurderingen, kursen etter 1, 6 og 24
+    timer, om det kollapset, og hva den fiktive porteføljen gjorde med det.</p>
+  <p class="actions"><a class="button" href="/pumpfun/export.csv">Regneark (CSV)</a>
+    <a class="button secondary" href="/pumpfun/export.json">Alt, for analyse (JSON)</a></p>
+  <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger, med kursene som markedsverdi i SOL.
+    JSON-filen har i tillegg alle fiktive handler, kontoverdien over tid og kursforløpene fra de siste
+    {{ price_days }} dagene.</p>
+</div>
+
+</div>
+<noscript><style>.pos.extra { display: flex !important; }</style></noscript>
 <script src="/static/charts.js" defer></script>
+<script src="/static/live.js" defer></script>
 {% endblock %}

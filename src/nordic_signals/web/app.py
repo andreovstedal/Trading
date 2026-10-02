@@ -24,11 +24,13 @@ from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Form, Request
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
+from fastapi.responses import (HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response,
+                               StreamingResponse)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Undefined
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .. import jobs, pumpfun, scheduler, text
@@ -36,7 +38,7 @@ from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
 from ..store import Store
-from . import charts, queries
+from . import pumpfun_page, queries
 
 log = logging.getLogger("nordic_signals.web")
 
@@ -92,7 +94,7 @@ def create_app(db: str | None = None) -> FastAPI:
     app.state.store, app.state.runner = store, runner
     templates = Jinja2Templates(directory=HERE / "templates")
     templates.env.filters.update(nok=fmt_nok, pct=fmt_pct, points=fmt_points, num=fmt_num, when=fmt_when,
-                                 day=fmt_day, ago=fmt_ago, label=fmt_label)
+                                 day=fmt_day, ago=fmt_ago, label=fmt_label, clock=fmt_clock)
     templates.env.globals.update(model_version=MODEL_VERSION, runner=runner, auth_enabled=bool(password),
                                  scheduler_on=schedule is not None)
     app.mount("/static", StaticFiles(directory=HERE / "static"), name="static")
@@ -112,9 +114,12 @@ def create_app(db: str | None = None) -> FastAPI:
             return RedirectResponse(f"/login?next={quote(_return_path(request))}", status_code=303)
         return await call_next(request)
 
-    # Added last so it wraps the login check and request.session is available there.
+    # Added after the login check so it wraps it, and request.session is available there.
     app.add_middleware(SessionMiddleware, secret_key=os.environ.get("SECRET_KEY") or secrets.token_hex(32),
                        same_site="lax", https_only=on_railway, max_age=30 * 24 * 3600)
+    # The pump.fun page fetches itself again whenever its data changes, about once a minute.
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+    pf_cache = pumpfun_page.Cache()
 
     def render(request: Request, name: str, **context: Any) -> HTMLResponse:
         return templates.TemplateResponse(request, name, context)
@@ -228,12 +233,27 @@ def create_app(db: str | None = None) -> FastAPI:
         return render(request, "track_record.html", record=evaluation.track_record(store))
 
     @app.get("/pumpfun", response_class=HTMLResponse)
-    def pumpfun_page(request: Request) -> HTMLResponse:
-        portfolio, history = pumpfun.paper(store), pumpfun.equity_history(store)
-        return render(request, "pumpfun.html", r=pumpfun.results(store), paper=portfolio, fee=pumpfun.FEE,
-                      horizons=pumpfun.HORIZONS, history=history,
-                      account_chart=charts.account_chart(history, portfolio["start"]),
-                      result_chart=charts.result_bars(portfolio["bins"]))
+    def pumpfun_view(request: Request, periode: str = pumpfun_page.DEFAULT_PERIOD) -> HTMLResponse:
+        return render(request, "pumpfun.html", **pumpfun_page.context(store, periode, pf_cache))
+
+    @app.get("/pumpfun/version")
+    def pumpfun_version() -> JSONResponse:
+        """Polled by the page: it reloads its live parts when this changes."""
+        version, updated = pumpfun.freshness(store)
+        return JSONResponse({"v": version, "updated": updated.isoformat() if updated else None},
+                            headers={"Cache-Control": "no-store"})
+
+    @app.get("/pumpfun/export.csv")
+    def pumpfun_csv() -> StreamingResponse:
+        name = pumpfun_page.filename("csv", queries.utcnow().astimezone(text.OSLO).date())
+        return StreamingResponse(pumpfun_page.export_csv(store), media_type="text/csv; charset=utf-8",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.get("/pumpfun/export.json")
+    def pumpfun_json() -> StreamingResponse:
+        name = pumpfun_page.filename("json", queries.utcnow().astimezone(text.OSLO).date())
+        return StreamingResponse(pumpfun_page.export_json(store), media_type="application/json",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/data", response_class=HTMLResponse)
     def data(request: Request, message: str | None = None) -> HTMLResponse:
@@ -365,6 +385,11 @@ def fmt_day(value: date | str | None) -> str:
 
 def fmt_ago(value: datetime | None) -> str:
     return "aldri" if _missing(value) else text.ago(value, queries.utcnow())
+
+
+def fmt_clock(value: datetime | None) -> str:
+    """The time of day in Oslo, "14:05"."""
+    return "–" if _missing(value) else text.clock(value)
 
 
 # Display names for the model's internal keys.

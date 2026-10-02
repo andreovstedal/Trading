@@ -3,7 +3,8 @@
 The web service on Railway is always on, so it runs the collectors itself; no separate cron service is
 needed. Two background threads:
 
-* **pump.fun:** the pump.fun measurement every 5 minutes, around the clock.
+* **pump.fun:** the pump.fun measurement every 5 minutes, around the clock, and between runs the open
+  fake-money positions' prices every minute, for the live page.
 * **Nordic:** the share collectors on weekdays (times in UTC):
 
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
@@ -34,6 +35,7 @@ from sqlalchemy import func, select, update
 
 from . import jobs
 from .advisor import evaluate as evaluation
+from .collectors.pumpfun import PumpFunCollector
 from .http import PoliteClient
 from .store import Store, utcnow
 
@@ -137,16 +139,17 @@ class Scheduler:
 
 # When jobs are due
 
-def every(interval: timedelta, *, source: str, weekdays: bool = False,
-          hours: tuple[int, int] | None = None) -> IsDue:
-    """Due when ``source`` has not run for ``interval`` (minus one check, so the pace holds)."""
+def every(interval: timedelta, *, source: str, weekdays: bool = False, hours: tuple[int, int] | None = None,
+          slack: timedelta = timedelta(seconds=TICK)) -> IsDue:
+    """Due when ``source`` has not run for ``interval`` (minus ``slack``, one check by default, so the pace
+    holds)."""
     def is_due(store: Store, job: str, now: datetime) -> bool:
         if weekdays and now.weekday() >= 5:
             return False
         if hours and not hours[0] <= now.hour < hours[1]:
             return False
         recent = [t for t in (_latest_run(store, source), _attempt(store, job).get("started_at")) if t]
-        return not recent or now - max(recent) >= interval - timedelta(seconds=TICK)
+        return not recent or now - max(recent) >= interval - slack
     return is_due
 
 
@@ -211,6 +214,12 @@ def _source(source: str, **raw: Any) -> Callable[[Store, PoliteClient], bool]:
     return run
 
 
+def _quotes(store: Store, client: PoliteClient) -> bool:
+    """Not logged in ``runs``: once a minute would bury the collectors' runs on the Data page."""
+    PumpFunCollector(client, store).quote()
+    return True
+
+
 def _set(name: str, *, then_evaluate: bool = False) -> Callable[[Store, PoliteClient], bool]:
     def run(store: Store, client: PoliteClient) -> bool:
         ok = all(summary is not None for _, summary in jobs.run_set(store, client, name))
@@ -222,6 +231,8 @@ def _set(name: str, *, then_evaluate: bool = False) -> Callable[[Store, PoliteCl
 
 JOBS = [
     Job("pumpfun", "pumpfun", every(timedelta(minutes=5), source="pumpfun"), _source("pumpfun")),
+    Job("pumpfun-quotes", "pumpfun", every(timedelta(minutes=1), source="pumpfun-quotes",
+                                           slack=timedelta(seconds=5)), _quotes),
     Job("intraday", "nordic", every(timedelta(minutes=15), source="newsweb", weekdays=True, hours=(5, 19)),
         _set("intraday")),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),

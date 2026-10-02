@@ -80,9 +80,19 @@ The page also runs the filter with fake money:
 - The account starts with 10 SOL.
 - Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts, and sold after 24 hours.
 - Fees are charged on both trades, and a token that disappears from DexScreener counts as lost.
-- Its value is recorded every 5 minutes, and the page shows it as a chart, along with open positions, closed trades and how the results spread.
+- Its value is recorded every 5 minutes. Between collector runs the open positions' prices are fetched every minute, so the account value and the positions move while the page is open.
 
-Slippage is not included, so real results would be worse. With about 98 % of launches ending as pump-and-dumps, the filter has to catch well over 99 % of them before what passes is mostly honest.
+Slippage is not included, so real results would be worse.
+
+The page is live: it checks for new data every 15 seconds and updates itself, with no reload. New positions slide in, changed numbers flash, and a ticker tape runs along the top. Each open position has its own card with a chart of its result since it was bought, and each sale has a small chart of its 24 hours.
+
+To look for patterns as the data grows:
+- **Mønstre i galskapen** splits the measured tokens into quarters by each feature seen at scoring (market value, trades, buy share, the creator wallet's age and activity, holder concentration). For each quarter it shows how often the tokens collapsed and their median return. The features whose quarters differ most come first, which is where the filter's next rule may be. It covers all tokens with trades and, separately, only those that passed.
+- **Last ned loggen** downloads everything measured:
+  - `/pumpfun/export.csv`: one row per token, for Excel with Norwegian settings.
+  - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths.
+
+  Price paths are kept for 7 days (`pf_prices`). The 1-, 6- and 24-hour prices in `pf_tokens` are kept for good. With about 98 % of launches ending as pump-and-dumps, the filter has to catch well over 99 % of them before what passes is mostly honest.
 
 Sources:
 - pump.fun's unofficial list API (`frontend-api-v3.pump.fun`), for the newest launches
@@ -130,6 +140,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | Job | Equivalent command | When (UTC) |
 |---|---|---|
 | pump.fun | `nordic-signals collect pumpfun` | every 5 minutes, around the clock |
+| pump.fun quotes | none; `PumpFunCollector.quote` | every minute, around the clock: the open fake-money positions' prices, for the live page. Not logged in `runs`. |
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |

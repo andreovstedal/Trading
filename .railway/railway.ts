@@ -1,7 +1,7 @@
 // Railway project: PostgreSQL and the web app. The web app also runs the data
 // collection on its own schedule (src/nordic_signals/scheduler.py): pump.fun every
-// 5 minutes, and the Nordic collectors at set times on weekdays. No separate cron
-// services are needed.
+// 5 minutes (and the fake-money positions' prices every minute), and the Nordic
+// collectors at set times on weekdays. No separate cron services are needed.
 //
 // Apply with the Railway CLI (5.42.1 or newer) from the repository root:
 //   npm install --prefix .railway    # once: installs the "railway" SDK this file imports

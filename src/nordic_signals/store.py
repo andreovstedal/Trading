@@ -347,6 +347,14 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("equity", Float, nullable=False),
         Column("open_positions", Integer, nullable=False),
     )
+    # Price history of the tokens that passed, for the position charts: every price the collector saw, and
+    # the open positions' live quotes. Kept for a week (``collectors.pumpfun.PRICE_HISTORY``).
+    Table(
+        "pf_prices", metadata,
+        Column("mint", Text, primary_key=True),
+        Column("at", DateTime(timezone=True), primary_key=True, index=True),
+        Column("price", Float, nullable=False),
+    )
 
 
 def database_url(value: str | None = None) -> str:

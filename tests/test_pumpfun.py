@@ -1,7 +1,11 @@
 """The pump.fun measurement: discovery, scoring, following the price, labels and results."""
 
+import csv
+import html
+import io
 import json
 import random
+import re
 from datetime import datetime, timedelta, timezone
 
 import httpx
@@ -246,14 +250,15 @@ def test_measurement_page(server, store, db_url, monkeypatch):
     monkeypatch.setenv("SCHEDULER", "off")
     with TestClient(web.create_app(db_url)) as client:
         page = client.get("/pumpfun").text
-    assert "Ingen målinger ennå" in page and "Ingen åpne posisjoner" in page
+    assert "Ingen målinger ennå" in page and "Ingen bags akkurat nå" in page and 'class="degen"' in page
 
     test_tokens_are_scored_followed_and_labelled(server, store)
     with TestClient(web.create_app(db_url)) as client:
         page = client.get("/pumpfun").text
     assert "Siste ferdig målte tokens" in page and "good coin" in page and "Kollapset" in page
     assert "Utstederen har lansert andre tokens det siste døgnet" in page
-    assert "Siste lukkede handler" in page and page.count("<svg") == 2  # account value and results per trade
+    assert "Siste salg" in page and 'class="chart spark spark-mini"' in page
+    assert page.count("<svg") == 3  # account value, the sold position's path and results per trade
 
 
 def add_token(store, mint, scored, status, *, price_24h=None, last_price=None, last_checked=None, passed=True):
@@ -313,7 +318,197 @@ def test_charts():
 
     assert charts.account_chart([(T0, 10.0)], 10.0) == ""
     svg = charts.account_chart([(T0, 10.0), (T0 + timedelta(hours=1), 9.5), (T0 + timedelta(hours=2), 10.4)], 10.0)
-    assert 'class="line"' in svg and "data-points" in svg and "10,40\u00a0SOL" in svg and 'class="ref"' in svg
+    assert 'class="line up"' in svg and "data-points" in svg and "10,400\u00a0SOL" in svg and 'class="ref"' in svg
+    assert 'clip-path="url(#acct-down)"' in svg
+    live = charts.account_chart([(T0, 10.0), (T0 + timedelta(hours=1), 9.5)], 10.0, live=True)
+    tooltips = json.loads(html.unescape(re.search(r'data-points="([^"]*)"', live).group(1)))
+    assert tooltips[-1]["t"] == "nå · 9,500\u00a0SOL" and ">nå</text>" in live and 'class="dot down"' in live
+
+    path = [(T0, -0.025), (T0 + timedelta(hours=1), 0.4), (T0 + timedelta(hours=2), -0.3)]
+    card = charts.sparkline(path, opened=T0, until=T0 + timedelta(hours=24), key="abc")
+    assert 'class="chart spark spark-card"' in card and 'id="card-abc-up"' in card and 'class="dot down"' in card
+    assert "nå -30\u00a0%, høyeste +40\u00a0%, laveste -30\u00a0%" in card and "data-points" in card
+    mini = charts.sparkline(path[:2], opened=T0, until=T0 + timedelta(hours=24), key="abc", size="mini", closed=True)
+    assert "endte på +40\u00a0%" in mini and "data-points" not in mini and 'id="mini-abc-up"' in mini
+    assert charts.sparkline([], opened=T0, until=T0 + timedelta(hours=24), key="x") == ""
     bars = charts.result_bars(pumpfun._bins([-1.0, -0.95, 0.0, 0.7]))
     assert [bars.count(f'class="bar {kind}"') for kind in ("neg", "mid", "pos")] == [1, 1, 1]
     assert "2 handler" in bars
+
+
+def prices(store):
+    p = store.table("pf_prices")
+    return [dict(r) for r in store.query(select(p).order_by(p.c.at))]
+
+
+def test_prices_of_tokens_that_passed_are_kept_for_a_week(server, store):
+    test_tokens_are_scored_followed_and_labelled(server, store)
+    rows = prices(store)
+    assert {r["mint"] for r in rows} == {"good"}  # the others did not pass
+    assert [r["price"] for r in rows] == [1.0e-7, 1.2e-7, 1.5e-7, 1.3e-7]  # when scored and at each check
+
+    run(server, store, T0 + timedelta(days=9))
+    assert prices(store) == [] and tokens(store)["good"]["price_24h"] == 1.3e-7  # the checkpoints stay
+
+
+def held_and_other(server, store):
+    """Two tokens scored at T0 + 11 minutes: "held" passes and is bought, "other" (a fresh wallet) does not."""
+    month_ago = int((T0 - timedelta(days=30)).timestamp())
+    server.add("GET", COINS, httpx.Response(200, json=[coin("held", "alice"), coin("other", "bob")]))
+    market = Market(server)
+    market.wallets = {"alice": [month_ago, month_ago + 3600], "bob": [int((T0 - timedelta(hours=2)).timestamp())]}
+    market.prices = {"held": 1e-7, "other": 1e-7}
+    run(server, store, T0)
+    run(server, store, T0 + timedelta(minutes=11))
+    return market
+
+
+def quote(server, store, at):
+    with server.client() as client:
+        return PumpFunCollector(client, store).quote(at)
+
+
+def test_quotes_move_the_open_positions_but_not_the_measurement(server, store):
+    market = held_and_other(server, store)
+    scored = T0 + timedelta(minutes=11)
+    market.prices = {"held": 2e-7, "other": 5e-7}
+    server.requests.clear()
+    assert quote(server, store, scored + timedelta(minutes=1)) == 1
+    assert [r.url.path.rsplit("/", 1)[-1] for r in server.requests] == ["held"]  # only what the portfolio holds
+    assert quote(server, store, scored + timedelta(minutes=2)) == 0  # unchanged: nothing new to store
+    market.prices["held"] = 3e-7
+    assert quote(server, store, scored + timedelta(minutes=3)) == 1
+
+    (position,) = pumpfun.paper(store)["open"]
+    assert position["price"] == 3e-7 and position["price_at"] == scored + timedelta(minutes=3)
+    assert position["result"] == pytest.approx(3 * (1 - pumpfun.FEE) ** 2 - 1)
+    row = tokens(store)["held"]  # the measurement keeps to the collector's own checks
+    assert row["last_price"] == 1e-7 and row["peak_after"] == 1e-7
+    assert pumpfun._aware(row["last_checked_at"]) == scored
+
+
+def test_position_histories(store):
+    now = T0 + timedelta(hours=3)
+    sold_at = T0 - timedelta(days=2)
+    add_token(store, "open", T0, "tracking", last_price=1.5, last_checked=T0 + timedelta(hours=2))
+    add_token(store, "won", sold_at, "done", price_24h=2.0)
+    add_token(store, "old", T0 - timedelta(hours=10), "tracking", last_price=0.5,  # from before pf_prices
+              last_checked=T0 - timedelta(hours=9))
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_prices").insert(), [
+            *({"mint": "open", "at": T0 + timedelta(minutes=m), "price": 1 + m / 100} for m in range(1, 121)),
+            *({"mint": "won", "at": sold_at + timedelta(hours=h), "price": 1 + h / 10} for h in range(1, 24))])
+
+    p = pumpfun.paper(store)
+    paths = pumpfun.histories(store, [*p["open"], *p["closed"]], now, slices=10)
+
+    kept = (1 - pumpfun.FEE) ** 2
+    opened = paths["open"]
+    assert opened[0] == (T0, pytest.approx(kept - 1))  # just bought: down by the fees
+    assert opened[-1] == (now, pytest.approx(2.2 * kept - 1))  # the latest price, until now
+    assert len(opened) <= 2 * 10 + 2 and max(v for _, v in opened) == pytest.approx(2.2 * kept - 1)
+    assert paths["won"][-1] == (sold_at + timedelta(hours=24), pytest.approx(2.0 * kept - 1))
+    assert [t for t, _ in paths["old"]] == [T0 - timedelta(hours=10), T0 - timedelta(hours=9), now]
+
+
+def test_the_stamp_changes_with_runs_and_quotes(store):
+    first, updated = pumpfun.freshness(store)
+    assert updated is None
+    run_id = store.start_run("pumpfun")
+    started, _ = pumpfun.freshness(store)
+    store.finish_run(run_id, ok=True, summary={})
+    finished, updated = pumpfun.freshness(store)
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_prices").insert().values(mint="a", at=updated + timedelta(minutes=1), price=1.0))
+    quoted, latest = pumpfun.freshness(store)
+    assert len({first, started, finished, quoted}) == 4 and latest == updated + timedelta(minutes=1)
+
+
+def measured_tokens(store, n=80):
+    """``n`` tokens measured at 24 hours: the 30 with the lowest market value collapsed, the rest rose 50 %."""
+    rows = [dict(mint=f"t{i:03}", creator="c", created_at=T0, discovered_at=T0, sampled=True, status="done",
+                 scored_at=T0, screen_version=pumpfun.SCREEN_VERSION, active=True, complete=True, passed=i % 2 == 0,
+                 warnings=[], features={"market_cap_usd": 1000 + i * 100, "trades_5m": 5}, price_t=1.0,
+                 price_1h=1.0, price_6h=1.0, price_24h=0.05 if i < 30 else 1.5, peak_1h=1.0, peak_6h=1.0,
+                 peak_after=1.0 if i < 30 else 2.0, misses=0) for i in range(n)]
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_tokens").insert(), rows)
+
+
+def test_patterns_split_each_feature_into_quarters(store):
+    assert pumpfun.patterns(store) == {"label": None, "populations": {}}
+    measured_tokens(store)
+
+    found = pumpfun.patterns(store)
+
+    assert found["label"] == "24 timer"
+    every = found["populations"]["all"]
+    assert every["n"] == 80 and every["collapse_rate"] == pytest.approx(30 / 80)
+    market = every["features"][0]  # the feature whose quarters differ most comes first
+    assert market["key"] == "market_cap_usd" and market["spread"] == 1.0
+    assert [q["n"] for q in market["quarters"]] == [20, 20, 20, 20]
+    assert [q["collapse_rate"] for q in market["quarters"]] == [1.0, 0.5, 0.0, 0.0]
+    assert market["quarters"][3]["median_return"] == pytest.approx(1.5 * (1 - pumpfun.FEE) ** 2 - 1)
+    same = next(f for f in every["features"] if f["key"] == "trades_5m")  # every token had 5 trades
+    assert same["spread"] is None and [q["collapse_rate"] for q in same["quarters"]][:3] == [None] * 3
+    missing = next(f for f in every["features"] if f["key"] == "top10_share")
+    assert missing["n"] == 0 and missing["quarters"] == [] and every["features"][-1]["spread"] is None
+    assert found["populations"]["passed"]["n"] == 40
+
+
+def page_client(db_url, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    monkeypatch.delenv("APP_PASSWORD", raising=False)
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT_ID", raising=False)
+    monkeypatch.setenv("SCHEDULER", "off")
+    return TestClient(web.create_app(db_url))
+
+
+def test_the_log_downloads(server, store, db_url, monkeypatch):
+    test_tokens_are_scored_followed_and_labelled(server, store)
+    with page_client(db_url, monkeypatch) as client:
+        spreadsheet = client.get("/pumpfun/export.csv")
+        everything = client.get("/pumpfun/export.json")
+
+    assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="pumpfun-logg-20')
+    assert spreadsheet.text.startswith("﻿Token (adresse);Navn;")
+    header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
+    assert len(rows) == 3  # every sampled token
+    good = dict(zip(header, next(r for r in rows if r[0] == "good"), strict=True))
+    assert good["Bestod filteret"] == "ja" and good["Kollapset etter 24 t"] == "nei"
+    assert good["Markedsverdi ved vurdering (SOL)"] == "100,000"  # a price of 1e-7 SOL times a billion tokens
+    assert good["Avkastning etter 24 t (%)"] == f"{(1.3 * (1 - pumpfun.FEE) ** 2 - 1) * 100:.2f}".replace(".", ",")
+    assert good["Fiktiv handel"] == "kjøpt og solgt" and good["Lansert (norsk tid)"] == "2026-10-02 13:59:00"
+    dumpy = dict(zip(header, next(r for r in rows if r[0] == "dumpy"), strict=True))
+    assert dumpy["Varseltegn"].startswith("Utstederen har lansert") and dumpy["Fiktiv handel"] == ""
+
+    data = everything.json()
+    assert list(data) == ["meta", "tokens", "trades", "equity", "price_history"]
+    assert [t["mint"] for t in data["tokens"]] == ["dumpy2", "dumpy", "good"]  # oldest first
+    token = data["tokens"][2]
+    assert token["paper"] == "sold" and token["collapsed_24h"] is False and token["features"]["trades_5m"] == 4
+    assert token["return_24h"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
+    assert data["trades"][0]["mint"] == "good" and data["trades"][0]["sell_price"] == 1.3e-7
+    assert len(data["equity"]) == 4 and len(data["price_history"]) == 4
+    assert data["meta"]["screen_version"] == pumpfun.SCREEN_VERSION
+
+
+def test_the_live_page(server, store, db_url, monkeypatch):
+    market = held_and_other(server, store)
+    with page_client(db_url, monkeypatch) as client:
+        page = client.get("/pumpfun").text
+        stamp = client.get("/pumpfun/version").json()["v"]
+        market.prices["held"] = 2e-7
+        quote(server, store, T0 + timedelta(minutes=12))
+        moved = client.get("/pumpfun/version").json()["v"]
+        six_hours = client.get("/pumpfun?periode=6t").text
+        unknown = client.get("/pumpfun?periode=1y").text
+        assets = [client.get(path) for path in ("/static/live.js", "/static/pumpfun-hero.webp")]
+
+    assert 'class="degen"' in page and 'data-live-page data-version="' in page and "/static/live.js" in page
+    assert page.count('class="chart spark spark-card"') == 1 and "$HELD" in page and 'id="pf-tape"' in page
+    assert page.count("data-live") >= 8 and "Mønstre i galskapen" in page and "/pumpfun/export.json" in page
+    assert moved != stamp
+    assert 'data-periode="6t" class="on"' in six_hours and 'data-periode="24t" class="on"' in unknown
+    assert [a.status_code for a in assets] == [200, 200] and assets[1].headers["content-type"] == "image/webp"

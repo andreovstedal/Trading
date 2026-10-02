@@ -1,14 +1,19 @@
-"""Small server-side SVG charts in the app's colour tokens, so they follow light and dark mode.
+"""Small server-side SVG charts in the app's colour tokens.
 
 * ``account_chart``: the fake-money account's value over time. One series, so no legend (the card title
-  names it); the starting amount is a dashed reference line; the latest value is labelled directly; a
-  crosshair and tooltip follow the pointer (``static/charts.js``).
-* ``result_bars``: closed trades by result. Blue for gains, orange for losses and grey near zero: a
-  diverging pair colour-blind readers can tell apart, while the green and red status colours stay reserved
-  for status. Each bar has a tooltip; counts are in the table view under the chart.
+  names it); the starting amount is a dashed reference line, the line and the area to it are green above and
+  pink below, and the latest value is labelled directly. A crosshair and tooltip follow the pointer
+  (``static/charts.js``).
+* ``sparkline``: one position's result after fees since it was bought, the same way around a dashed
+  break-even line. A sold position's axis is its 24 hours; an open one's runs to now (at least an hour), so
+  a new position's first minutes fill the chart.
+* ``result_bars``: closed trades by result: gains, losses and the bins near zero in grey. Each bar has a
+  tooltip; counts are in the table view under the chart.
 
-Text uses the ink colours, never the series colours. Bars have 4 px rounded tops anchored to the baseline
-and a 2 px gap between them.
+Green and pink are a diverging pair that colour-blind readers can only just tell apart, so the reference
+line, the bins' signed labels and the ▲/▼ beside each number say the same without colour. Text uses the
+ink colours, never the series colours. Bars have 4 px rounded tops anchored to the baseline and a 2 px gap
+between them.
 """
 
 from __future__ import annotations
@@ -23,11 +28,14 @@ from markupsafe import Markup, escape
 from .. import text
 
 WIDTH, HEIGHT = 640, 240
-LEFT, RIGHT, TOP, BOTTOM = 52, 84, 14, 30
+LEFT, RIGHT, TOP, BOTTOM = 52, 96, 14, 30
 MIN_SPAN = 0.02  # the account chart always shows at least ±2 % around the start, so small moves look small
+SPARK = {"card": (280, 84, 6), "mini": (120, 30, 3)}  # width, height, padding
+SPARK_MIN_SPAN = 0.10  # a position's chart shows at least −10 % to +10 %
 
 
-def account_chart(points: list[tuple[datetime, float]], start: float) -> Markup:
+def account_chart(points: list[tuple[datetime, float]], start: float, *, live: bool = False) -> Markup:
+    """``live``: the last point is the value now, between two recorded ones."""
     if len(points) < 2:
         return Markup("")
     t0, t1 = points[0][0].timestamp(), points[-1][0].timestamp()
@@ -43,26 +51,64 @@ def account_chart(points: list[tuple[datetime, float]], start: float) -> Markup:
 
     coords = [(x(t.timestamp()), y(v)) for t, v in points]
     ticks, digits = _ticks(lo, hi)
-    parts = [_grid(ticks, digits, y)]
+    parts = [_grid(ticks, digits, y), _split(coords, y(start), "acct", (LEFT, TOP, WIDTH - RIGHT, HEIGHT - BOTTOM))]
+    # The start label goes on the side of the reference line that the first part of the line keeps away from.
+    early = [v for _, v in points[:max(2, len(points) // 6)]]
+    label_at = y(start) + 16 if sum(early) / len(early) >= start else y(start) - 6
     parts.append(f'<line class="ref" x1="{LEFT}" x2="{WIDTH - RIGHT}" y1="{y(start)}" y2="{y(start)}"/>'
-                 f'<text class="axis-label" x="{LEFT + 6}" y="{y(start) - 6}">start {_sol(start)}</text>')
-    parts.append('<path class="line" d="M' + " L".join(f"{cx},{cy}" for cx, cy in coords) + '"/>')
+                 f'<text class="axis-label" x="{LEFT + 6}" y="{label_at}">start {_sol(start)}</text>')
     last_x, last_y = coords[-1]
     label_y = last_y - 10 if abs(last_y - y(start)) < 14 else last_y + 4
-    parts.append(f'<circle class="dot" cx="{last_x}" cy="{last_y}" r="4"/>'
+    side = "up" if points[-1][1] >= start else "down"
+    parts.append(f'<circle class="dot {side}" cx="{last_x}" cy="{last_y}" r="4"/>'
                  f'<text class="value-label" x="{last_x + 8}" y="{label_y}">{_sol(points[-1][1])}</text>')
     for when, cx in ((points[0][0], LEFT), (points[-1][0], WIDTH - RIGHT)):
         anchor = "start" if cx == LEFT else "end"
-        parts.append(f'<text class="axis-label" x="{cx}" y="{HEIGHT - 8}" text-anchor="{anchor}">{_when(when)}</text>')
-    parts.append(f'<line class="cross" x1="0" x2="0" y1="{TOP}" y2="{HEIGHT - BOTTOM}" visibility="hidden"/>'
-                 f'<circle class="dot hover" r="4" visibility="hidden"/>'
-                 f'<rect class="hit" x="{LEFT}" y="{TOP}" width="{WIDTH - LEFT - RIGHT}" '
-                 f'height="{HEIGHT - TOP - BOTTOM}"/>')
-    data = [{"x": cx, "y": cy, "t": f"{_when(when)} · {_sol(v)}"} for (when, v), (cx, cy) in zip(points, coords,
-                                                                                                strict=True)]
+        label = "nå" if live and cx != LEFT else _when(when)
+        parts.append(f'<text class="axis-label" x="{cx}" y="{HEIGHT - 8}" text-anchor="{anchor}">{label}</text>')
+    parts.append(_hover(TOP, HEIGHT - BOTTOM, LEFT, WIDTH - LEFT - RIGHT))
+    data = [{"x": cx, "y": cy, "t": f"{_when(when)} · {_sol(v)}"}
+            for (when, v), (cx, cy) in zip(points, coords, strict=True)]
+    if live:
+        data[-1]["t"] = f"nå · {_sol(points[-1][1])}"
     label = (f"Kontoverdi fra {_sol(points[0][1])} til {_sol(points[-1][1])}, "
-             f"{_when(points[0][0])} til {_when(points[-1][0])}. Start: {_sol(start)}.")
-    return _figure(parts, label, data)
+             f"{_when(points[0][0])} til {'nå' if live else _when(points[-1][0])}. Start: {_sol(start)}.")
+    return _figure(parts, label, data, (WIDTH, HEIGHT))
+
+
+def sparkline(series: list[tuple[datetime, float]], *, opened: datetime, until: datetime, key: str,
+              size: str = "card", closed: bool = False) -> Markup:
+    """``series``: (time, result after fees) from the purchase on, drawn from ``opened`` to ``until``.
+    ``key`` makes the clip paths unique on the page."""
+    if not series:
+        return Markup("")
+    width, height, pad = SPARK[size]
+    values = [v for _, v in series]
+    lo, hi = min(*values, -SPARK_MIN_SPAN), max(*values, SPARK_MIN_SPAN)
+    lo, hi = lo - (hi - lo) * 0.08, hi + (hi - lo) * 0.08
+    t0, span = opened.timestamp(), max((until - opened).total_seconds(), 60.0)
+
+    def x(when: datetime) -> float:
+        return round(pad + min(max((when.timestamp() - t0) / span, 0), 1) * (width - 2 * pad), 1)
+
+    def y(v: float) -> float:
+        return round(pad + (hi - v) / (hi - lo) * (height - 2 * pad), 1)
+
+    coords = [(x(t), y(v)) for t, v in series]
+    zero = y(0)
+    side = "up" if values[-1] >= 0 else "down"
+    parts = [f'<line class="ref" x1="{pad}" x2="{width - pad}" y1="{zero}" y2="{zero}"/>',
+             _split(coords, zero, f"{size}-{key}", (0, 0, width, height))]
+    parts.append(f'<circle class="dot {side}" cx="{coords[-1][0]}" cy="{coords[-1][1]}" r="{3 if size == "mini" else 4}"/>')
+    data = None
+    if size == "card":
+        parts.append(_hover(pad, height - pad, pad, width - 2 * pad))
+        data = [{"x": cx, "y": cy, "t": f"{_clock(when)} · {text.percent(v, 1, True)}"}
+                for (when, v), (cx, cy) in zip(series, coords, strict=True)]
+    how = "endte på" if closed else "nå"
+    label = (f"Resultat etter gebyrer siden kjøpet: {how} {text.percent(values[-1], 0, True)}, høyeste "
+             f"{text.percent(max(values), 0, True)}, laveste {text.percent(min(values), 0, True)}.")
+    return _figure(parts, label, data, (width, height), css=f"spark spark-{size}")
 
 
 def result_bars(bins: list[dict[str, Any]]) -> Markup:
@@ -94,14 +140,37 @@ def result_bars(bins: list[dict[str, Any]]) -> Markup:
         parts.append(f'<text class="axis-label" x="{round(x0 + width / 2, 1)}" y="{HEIGHT - 8}" '
                      f'text-anchor="middle">{escape(b["label"])}</text>')
     label = "Lukkede handler etter resultat: " + ", ".join(f'{b["label"]} %: {b["count"]}' for b in bins) + "."
-    return _figure(parts, label, None)
+    return _figure(parts, label, None, (WIDTH, HEIGHT))
 
 
-def _figure(parts: list[str], label: str, data: list[dict[str, Any]] | None) -> Markup:
+def _split(coords: list[tuple[float, float]], base: float, key: str, box: tuple[float, float, float, float]) -> str:
+    """The line and the area between it and ``base``: green where it is above, pink where it is below."""
+    left, top, right, bottom = box
+    line = "M" + " L".join(f"{cx},{cy}" for cx, cy in coords)
+    area = f"{line} L{coords[-1][0]},{base} L{coords[0][0]},{base} Z"
+    clips = (f'<clipPath id="{key}-up"><rect x="{left}" y="{top}" width="{right - left}" '
+             f'height="{max(base - top, 0)}"/></clipPath>'
+             f'<clipPath id="{key}-down"><rect x="{left}" y="{base}" width="{right - left}" '
+             f'height="{max(bottom - base, 0)}"/></clipPath>')
+    return (f"<defs>{clips}</defs>"
+            + "".join(f'<path class="area {side}" d="{area}" clip-path="url(#{key}-{side})"/>' for side in ("up", "down"))
+            + "".join(f'<path class="line {side}" d="{line}" clip-path="url(#{key}-{side})"/>'
+                      for side in ("up", "down")))
+
+
+def _hover(top: float, bottom: float, left: float, width: float) -> str:
+    return (f'<line class="cross" x1="0" x2="0" y1="{top}" y2="{bottom}" visibility="hidden"/>'
+            f'<circle class="dot hover" r="4" visibility="hidden"/>'
+            f'<rect class="hit" x="{left}" y="{top}" width="{width}" height="{bottom - top}"/>')
+
+
+def _figure(parts: list[str], label: str, data: list[dict[str, Any]] | None, size: tuple[int, int], *,
+            css: str = "") -> Markup:
     attrs = f' data-points="{escape(json.dumps(data))}"' if data else ""
-    svg = (f'<svg viewBox="0 0 {WIDTH} {HEIGHT}" role="img" aria-label="{escape(label)}">'
+    svg = (f'<svg viewBox="0 0 {size[0]} {size[1]}" role="img" aria-label="{escape(label)}">'
            + "".join(parts) + "</svg>")
-    return Markup(f'<div class="chart"{attrs}>{svg}<div class="tip" hidden></div></div>')
+    tip = '<div class="tip" hidden></div>' if data else ""
+    return Markup(f'<div class="chart{" " + css if css else ""}"{attrs}>{svg}{tip}</div>')
 
 
 def _grid(ticks: list[float], digits: int, y: Any) -> str:
@@ -136,9 +205,13 @@ def _padded(lo: float, hi: float) -> tuple[float, float]:
 
 
 def _sol(value: float) -> str:
-    return f"{text.number(value, 2)}{text.NBSP}SOL"
+    return f"{text.number(value, 3)}{text.NBSP}SOL"
 
 
 def _when(value: datetime) -> str:
     local = value.astimezone(text.OSLO)
     return f"{local.day}. {text.MONTHS[local.month - 1]} {local:%H:%M}"
+
+
+def _clock(value: datetime) -> str:
+    return f"{value.astimezone(text.OSLO):%H:%M}"

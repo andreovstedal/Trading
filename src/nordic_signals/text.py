@@ -42,6 +42,10 @@ def date_time(value: datetime) -> str:
     return f"{day(local)}, {local:%H:%M}"
 
 
+def clock(value: datetime) -> str:
+    return f"{_local(value):%H:%M}"
+
+
 def day(value: date) -> str:
     """A calendar date, "30. sep. 2026"; a datetime is first converted to Oslo time."""
     if isinstance(value, datetime):

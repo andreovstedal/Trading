@@ -42,15 +42,19 @@ def due(store, now):
     return [job.name for job in scheduler.JOBS if job.is_due(store, job.name, now)]
 
 
+PUMPFUN = ["pumpfun", "pumpfun-quotes"]
+
+
 def test_jobs_due_through_a_weekday(store):
-    assert due(store, at(MONDAY, 3)) == ["pumpfun"]
-    assert due(store, at(MONDAY, 12)) == ["pumpfun", "intraday"]
-    assert due(store, at(MONDAY, 20, 31)) == ["pumpfun", "nightly"]
-    assert due(store, at(MONDAY, 21, 31)) == ["pumpfun", "nightly", "mfn", "prices"]
-    assert due(store, at(MONDAY + timedelta(days=5), 21, 31)) == ["pumpfun"]  # Saturday
+    assert due(store, at(MONDAY, 3)) == PUMPFUN
+    assert due(store, at(MONDAY, 12)) == [*PUMPFUN, "intraday"]
+    assert due(store, at(MONDAY, 20, 31)) == [*PUMPFUN, "nightly"]
+    assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "mfn", "prices"]
+    assert due(store, at(MONDAY + timedelta(days=5), 21, 31)) == PUMPFUN  # Saturday
 
 
-def test_what_already_ran_is_not_repeated(store):
+def test_what_already_ran_is_not_repeated(store, monkeypatch):
+    monkeypatch.setattr(scheduler, "JOBS", [job for job in scheduler.JOBS if job.name != "pumpfun-quotes"])
     now = at(MONDAY, 21, 40)
     add_run(store, "pumpfun", now - timedelta(minutes=2))
     add_run(store, "no-short", at(MONDAY, 20, 30))  # the nightly set, from a cron service
@@ -129,3 +133,18 @@ def test_the_pumpfun_job_runs_the_collector(server, store, monkeypatch):
 
     (run,) = store.last_runs()
     assert run["source"] == "pumpfun" and run["ok"] is True
+
+
+def test_quotes_run_every_minute_without_logging_runs(store, monkeypatch):
+    quoted = []
+    monkeypatch.setattr(scheduler.PumpFunCollector, "quote", lambda self: quoted.append(self) or 0)
+    monkeypatch.setattr(scheduler, "JOBS", [job for job in scheduler.JOBS if job.name == "pumpfun-quotes"])
+    clock = Clock(at(MONDAY, 12))
+    schedule = Scheduler(store, client_factory=NoNetwork, clock=clock)
+
+    assert schedule.run_due("pumpfun") == ["pumpfun-quotes"]
+    clock.now += timedelta(seconds=scheduler.TICK)  # the next check: too soon
+    assert schedule.run_due("pumpfun") == []
+    clock.now += timedelta(seconds=scheduler.TICK)
+    assert schedule.run_due("pumpfun") == ["pumpfun-quotes"]
+    assert len(quoted) == 2 and store.last_runs() == []

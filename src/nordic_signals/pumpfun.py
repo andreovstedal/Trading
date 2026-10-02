@@ -18,20 +18,28 @@ catch well over 99 % of them before the tokens that pass are mostly honest.
 
 ``paper`` turns the same data into a fake-money portfolio: 10 SOL, 0.1 SOL into every token that passes
 (while the cash lasts), sold after 24 hours, fees on both trades, and a token whose price disappears
-counted as lost. ``snapshot`` records its value after every collector run, for the chart.
+counted as lost. Open positions are valued at the latest price, including the live quotes. ``snapshot``
+records the portfolio's value after every collector run, for the chart, and ``histories`` gives each
+position's result over time.
+
+``patterns`` splits the measured tokens into quarters by each feature seen at scoring (market value,
+trades, the creator wallet's activity, ...) and shows how often each quarter collapsed and what it
+returned: where to look for the next rule. ``log_rows`` is the downloadable log of everything measured.
 
 Change SCREEN_VERSION whenever a rule or limit changes; results are shown for the current version only.
 """
 
 from __future__ import annotations
 
+import bisect
 import math
-from collections import Counter
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterator
 from datetime import datetime, timedelta, timezone
-from statistics import mean, median
+from statistics import mean, median, quantiles
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from .store import Store, utcnow
 
@@ -171,8 +179,8 @@ def paper(store: Store) -> dict[str, Any]:
     """Replay every token that passed, in order: buy 0.1 SOL while the cash lasts, sell after 24 hours."""
     t = store.table("pf_tokens")
     rows = [dict(r) for r in store.query(
-        select(t.c.mint, t.c.name, t.c.symbol, t.c.status, t.c.scored_at, t.c.price_t, t.c.price_24h,
-               t.c.last_price, t.c.last_checked_at)
+        select(t.c.mint, t.c.name, t.c.symbol, t.c.status, t.c.scored_at, t.c.price_t, t.c.price_1h, t.c.price_6h,
+               t.c.price_24h, t.c.last_price, t.c.last_checked_at)
         .where(t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.passed.is_(True)))]
     events = []
     for r in rows:
@@ -200,10 +208,13 @@ def paper(store: Store) -> dict[str, Any]:
             closed.append({**position, "closed_at": at, "exit_price": exit_price, "proceeds": proceeds,
                            "result": proceeds / PAPER_STAKE - 1, "lost": lost})
 
+    latest = latest_prices(store, list(holding))
     open_positions = []
     for position in holding.values():
-        value = position["qty"] * (position["last_price"] or 0) * (1 - FEE)  # what a sale would bring now
-        open_positions.append({**position, "value": value, "result": value / PAPER_STAKE - 1})
+        price_at, price = latest.get(position["mint"], (_aware(position["last_checked_at"]), position["last_price"]))
+        value = position["qty"] * (price or 0) * (1 - FEE)  # what a sale would bring now
+        open_positions.append({**position, "price": price, "price_at": price_at, "value": value,
+                               "result": value / PAPER_STAKE - 1})
     positions_value = sum(p["value"] for p in open_positions)
     equity = cash + positions_value
     return {
@@ -231,14 +242,205 @@ def snapshot(store: Store, now: datetime | None = None) -> None:
             open_positions=len(p["open"])).on_conflict_do_nothing(index_elements=["at"]))
 
 
-def equity_history(store: Store, *, points: int = 400) -> list[tuple[datetime, float]]:
-    """The recorded values, thinned to at most ``points`` for the chart (always keeping the latest)."""
+def equity_history(store: Store, *, since: datetime | None = None,
+                   points: int = 400) -> list[tuple[datetime, float]]:
+    """The recorded values (from ``since``), thinned to at most ``points`` for the chart, keeping the latest."""
     e = store.table("pf_equity")
-    rows = store.query(select(e.c.at, e.c.equity).order_by(e.c.at))
+    stmt = select(e.c.at, e.c.equity).order_by(e.c.at)
+    rows = store.query(stmt if since is None else stmt.where(e.c.at >= since))
     if len(rows) > points:
         step = math.ceil(len(rows) / points)
         rows = [*rows[::step], rows[-1]] if (len(rows) - 1) % step else rows[::step]
     return [(_aware(r["at"]), r["equity"]) for r in rows]
+
+
+def latest_prices(store: Store, mints: list[str]) -> dict[str, tuple[datetime, float]]:
+    """Each token's newest recorded price and when it was seen."""
+    if not mints:
+        return {}
+    p = store.table("pf_prices")
+    newest = (select(p.c.mint, func.max(p.c.at).label("at")).where(p.c.mint.in_(mints))
+              .group_by(p.c.mint).subquery())
+    rows = store.query(select(p.c.mint, p.c.at, p.c.price)
+                       .join(newest, (p.c.mint == newest.c.mint) & (p.c.at == newest.c.at)))
+    return {r["mint"]: (_aware(r["at"]), r["price"]) for r in rows}
+
+
+def histories(store: Store, positions: list[dict[str, Any]], now: datetime, *,
+              slices: int = 40) -> dict[str, list[tuple[datetime, float]]]:
+    """Each position's result after fees from its purchase until it was sold (or now), for a small chart.
+
+    From the recorded prices, or for a position bought before they were recorded, its 1- and 6-hour
+    prices. A position still open is drawn at its latest price until now.
+    """
+    observed: dict[str, list[tuple[datetime, float]]] = defaultdict(list)
+    if positions:
+        p = store.table("pf_prices")
+        for r in store.query(select(p.c.mint, p.c.at, p.c.price)
+                             .where(p.c.mint.in_([pos["mint"] for pos in positions])).order_by(p.c.at)):
+            observed[r["mint"]].append((_aware(r["at"]), r["price"]))
+    out = {}
+    for pos in positions:
+        start, closed = pos["opened_at"], "closed_at" in pos
+        end = pos["closed_at"] if closed else now
+        prices = [(t, v) for t, v in observed.get(pos["mint"], []) if start < t <= end] or _checkpoints(pos, end)
+        series = [(start, pos["price_t"]), *prices]
+        if closed:
+            series.append((end, pos["exit_price"]))  # sold at the 24-hour price, or nothing if it disappeared
+        elif series[-1][0] < now:
+            series.append((now, series[-1][1]))
+        out[pos["mint"]] = _thin([(t, net_return(pos["price_t"], v)) for t, v in series], slices)
+    return out
+
+
+def _checkpoints(pos: dict[str, Any], end: datetime) -> list[tuple[datetime, float]]:
+    start = pos["opened_at"]
+    points = [(start + after, pos[column]) for column, after in (("price_1h", timedelta(hours=1)),
+                                                                 ("price_6h", timedelta(hours=6)))
+              if pos.get(column) is not None]
+    if pos.get("price") is not None and pos.get("price_at") is not None:
+        points.append((pos["price_at"], pos["price"]))
+    return sorted(point for point in points if start < point[0] <= end)
+
+
+def _thin(series: list[tuple[datetime, float]], slices: int) -> list[tuple[datetime, float]]:
+    """About two points per time slice, the lowest and the highest, so short spikes stay visible."""
+    if len(series) <= 2 * slices + 2 or series[-1][0] <= series[0][0]:
+        return series
+    first, last = series[0], series[-1]
+    width = (last[0] - first[0]) / slices
+    groups: dict[int, list[tuple[datetime, float]]] = defaultdict(list)
+    for point in series[1:-1]:
+        groups[min(int((point[0] - first[0]) / width), slices - 1)].append(point)
+    out = [first]
+    for key in sorted(groups):
+        group = groups[key]
+        out.extend(sorted({min(group, key=lambda q: q[1]), max(group, key=lambda q: q[1])}))
+    return [*out, last]
+
+
+def freshness(store: Store) -> tuple[str, datetime | None]:
+    """A stamp that changes whenever the page's data does (a pump.fun run starts or ends, a quote arrives),
+    and when the data last changed."""
+    runs, p = store.table("runs"), store.table("pf_prices")
+    last = store.query(select(runs.c.id, runs.c.started_at, runs.c.finished_at)
+                       .where(runs.c.source == "pumpfun").order_by(runs.c.id.desc()).limit(1))
+    quoted = _aware(store.scalar(select(func.max(p.c.at))))
+    run = last[0] if last else {"id": 0, "started_at": None, "finished_at": None}
+    finished = _aware(run["finished_at"])
+    stamp = f"{run['id']}.{_ms(finished)}.{_ms(quoted)}"
+    return stamp, max((t for t in (finished, quoted) if t), default=None)
+
+
+def _ms(value: datetime | None) -> str:
+    return str(round(value.timestamp() * 1000)) if value else "0"
+
+
+# Patterns: how the outcome varies with each feature seen at scoring
+
+PATTERN_MIN = 40  # measured tokens with the feature before it is split into quarters
+PATTERN_MIN_GROUP = 10  # tokens in a quarter before its figures are shown
+PATTERN_HORIZON_MIN = 100  # the longest horizon with this many measured tokens; else the one with the most
+
+
+def _fraction(part: float | None, other: float | None) -> float | None:
+    return part / (part + other) if part is not None and other is not None and part + other > 0 else None
+
+
+def _ratio(value: float | None, of: float | None) -> float | None:
+    return value / of if value and of else None
+
+
+# Key, label, how the cut points are written ("number", "decimal" or "percent"), value from the features.
+PATTERNS: tuple[tuple[str, str, str, Callable[[dict[str, Any]], float | None]], ...] = (
+    ("market_cap_usd", "Markedsverdi (USD)", "number", lambda f: f.get("market_cap_usd")),
+    ("trades_5m", "Handler de siste 5 minuttene", "number", lambda f: f.get("trades_5m")),
+    ("buy_share_1h", "Andel kjøp av handlene den siste timen", "percent",
+     lambda f: _fraction(f.get("buys_1h"), f.get("sells_1h"))),
+    ("volume_1h_usd", "Volum den siste timen (USD)", "number", lambda f: f.get("volume_1h_usd")),
+    ("from_peak", "Kurs i forhold til toppen før vurderingen", "percent",
+     lambda f: _ratio(f.get("price"), f.get("peak_before"))),
+    ("creator_tx", "Utstederens transaksjoner (av de siste 200)", "number", lambda f: f.get("creator_tx")),
+    ("creator_age_h", "Utstederens lommebok: alder i timer", "decimal",
+     lambda f: f.get("creator_age_h") if f.get("creator_history_complete") else None),
+    ("creator_tx_per_h", "Utstederens transaksjoner per time", "decimal", lambda f: f.get("creator_tx_per_h")),
+    ("top10_share", "De ti største eiernes andel", "percent", lambda f: f.get("top10_share")),
+)
+
+
+def patterns(store: Store) -> dict[str, Any]:
+    """Each feature's quarters, for all active tokens and for those that passed, at the longest horizon with
+    enough measurements (early on, the one with the most). Sorted by how far apart the quarters' collapse
+    rates are."""
+    t = store.table("pf_tokens")
+    names = ("mint", "features", "passed", "price_t", *{c for horizon in HORIZONS for c in horizon[:2]})
+    rows = [dict(r) for r in store.query(select(*[t.c[n] for n in names]).where(
+        t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.active.is_(True),
+        t.c.complete.is_(True), t.c.scored_at.is_not(None)))]
+    by_horizon = [([r for r in rows if r[price] is not None and r[peak] and r["price_t"]], price, peak, label)
+                  for price, peak, label in HORIZONS]
+    if not any(h[0] for h in by_horizon):
+        return {"label": None, "populations": {}}
+    enough = [h for h in by_horizon if len(h[0]) >= PATTERN_HORIZON_MIN]
+    # On a tie, max keeps the first it meets: the longest horizon.
+    measured, price, peak, label = enough[-1] if enough else max(reversed(by_horizon), key=lambda h: len(h[0]))
+    outcomes = [{"features": r["features"] or {}, "passed": r["passed"],
+                 "collapsed": r[price] <= COLLAPSE_LEVEL * r[peak], "return": net_return(r["price_t"], r[price])}
+                for r in measured]
+    populations = {"all": outcomes, "passed": [o for o in outcomes if o["passed"]]}
+    return {"label": label, "populations": {key: {
+        **_outcome(group),
+        "features": sorted((_pattern(spec, group) for spec in PATTERNS),
+                           key=lambda f: (f["spread"] is None, -(f["spread"] or 0))),
+    } for key, group in populations.items()}}
+
+
+def _outcome(group: list[dict[str, Any]]) -> dict[str, Any]:
+    return {"n": len(group),
+            "collapse_rate": _share([o for o in group if o["collapsed"]], group),
+            "median_return": median(o["return"] for o in group) if group else None}
+
+
+def _pattern(spec: tuple[str, str, str, Callable], group: list[dict[str, Any]]) -> dict[str, Any]:
+    key, label, unit, value_of = spec
+    values = [(v, o) for o in group if (v := value_of(o["features"])) is not None]
+    out: dict[str, Any] = {"key": key, "label": label, "unit": unit, "n": len(values), "cuts": [], "quarters": [],
+                           "spread": None}
+    if len(values) < PATTERN_MIN:
+        return out
+    cuts = quantiles([v for v, _ in values], n=4)
+    quarters: list[list[dict[str, Any]]] = [[], [], [], []]
+    for v, o in values:
+        quarters[bisect.bisect_right(cuts, v)].append(o)
+    stats = [_outcome(q) if len(q) >= PATTERN_MIN_GROUP else {"n": len(q), "collapse_rate": None,
+                                                                "median_return": None} for q in quarters]
+    rates = [s["collapse_rate"] for s in stats if s["collapse_rate"] is not None]
+    out.update(cuts=cuts, quarters=stats, spread=max(rates) - min(rates) if len(rates) >= 2 else None)
+    return out
+
+
+# The downloadable log
+
+def log_rows(store: Store) -> Iterator[dict[str, Any]]:
+    """Every sampled token, oldest first: what was stored, its outcome at each horizon, and what the fake-money
+    portfolio did with it."""
+    portfolio = paper(store)
+    trades = {p["mint"]: p for p in (*portfolio["open"], *portfolio["closed"])}
+    t = store.table("pf_tokens")
+    stmt = select(t).where(t.c.sampled.is_(True)).order_by(t.c.created_at, t.c.mint)
+    with store.engine.connect() as conn:
+        for row in conn.execution_options(yield_per=500).execute(stmt).mappings():
+            r = dict(row)
+            for price, peak, _ in HORIZONS:
+                h = price.removeprefix("price_")
+                r[f"return_{h}"] = net_return(r["price_t"], r[price])
+                r[f"collapsed_{h}"] = (r[price] <= COLLAPSE_LEVEL * r[peak]
+                                       if r[price] is not None and r[peak] else None)
+            trade = trades.get(r["mint"])
+            current = r["passed"] and r["screen_version"] == SCREEN_VERSION
+            r["paper"] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)
+            r["paper_result"] = trade["result"] if trade else None
+            yield r
 
 
 def _bins(results: list[float]) -> list[dict[str, Any]]:
