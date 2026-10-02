@@ -1,0 +1,97 @@
+{% extends "base.html" %}
+{% block title %}{{ instrument.name }} · Nordic signals{% endblock %}
+{% block content %}
+{% set f = line.features if line else {} %}
+<div class="page-head">
+  <div>
+    <h1>{{ instrument.name }}</h1>
+    <p class="muted">{{ instrument.symbol }} · {{ instrument.isin }} · {{ (instrument.exchanges or []) | join(", ") }} · {{ instrument.currency }}</p>
+  </div>
+</div>
+
+{% if line %}
+<div class="tiles">
+  <div class="tile"><div class="label">Poeng (anbefaling nr. {{ line.recommendation_id }})</div>
+    <div class="value">{{ line.score | num(2) }}</div>
+    <div class="sub">{% if line.rank %}plass {{ line.rank }}{% else %}{{ line.exclusion }}{% endif %}</div></div>
+  <div class="tile"><div class="label">Kurs</div><div class="value">{{ line.ref_price | num(2) }}</div><div class="sub">{{ line.currency }}</div></div>
+  <div class="tile"><div class="label">Avkastning 12 mnd.</div><div class="value">{{ f.ret_1y | pct(0, True) }}</div><div class="sub">1 mnd. {{ f.ret_1m | pct(1, True) }}</div></div>
+  <div class="tile"><div class="label">Eiere hos Nordnet</div><div class="value">{{ f.owners | num }}</div>
+    <div class="sub">{% if f.owners_change is not none %}{{ f.owners_change | pct(1, True) }} på 4 uker{% else %}endringen krever 4 uker med data{% endif %}</div></div>
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Temaer</h2>
+    <p class="small muted">Persentil innenfor {{ line.country }}: 1,00 er best i landet.</p>
+    <dl class="kv">
+      {% for theme, value in (line.themes or {}).items() %}<dt>{{ theme | label }}</dt><dd>{{ value | num(2) }}</dd>{% endfor %}
+      {% for name, value in (line.overlays or {}).items() %}<dt>Justering for {{ name | label | lower }}</dt><dd>{{ value | num(2, True) }}</dd>{% endfor %}
+    </dl>
+    {% if line.reasons %}<div class="chips" style="margin-top:12px">{% for r in line.reasons %}<span class="chip">{{ r }}</span>{% endfor %}</div>{% endif %}
+  </div>
+  <div class="card">
+    <h2>Nøkkeltall</h2>
+    <dl class="kv">
+      <dt>P/E</dt><dd>{{ f.pe | num(1) }}</dd>
+      <dt>P/B</dt><dd>{{ f.pb | num(2) }}</dd>
+      <dt>Direkteavkastning</dt><dd>{{ f.dividend_yield | pct }}</dd>
+      <dt>Egenkapitalavkastning (anslått)</dt><dd>{{ f.roe | pct(0) }}</dd>
+      <dt>Volatilitet (årlig)</dt><dd>{{ f.volatility | pct(0) }}</dd>
+      <dt>Markedsverdi</dt><dd>{{ f.market_cap | num }} {{ line.currency }}</dd>
+      <dt>Median dagsomsetning</dt><dd>{{ f.adv | num }} {{ line.currency }}</dd>
+      <dt>Shortandel</dt><dd>{{ (f.short_pct or 0) | points(2) }}</dd>
+      <dt>Neste rapport</dt><dd>{{ f.report_date | day }}</dd>
+      <dt>Eks. utbytte</dt><dd>{{ f.ex_date | day }}</dd>
+    </dl>
+  </div>
+</div>
+{% else %}
+<div class="notice">Aksjen har ikke fått poeng ennå. Lag en anbefaling for å se den.</div>
+{% endif %}
+
+<div class="card">
+  <h2>Meldinger siste 90 dager</h2>
+  {% if announcements %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Tidspunkt</th><th>Tittel</th><th>Type</th></tr></thead>
+    <tbody>
+    {% for a in announcements %}
+      <tr><td class="num nowrap">{{ a.at | when }}</td>
+        <td><a href="{{ a.url }}" rel="noopener" target="_blank">{{ a.title }}</a>
+          {% if a.direction is defined %}<div class="small muted">{{ {1: "Innsidekjøp", -1: "Innsidesalg", 0: "Innsidehandel, uklar retning"}[a.direction] }}</div>{% endif %}</td>
+        <td class="small">{{ a.category }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}<p class="muted">Ingen er hentet.{% if instrument.exchange_country == "SE" %} Svenske pressemeldinger hentes av MFN-jobben.{% endif %}</p>{% endif %}
+</div>
+
+{% if insider_trades %}
+<div class="card">
+  <h2>Innsidehandel siste 90 dager</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Publisert</th><th>Rolle</th><th>Type</th><th class="num">Antall</th><th class="num">Kurs</th><th class="num">Verdi</th></tr></thead>
+    <tbody>
+    {% for t in insider_trades %}
+      <tr><td class="num nowrap">{{ t.published_at | when }}</td><td class="small">{{ t.position }}</td>
+        <td>{{ t.nature }}{% if t.linked_to_share_program %} <span class="chip">aksjeprogram</span>{% endif %}
+          <div class="small muted">{{ t.instrument_type }}</div></td>
+        <td class="num">{{ t.volume | num }}</td><td class="num">{{ t.price | num(2) }}</td>
+        <td class="num nowrap">{{ ((t.volume or 0) * (t.price or 0)) | num }} {{ t.currency }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Offentliggjorte shortposisjoner</h2>
+  {% if shorts %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Innehaver</th><th class="num">Posisjon</th><th class="num">Dato</th></tr></thead>
+    <tbody>{% for p in shorts %}<tr><td>{{ p.holder }}</td><td class="num">{{ (p.pct or 0) | points(2) }}</td><td class="num nowrap">{{ p.date | day }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+  {% else %}<p class="muted">Ingen offentliggjorte posisjoner (hver innehaver har under 0,5&nbsp;% av aksjene).</p>{% endif %}
+</div>
+{% endblock %}

@@ -9,6 +9,11 @@
     nordic-signals collect yahoo --symbol EQNR.OL --range 1y
     nordic-signals collect intraday                 # today's announcements and insider trades
     nordic-signals collect daily                    # the end-of-day set
+    nordic-signals collect backfill                 # one-off history load for a new database
+    nordic-signals nightly                          # the daily set, then evaluate past recommendations
+    nordic-signals recommend --account-value 300000 # suggest a split from stored data
+    nordic-signals evaluate                         # score past recommendations against prices
+    nordic-signals web                              # run the web app
     nordic-signals status
 
 The database is taken from --db, else the DATABASE_URL environment variable
@@ -21,38 +26,21 @@ import argparse
 import logging
 import os
 import sys
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, timezone
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 
-from .collectors import COLLECTORS, RunSummary
-from .collectors.base import days_back, local_today
-from .collectors.yahoo import universe_symbols
+from . import text
+from .advisor import Policy, recommend
+from .advisor import evaluate as evaluation
 from .http import PoliteClient
+from .jobs import SETS, format_summary, options_for, run_source
 from .store import Store
 
 log = logging.getLogger("nordic_signals")
 
 COUNTRIES = ["NO", "SE", "DK", "FI"]
-
-# Named sets of collector runs. "intraday" is light enough to run every 15
-# minutes in market hours; "daily" runs after both closes, and its look-back
-# covers a weekend. MFN and Yahoo walk the whole universe, so they are
-# scheduled as separate jobs.
-SETS = {
-    "intraday": [
-        ("newsweb", {"days": 1}),
-        ("fi-insider", {"days": 1}),
-    ],
-    "daily": [
-        ("nordnet", {"countries": ("NO", "SE")}),
-        ("newsweb", {"days": 3}),
-        ("fi-insider", {"days": 4}),
-        ("fi-short", {}),
-        ("no-short", {}),
-    ],
-}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -69,16 +57,32 @@ def main(argv: list[str] | None = None) -> int:
                   " service's DATABASE_URL variable to ${{Postgres.DATABASE_URL}}.")
         return 2
 
+    if args.command == "web":
+        from .web.app import (
+            serve,  # imported here so collector jobs don't need the web stack loaded
+        )
+
+        serve(db=args.db, host=args.host, port=args.port)
+        return 0
+
     with Store(args.db) as store:
         if args.command == "status":
             _print_status(store)
             return 0
+        if args.command == "recommend":
+            return _recommend(store, args)
+        if args.command == "evaluate":
+            print(f"{evaluation.evaluate(store)} new outcomes")
+            return 0
+        if args.command == "nightly":
+            with PoliteClient() as client:
+                results = [_run(store, client, name, **options_for(store, name, raw)) for name, raw in SETS["daily"]]
+            print(f"{evaluation.evaluate(store)} new outcomes")
+            return 0 if all(results) else 1
         with PoliteClient() as client:
-            if args.source in SETS:
-                runs = SETS[args.source]
-                results = [_run(store, client, name, **_options(store, name, opts)) for name, opts in runs]
-                return 0 if all(results) else 1
-            return 0 if _run(store, client, args.source, **_options(store, args.source, vars(args))) else 1
+            runs = SETS[args.source] if args.source in SETS else [(args.source, vars(args))]
+            results = [_run(store, client, name, **options_for(store, name, raw)) for name, raw in runs]
+            return 0 if all(results) else 1
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -131,6 +135,24 @@ def _parser() -> argparse.ArgumentParser:
 
     for set_name, runs in SETS.items():
         sources.add_parser(set_name, help=f"{set_name} set: " + ", ".join(name for name, _ in runs))
+
+    p = commands.add_parser("recommend", help="score the universe and suggest a split from stored data")
+    p.add_argument("--account-value", type=float, required=True, help="account value in NOK")
+    p.add_argument("--long", type=float, default=85.0, help="percent in the long-term sleeve (default 85)")
+    p.add_argument("--short", type=float, default=10.0, help="percent in the short-term sleeve (default 10)")
+    p.add_argument("--cash", type=float, default=5.0, help="percent kept in cash (default 5)")
+    p.add_argument("--max-positions", type=int, default=12)
+    p.add_argument("--min-position", type=float, default=20_000.0, help="smallest position in NOK")
+    p.add_argument("--ask", action="store_true", help="Norwegian ASK: regulated markets only")
+    p.add_argument("--trade-short", action="store_true", help="give the short-term sleeve real money")
+    p.add_argument("--refresh", action="store_true", help="run the refresh collectors first")
+
+    commands.add_parser("evaluate", help="compute outcomes for past recommendations")
+    commands.add_parser("nightly", help="the daily collector set, then evaluate past recommendations")
+
+    p = commands.add_parser("web", help="run the web app")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=int(os.environ.get("PORT", "8000")))
     return parser
 
 
@@ -141,71 +163,41 @@ def _add_dates(p: argparse.ArgumentParser, *, default_days: int) -> None:
     p.add_argument("--end", type=date.fromisoformat, help="last date, YYYY-MM-DD (default: today)")
 
 
-def _options(store: Store, source: str, raw: dict[str, Any]) -> dict[str, Any]:
-    """Turn parsed CLI arguments into keyword arguments for one collector."""
-    if source in ("newsweb", "fi-insider"):
-        if raw.get("start"):
-            start, end = raw["start"], raw.get("end") or local_today()
-        else:
-            start, end = days_back(raw.get("days", 1))
-        opts: dict[str, Any] = {"start": start, "end": end}
-        if source == "newsweb":
-            if raw.get("detail_categories"):
-                opts["detail_categories"] = raw["detail_categories"]
-            opts["attachments"] = raw.get("attachments", False)
-        return opts
-    if source == "fi-short":
-        return {"history": raw.get("history", False)}
-    if source == "no-short":
-        return {}
-    if source == "nordnet":
-        return {"countries": raw.get("countries") or ("NO", "SE")}
-    if source == "mfn":
-        names = _universe_names(store, raw.get("universe", []), raw.get("limit"))
-        since = datetime.now(timezone.utc) - timedelta(days=raw.get("days", 30))
-        return {"slugs": raw.get("slugs", []), "company_names": names, "since": since,
-                "max_pages": raw.get("max_pages", 5)}
-    if source == "yahoo":
-        symbols = list(raw.get("symbols", []))
-        if raw.get("universe"):
-            symbols += universe_symbols(store, raw["universe"], raw.get("limit"))
-        return {"symbols": symbols, "range_": raw.get("range_", "5d"), "interval": raw.get("interval", "1d")}
-    raise ValueError(f"unknown source {source}")
-
-
-def _universe_names(store: Store, countries: list[str], limit: int | None) -> list[str]:
-    if not countries:
-        return []
-    t = store.table("instruments")
-    name = func.coalesce(t.c.issuer_name, t.c.long_name, t.c.name).label("name")
-    rows = store.query(
-        select(name).distinct().where(t.c.is_tradable.is_(True), t.c.exchange_country.in_(countries))
-    )
-    names = sorted(r["name"] for r in rows if r["name"])
-    return names[:limit] if limit else names
-
-
 def _run(store: Store, client: PoliteClient, source: str, **options: Any) -> bool:
-    collector = COLLECTORS[source](client, store)
-    run_id = store.start_run(source)
-    try:
-        summary = collector.run(**options)
-    except Exception as exc:  # record the failure and let other sources run
-        store.finish_run(run_id, ok=False, summary=collector.summary.as_dict(),
-                         error=f"{type(exc).__name__}: {exc}")
-        log.error("%s failed: %s", source, exc, exc_info=log.isEnabledFor(logging.DEBUG))
-        return False
-    store.finish_run(run_id, ok=True, summary=summary.as_dict())
-    print(_format(source, summary))
-    return True
+    summary = run_source(store, client, source, **options)
+    if summary is not None:
+        print(format_summary(source, summary))
+    return summary is not None
 
 
-def _format(source: str, summary: RunSummary) -> str:
-    tables = ", ".join(
-        f"{table} +{r.inserted} new/{r.updated} seen" for table, r in summary.tables.items()
-    )
-    line = f"{source}: {summary.fetches} requests; {tables or 'no rows'}"
-    return line + "".join(f"\n  warning: {w}" for w in summary.warnings)
+def _recommend(store: Store, args: argparse.Namespace) -> int:
+    policy = Policy(account_value=args.account_value, long_pct=args.long, short_pct=args.short,
+                    cash_pct=args.cash, max_positions=args.max_positions, min_position=args.min_position,
+                    ask_only=args.ask, short_paper_only=not args.trade_short)
+    rec_id = recommend.create(store, policy)
+
+    def refresh() -> dict[str, Any]:
+        with PoliteClient() as client:
+            return {name: _run(store, client, name, **options_for(store, name, raw)) for name, raw in SETS["refresh"]}
+
+    recommend.run(store, rec_id, refresh=refresh if args.refresh else None)
+    rec = store.get("recommendations", id=rec_id)
+    if rec["status"] != "done":
+        log.error("recommendation %s failed: %s", rec_id, rec["error"])
+        return 1
+    scores = store.table("scores")
+    lines = store.query(select(scores).where(scores.c.recommendation_id == rec_id, scores.c.long_shares > 0)
+                        .order_by(scores.c.rank))
+    # The advice itself is in Norwegian, like the web app; the collectors' logs stay in English.
+    print(f"Anbefaling {rec_id} (modell {rec['model_version']}): {len(lines)} posisjoner")
+    for line in lines:
+        print(f"  {line['rank']:>3}. {line['symbol']:<10} {line['name'][:28]:<28}"
+              f" {text.number(line['long_shares']):>7} aksjer  {text.nok(line['long_amount']):>12}"
+              f"  poeng {text.number(line['score'], 2)}  " + "; ".join(line["reasons"] or []))
+    for note in rec["summary"]["notes"]:
+        print(f"  Merk: {note}")
+    print(f"  Kontanter: {text.nok(rec['summary']['cash'])}")
+    return 0
 
 
 def _print_status(store: Store) -> None:

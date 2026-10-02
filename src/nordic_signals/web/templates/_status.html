@@ -1,0 +1,4 @@
+{% if rec.status == "done" %}<span class="status ok">✓ Ferdig</span>
+{% elif rec.status == "failed" %}<span class="status failed">✕ Feilet</span>
+{% elif rec.status == "queued" %}<span class="status running">⋯ I kø</span>
+{% else %}<span class="status running">⋯ Kjører</span>{% endif %}

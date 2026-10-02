@@ -131,3 +131,85 @@ FI_AGGREGATE_ROWS = [
     [" Svenska Handelsbanken AB", "NHBDILHZTYCNBV5UYZ31", "3.89", "2026-10-02"],
     [" Dynavox Group AB", "5493008X1XZR4R5R0P66", "9.28", "2026-10-01"],
 ]
+
+
+# A small synthetic universe for the advisor and web tests.
+
+def seed_universe(store, now=None):
+    """Ten stocks covering each rule, plus FX, insider trades, announcements and short interest.
+
+    Returns the ``now`` used, so tests can place later observations after it.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    from nordic_signals.http import FetchedResponse
+
+    now = now or datetime.now(timezone.utc)
+
+    def fetch(at):
+        return store.record_fetch("test", FetchedResponse("GET", "https://example.test/", 200, "", b"", at))
+
+    seed_fetch = fetch(now - timedelta(hours=2))
+    stocks = [
+        # id, symbol, country, type, issuer, isin, price, mcap, turnover, pe, pb, dy, y1y, y1m
+        (1, "AAA", "NO", "ESH", 101, "NO0000000001", 100.0, 10e9, 50e6, 8.0, 1.5, 5.0, 40.0, 2.0),
+        (2, "BBB", "NO", "ESH", 102, "NO0000000002", 50.0, 5e9, 20e6, 20.0, 3.0, 1.0, 5.0, 1.0),
+        (3, "CCC", "NO", "ESH", 103, "NO0000000003", 3.0, 2e9, 20e6, 10.0, 1.0, 0.0, 10.0, 0.0),
+        (4, "DDD", "NO", "ESH", 104, "NO0000000004", 80.0, 4e9, 20e6, None, 2.0, 0.0, 30.0, 3.0),
+        (5, "EEE", "NO", "ESH", 105, "NO0000000005", 40.0, 1e9, 100e3, 9.0, 1.2, 3.0, 25.0, 1.0),
+        (6, "GRW", "NO", "ESHMTF", 106, "NO0000000006", 60.0, 3e9, 30e6, 7.0, 1.1, 4.0, 60.0, 4.0),
+        (7, "SEA A", "SE", "ESH", 201, "SE0000000007", 200.0, 50e9, 30e6, 12.0, 2.0, 3.0, 20.0, 1.0),
+        (8, "SEA B", "SE", "ESH", 201, "SE0000000008", 199.0, 50e9, 60e6, 12.0, 2.0, 3.0, 20.0, 1.0),
+        (9, "SEB", "SE", "ESH", 202, "SE0000000009", 150.0, 20e9, 40e6, 15.0, 2.5, 2.0, 10.0, -1.0),
+        (10, "SEC", "SE", "ESH", 203, "SE0000000010", 120.0, 5e9, 25e6, 11.0, 1.8, 2.5, 15.0, 0.5),
+    ]
+    store.upsert("instruments", [{
+        "instrument_id": i, "symbol": sym, "name": f"{sym} Corp", "isin": isin, "exchange_country": c,
+        "instrument_type": t, "issuer_id": issuer, "issuer_name": f"Issuer {issuer}",
+        "currency": "NOK" if c == "NO" else "SEK",
+        "exchanges": (["Euronext Growth"] if t == "ESHMTF"
+                      else ["Euronext Oslo" if c == "NO" else "Nasdaq Stockholm Large Cap"]),
+        "is_tradable": True,
+    } for i, sym, c, t, issuer, isin, *_ in stocks], fetch_id=seed_fetch)
+    store.upsert("nordnet_observations", [{
+        "instrument_id": i, "observed_at": now - timedelta(hours=1), "last": price, "market_cap": mcap,
+        "turnover": turnover, "pe": pe, "pb": pb, "dividend_yield": dy, "yield_1y": y1y, "yield_1m": y1m,
+        "number_of_owners": 1000 * i,
+    } for i, _sym, _c, _t, _issuer, _isin, price, mcap, turnover, pe, pb, dy, y1y, y1m in stocks], fetch_id=seed_fetch)
+
+    yesterday = now - timedelta(days=1)
+    store.upsert("price_bars", [{"symbol": "SEKNOK=X", "interval": "1d", "ts": int(yesterday.timestamp()),
+                                 "ts_utc": yesterday, "close": 0.95}], fetch_id=seed_fetch)
+
+    # SEC: two insiders buy in the open market (a cluster); SEB: a share-programme award, which only maps LEI to ISIN.
+    store.upsert("se_insider_trades", [
+        {"row_hash": "t1", "published_at": now - timedelta(days=1), "isin": "SE0000000010", "lei": "LEI-SEC",
+         "pdmr": "Person A", "position": "CEO", "nature": "Förvärv", "instrument_type": "Aktie", "volume": 20000.0,
+         "price": 120.0, "currency": "SEK", "status": "Aktuell", "linked_to_share_program": None},
+        {"row_hash": "t2", "published_at": now - timedelta(days=2), "isin": "SE0000000010", "lei": "LEI-SEC",
+         "pdmr": "Person B", "position": "CFO", "nature": "Förvärv", "instrument_type": "Aktie", "volume": 30000.0,
+         "price": 119.0, "currency": "SEK", "status": "Aktuell", "linked_to_share_program": None},
+        {"row_hash": "t3", "published_at": now - timedelta(days=3), "isin": "SE0000000009", "lei": "LEI-SEB",
+         "pdmr": "Person C", "position": "CEO", "nature": "Tilldelning", "instrument_type": "Aktie", "volume": 1000.0,
+         "price": 0.0, "currency": "SEK", "status": "Aktuell", "linked_to_share_program": True},
+    ], fetch_id=seed_fetch)
+
+    # AAA: an insider purchase notice; BBB: a new buyback programme.
+    store.upsert("newsweb_messages", [
+        {"message_id": 1, "issuer_sign": "AAA", "title": "Mandatory notification of trade", "category_ids": [1102],
+         "published_at": now - timedelta(days=1)},
+        {"message_id": 2, "issuer_sign": "BBB", "title": "BBB ASA launches share buyback programme",
+         "category_ids": [1007], "published_at": now - timedelta(days=1)},
+    ], fetch_id=seed_fetch)
+    store.upsert("newsweb_bodies", [{"message_id": 1, "body": "The CEO has today purchased 10,000 shares."}],
+                 fetch_id=seed_fetch)
+
+    # Norway: AAA's short interest jumped from 1.0% to 2.2%, with history going back 60 days.
+    store.upsert("no_short_totals", [
+        {"isin": "NO0000000001", "date": (now - timedelta(days=60)).date(), "short_pct": 1.0},
+        {"isin": "NO0000000001", "date": (now - timedelta(days=2)).date(), "short_pct": 2.2},
+    ], fetch_id=seed_fetch)
+    # Sweden: SEB at 3%, but only one download so far, so it can't count as an increase.
+    store.upsert("se_short_aggregate", [{"lei": "LEI-SEB", "issuer": "SEB Corp", "total_pct": 3.0,
+                                         "position_date": (now - timedelta(days=1)).date()}], fetch_id=seed_fetch)
+    return now

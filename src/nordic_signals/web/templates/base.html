@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Nordic signals{% endblock %}</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <header class="top">
+    <div class="inner">
+      <a class="brand" href="/">Nordic signals</a>
+      {% set path = request.url.path %}
+      <nav>
+        <a href="/" class="{{ 'active' if path == '/' or path.startswith('/recommendations') }}">Råd</a>
+        <a href="/signals" class="{{ 'active' if path.startswith('/signals') }}">Signaler</a>
+        <a href="/track-record" class="{{ 'active' if path.startswith('/track-record') }}">Resultater</a>
+        <a href="/data" class="{{ 'active' if path.startswith('/data') }}">Data</a>
+      </nav>
+      {% if runner.current %}<span class="busy"><span class="spinner"></span>{{ runner.current }} pågår…</span>{% endif %}
+      {% if auth_enabled %}
+      <form class="inline" method="post" action="/logout"><button class="link" type="submit">Logg ut</button></form>
+      {% endif %}
+    </div>
+  </header>
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+  <footer>
+    <div class="inner">
+      Personlig analyseverktøy, ikke investeringsråd. Kursene er forsinket; sjekk kjøps- og salgskurs i Nordnet før du
+      legger inn en ordre. Data fra Oslo Børs NewsWeb, Finansinspektionen, Finanstilsynet, MFN, Nordnet og Yahoo.
+      Modell {{ model_version }}.
+    </div>
+  </footer>
+</body>
+</html>

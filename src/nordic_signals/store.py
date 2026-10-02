@@ -203,6 +203,7 @@ def _build_metadata() -> MetaData:
         Column("summary", _TYPES["json"]()),
         Column("error", Text),
     )
+    _advice_tables(metadata)
     for name, spec in TABLES.items():
         columns = {**spec.columns, **_BOOKKEEPING}
         Table(
@@ -213,6 +214,79 @@ def _build_metadata() -> MetaData:
             ),
         )
     return metadata
+
+
+def _advice_tables(metadata: MetaData) -> None:
+    """The prediction log: every recommendation, the score of every stock it considered, and outcomes."""
+    json = _TYPES["json"]
+    Table(
+        "recommendations", metadata,
+        Column("id", _SERIAL, primary_key=True, autoincrement=True),
+        Column("created_at", DateTime(timezone=True), nullable=False, index=True),
+        Column("finished_at", DateTime(timezone=True)),
+        Column("status", Text, nullable=False),  # queued, running, done, failed
+        Column("model_version", Text, nullable=False),
+        Column("account_value", Float, nullable=False),
+        Column("currency", Text, nullable=False),
+        Column("policy", json()),
+        Column("params", json()),  # model parameters in force
+        Column("data_cutoff", json()),  # freshness of each source when scored
+        Column("refresh", json()),  # collector results if data was refreshed first
+        Column("summary", json()),
+        Column("error", Text),
+    )
+    # One row per stock in the universe, chosen or not, so the ranking itself can be scored later.
+    Table(
+        "scores", metadata,
+        Column("recommendation_id", BigInteger, primary_key=True),
+        Column("instrument_id", BigInteger, primary_key=True),
+        Column("isin", Text),
+        Column("symbol", Text),
+        Column("name", Text),
+        Column("country", Text),
+        Column("segments", json()),
+        Column("currency", Text),
+        Column("eligible", Boolean, nullable=False),
+        Column("exclusion", Text),
+        Column("score", Float),
+        Column("rank", Integer),
+        Column("themes", json()),
+        Column("overlays", json()),
+        Column("features", json()),
+        Column("events", json()),
+        Column("reasons", json()),
+        Column("ref_price", Float),
+        Column("fx_rate", Float),
+        Column("long_amount", Float),
+        Column("long_shares", Integer),
+        Column("long_weight", Float),
+    )
+    Table(
+        "short_signals", metadata,
+        Column("recommendation_id", BigInteger, primary_key=True),
+        Column("instrument_id", BigInteger, primary_key=True),
+        Column("signal_type", Text, primary_key=True),
+        Column("direction", Integer, nullable=False),
+        Column("description", Text),
+        Column("paper", Boolean),
+        Column("amount", Float),
+        Column("shares", Integer),
+        Column("ref_price", Float),
+        Column("fx_rate", Float),
+        Column("horizon_days", Integer),
+    )
+    Table(
+        "outcomes", metadata,
+        Column("recommendation_id", BigInteger, primary_key=True),
+        Column("instrument_id", BigInteger, primary_key=True),
+        Column("horizon_days", Integer, primary_key=True),
+        Column("start_date", Date),
+        Column("end_date", Date),
+        Column("start_price", Float),
+        Column("end_price", Float),
+        Column("ret", Float),
+        Column("computed_at", DateTime(timezone=True)),
+    )
 
 
 def database_url(value: str | None = None) -> str:

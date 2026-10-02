@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Data · Nordic signals{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Data</h1>
+    <p class="muted">Innsamlingen går vanligvis etter sin egen timeplan. Bruk knappene til den første innlastingen eller
+      til en manuell oppdatering.</p>
+  </div>
+</div>
+{% if message %}<div class="notice">{{ message }}</div>{% endif %}
+
+<div class="grid two">
+  <div class="card">
+    <h2>Oppdater nå</h2>
+    <p class="small">Kurser og nøkkeltall fra Nordnet, dagens børsmeldinger og innsidehandler, og kursen SEK/NOK. Tar
+      omtrent 30 sekunder.</p>
+    <form method="post" action="/data/refresh"><button class="secondary" type="submit">Oppdater</button></form>
+  </div>
+  <div class="card">
+    <h2>Hent historikk</h2>
+    <p class="small">Engangsinnlasting for en ny database: 150 dager med svensk innsidehandel, 120 dager med
+      børsmeldinger fra Oslo, historikk for shortposisjoner og ett år med dagskurser for alle aksjene ({{ backfill }}).
+      Tar én til to timer, mest fordi appen venter høflig mellom forespørslene til Yahoo. Appen kan brukes som vanlig
+      imens.</p>
+    <form method="post" action="/data/backfill"><button class="secondary" type="submit">Start henting</button></form>
+  </div>
+</div>
+
+<div class="card">
+  <h2>Kilder</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Kilde</th><th>Sist vellykket</th><th>Siste kjøring</th><th>Resultat</th></tr></thead>
+    <tbody>
+    {% for s in statuses %}
+      <tr>
+        <td>{{ s.source }}<div class="small muted">{{ s.purpose }}</div></td>
+        <td class="num nowrap">{{ s.last_ok | when }}<div class="small muted">{{ s.last_ok | ago }}</div></td>
+        <td>{% set state = s.state or "never" %}{% include "_state.html" %}</td>
+        <td class="small">{% if s.error %}<span class="muted">{{ s.error }}</span>{% elif s.summary %}
+          {{ s.summary.fetches | num }} forespørsler{% for table, r in s.summary.tables.items() %}; {{ table }} +{{ r.inserted | num }}{% endfor %}
+          {% for w in s.summary.warnings %}<div class="muted">{{ w }}</div>{% endfor %}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+
+<div class="card">
+  <h2>Lagrede rader</h2>
+  <div class="table-wrap"><table>
+    <tbody>{% for table, count in counts.items() %}<tr><td>{{ table }}</td><td class="num">{{ count | num }}</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}

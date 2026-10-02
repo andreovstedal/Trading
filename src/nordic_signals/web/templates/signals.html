@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}Signaler · Nordic signals{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Signaler</h1>
+    <p class="muted">Ferske hendelser fra de siste fire dagene, slik modellen ser dem.</p>
+  </div>
+</div>
+
+{% macro stock_cell(e) %}<a href="/stocks/{{ e.instrument_id }}">{{ e.name }}</a><div class="ticker">{{ e.symbol }} · {{ e.country }}</div>{% endmacro %}
+
+<div class="grid two">
+  <div class="card">
+    <h2>Innsidekjøp i Sverige</h2>
+    {% if groups.insider_buy %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aksje</th><th>Rolle</th><th class="num">Verdi</th><th class="num">Publisert</th></tr></thead>
+      <tbody>{% for e in groups.insider_buy %}<tr><td>{{ stock_cell(e) }}</td><td class="small">{{ e.role }}</td>
+        <td class="num nowrap">{{ e.value | num }} {{ e.currency }}</td><td class="num">{{ e.at | when }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="small muted">Bare kjøp av aksjer i markedet; tildelinger i aksjeprogrammer, tegninger og opsjonshandler er
+      utelatt.</p>
+    {% else %}<p class="muted">Ingen de siste fire dagene.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Innsidemeldinger i Norge</h2>
+    {% if groups.insider_notice %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aksje</th><th>Retning</th><th class="num">Publisert</th></tr></thead>
+      <tbody>{% for e in groups.insider_notice %}<tr><td>{{ stock_cell(e) }}</td>
+        <td>{{ {1: "Kjøp", -1: "Salg", 0: "Uklar"}[e.direction] }}
+          <div class="small"><a href="https://newsweb.oslobors.no/message/{{ e.message_id }}" target="_blank" rel="noopener">{{ e.title }}</a></div></td>
+        <td class="num">{{ e.at | when }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="small muted">Retningen leses ut av meldingsteksten, så sjekk meldingen før du handler på den.</p>
+    {% else %}<p class="muted">Ingen de siste fire dagene.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Nye tilbakekjøpsprogrammer</h2>
+    {% if groups.buyback_start %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aksje</th><th>Melding</th><th class="num">Publisert</th></tr></thead>
+      <tbody>{% for e in groups.buyback_start %}<tr><td>{{ stock_cell(e) }}</td><td class="small">{{ e.title }}</td>
+        <td class="num">{{ e.at | when }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    {% else %}<p class="muted">Ingen de siste fire dagene.</p>{% endif %}
+  </div>
+
+  <div class="card">
+    <h2>Økende shortandel</h2>
+    {% if groups.short_increase %}
+    <div class="table-wrap"><table>
+      <thead><tr><th>Aksje</th><th class="num">Fra</th><th class="num">Til</th><th class="num">Dato</th></tr></thead>
+      <tbody>{% for e in groups.short_increase %}<tr><td>{{ stock_cell(e) }}</td>
+        <td class="num">{{ e["from"] | points(2) }}</td><td class="num">{{ e.to | points(2) }}</td><td class="num nowrap">{{ e.at | day }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+    <p class="small muted">En økning på minst 0,5 prosentpoeng i offentliggjorte shortposisjoner. Behandles som «unngå».</p>
+    {% else %}<p class="muted">Ingen de siste fire dagene.</p>{% endif %}
+  </div>
+</div>
+{% endblock %}

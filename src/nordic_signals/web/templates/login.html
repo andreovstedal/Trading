@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Logg inn · Nordic signals</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <div class="login card">
+    <h1>Nordic signals</h1>
+    <p class="muted">Skriv inn passordet til appen.</p>
+    {% if error %}<div class="notice error"><span class="icon">!</span>{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <input type="hidden" name="next" value="{{ next }}">
+      <div class="field">
+        <label for="password">Passord</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
+      </div>
+      <button class="wide" type="submit">Logg inn</button>
+    </form>
+  </div>
+</body>
+</html>

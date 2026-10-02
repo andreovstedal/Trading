@@ -100,13 +100,15 @@ class FiShortCollector(Collector):
     source = "fi-short"
 
     def run(self, *, history: bool = False) -> RunSummary:
+        # History first: a position in both files then ends up attributed to the current file, which is how the
+        # stock page tells open positions (last seen in the latest current file) from closed ones.
+        if history:
+            resp, fetch_id = self.fetch("GET", f"{BASE}/GetHistFile")
+            self.save("se_short_positions", parse_positions(read_rows(resp.body)), fetch_id)
+
         resp, fetch_id = self.fetch("GET", f"{BASE}/GetAktuellFile")
         self.save("se_short_positions", parse_positions(read_rows(resp.body)), fetch_id)
 
         resp, fetch_id = self.fetch("GET", f"{BASE}/GetBlankningsregisterAggregat")
         self.save("se_short_aggregate", parse_aggregate(read_rows(resp.body)), fetch_id)
-
-        if history:
-            resp, fetch_id = self.fetch("GET", f"{BASE}/GetHistFile")
-            self.save("se_short_positions", parse_positions(read_rows(resp.body)), fetch_id)
         return self.summary

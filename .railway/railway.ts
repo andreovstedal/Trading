@@ -1,4 +1,4 @@
-// Railway project: PostgreSQL plus the scheduled collector jobs.
+// Railway project: PostgreSQL, the web app, and the scheduled collector jobs.
 //
 // Apply with the Railway CLI (5.42.1 or newer) from the repository root:
 //   npm install --prefix .railway    # once: installs the "railway" SDK this file imports
@@ -12,22 +12,34 @@
 //
 // Railway runs cron schedules in UTC. Oslo and Stockholm are UTC+2 in summer and
 // UTC+1 in winter, so each time below is chosen to work in both.
-import { defineRailway, github, group, postgres, project, service } from "railway/iac";
+import { defineRailway, github, group, postgres, preserve, project, service } from "railway/iac";
 
 const REPO = "andreovstedal/Trading";
 
 export default defineRailway(() => {
   const db = postgres("postgres");
 
+  const build = {
+    builder: "DOCKERFILE" as const,
+    dockerfilePath: "Dockerfile",
+    watchPatterns: ["src/**", "pyproject.toml", "Dockerfile"],
+  };
+
+  // The web app. APP_PASSWORD (required) and SECRET_KEY are set in the dashboard;
+  // preserve() keeps whatever value is there. Generate a public domain under
+  // Settings -> Networking after the first deploy.
+  const web = service("web", {
+    source: github(REPO),
+    build,
+    deploy: { startCommand: "nordic-signals web --host 0.0.0.0", healthcheckPath: "/health" },
+    env: { DATABASE_URL: db.env.DATABASE_URL, APP_PASSWORD: preserve(), SECRET_KEY: preserve() },
+  });
+
   // Every job runs the same image with its own start command, then exits.
   const job = (name: string, cronSchedule: string, startCommand: string) =>
     service(name, {
       source: github(REPO),
-      build: {
-        builder: "DOCKERFILE",
-        dockerfilePath: "Dockerfile",
-        watchPatterns: ["src/**", "pyproject.toml", "Dockerfile"],
-      },
+      build,
       deploy: { startCommand, cronSchedule, restartPolicyType: "NEVER" },
       env: { DATABASE_URL: db.env.DATABASE_URL },
     });
@@ -37,8 +49,9 @@ export default defineRailway(() => {
     // new Oslo announcements and Swedish insider trades.
     job("collect-intraday", "*/15 5-18 * * 1-5", "nordic-signals collect intraday"),
     // 20:30 UTC: after both closes, the 15:30 short-register updates and Nordnet's
-    // evening owner counts. Looks back far enough to cover a weekend.
-    job("collect-daily", "30 20 * * 1-5", "nordic-signals collect daily"),
+    // evening owner counts. Looks back far enough to cover a weekend, then scores
+    // past recommendations against the new prices.
+    job("collect-daily", "30 20 * * 1-5", "nordic-signals nightly"),
     // Swedish press releases for the whole universe. The first run matches company
     // names to MFN pages (about 30 minutes); later runs reuse the matches.
     job("collect-mfn", "0 21 * * 1-5", "nordic-signals collect mfn --universe SE --days 3 --max-pages 1"),
@@ -48,6 +61,6 @@ export default defineRailway(() => {
   ]);
 
   return project("nordic-signals", {
-    resources: [db, collectors],
+    resources: [db, web, collectors],
   });
 });

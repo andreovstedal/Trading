@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Resultater · Nordic signals{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Resultater</h1>
+    <p class="muted">Hver anbefaling måles mot hvordan kursene utviklet seg etterpå. Det er slik formelen blir bedre.</p>
+  </div>
+  <form method="post" action="/data/evaluate"><button class="secondary" type="submit">Oppdater utfall nå</button></form>
+</div>
+
+{% if not record.long and not record.short %}
+<div class="card">
+  <h2>Ingenting å måle ennå</h2>
+  <p>{{ record.recommendations }} {{ "anbefaling" if record.recommendations == 1 else "anbefalinger" }} er loggført så
+    langt. Utfallene vises når nok handelsdager har gått: etter 1, 2 og 5 dager for kortsiktige signaler, og etter 20,
+    60, 120 og 250 for den langsiktige rangeringen. Den daglige innsamlingen henter kursene, og utfallene oppdateres hver
+    natt.</p>
+</div>
+{% endif %}
+
+{% if record.long %}
+<div class="card">
+  <h2>Langsiktig rangering</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Modell</th><th class="num">Horisont</th><th class="num">Anbefalinger</th><th class="num">Dager</th>
+      <th class="num">Utvalgte</th><th class="num">Universet</th><th class="num">Meravkastning</th><th class="num">Treffrate</th>
+      <th class="num">Rang-IC</th><th class="num">IC t-verdi</th></tr></thead>
+    <tbody>
+    {% for r in record.long %}
+      <tr><td>{{ r.model_version }}</td><td class="num nowrap">{{ r.horizon }} dager</td><td class="num">{{ r.recommendations }}</td>
+        <td class="num">{{ r.days }}</td><td class="num">{{ r.picks | pct(2, True) }}</td><td class="num">{{ r.universe | pct(2, True) }}</td>
+        <td class="num"><strong>{{ r.excess | pct(2, True) }}</strong></td><td class="num">{{ r.hit_rate | pct(0) }}</td>
+        <td class="num">{{ r.ic | num(3) }}</td><td class="num">{{ r.ic_t | num(1) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small muted">«Utvalgte» og «Universet» er gjennomsnittlig kursavkastning (uten utbytte). Meravkastning er
+    utvalgte minus et likevektet univers av alle aksjene som besto filtrene. Rang-IC er korrelasjonen mellom poeng og
+    senere avkastning for alle disse aksjene; den viser om selve rangeringen virker, ikke bare toppvalgene.</p>
+</div>
+{% endif %}
+
+{% if record.short %}
+<div class="card">
+  <h2>Kortsiktige signaler</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Signal</th><th class="num">Horisont</th><th class="num">Signaler</th><th class="num">Meravkastning</th><th class="num">Treffrate</th></tr></thead>
+    <tbody>
+    {% for r in record.short %}
+      <tr><td>{{ r.signal_type | label }}</td><td class="num nowrap">{{ r.horizon }} dager</td><td class="num">{{ r.signals }}</td>
+        <td class="num"><strong>{{ r.excess | pct(2, True) }}</strong></td><td class="num">{{ r.hit_rate | pct(0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small muted">Meravkastning mot universet, der «unngå»-signaler regnes som riktige når aksjen gjorde det
+    svakere. Sammenlign med hva et kjøp og salg koster hos Nordnet, omtrent 0,5–0,75&nbsp;% i likvide aksjer, før du
+    handler disse med ekte penger.</p>
+</div>
+{% endif %}
+
+<details class="card">
+  <summary><strong>Hvor mye bevis er nok?</strong></summary>
+  <p>Signalene er støyete, så vær tålmodig før du endrer formelen eller flytter penger mellom delene:</p>
+  <ul>
+    <li>Å skille en treffrate på 53&nbsp;% fra myntkast krever omtrent 1&nbsp;100 uavhengige prediksjoner.</li>
+    <li>Et nytt signal bør nå en IC t-verdi over 3 før det får vekt i formelen.</li>
+    <li>Å bekrefte en årlig Sharpe-ratio på 1,0 krever omtrent 2,7 år med daglige resultater; 0,5 krever omtrent 11 år.</li>
+    <li>Anbefalinger fra samme dag overlapper hverandre, så kolonnen «Dager» er det beste målet på hvor stort utvalget er.</li>
+  </ul>
+  <p>Hver modellversjon følges opp for seg. Når formelen endres, får den også et nytt versjonsnummer.</p>
+</details>
+{% endblock %}

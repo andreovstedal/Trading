@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Råd</h1>
+    <p class="muted">Skriv inn kontoverdien og få et forslag til hvordan den kan fordeles på norske og svenske aksjer.</p>
+  </div>
+</div>
+
+{% if error %}<div class="notice error"><span class="icon">!</span>{{ error }}</div>{% endif %}
+{% if stale %}
+<div class="notice warn"><span class="icon">!</span>
+  Dataene er mer enn fire dager gamle for: {{ stale | join(", ") }}. La «Oppdater data først» være krysset av, eller
+  sjekk <a href="/data">innsamlingen</a>.
+</div>
+{% endif %}
+
+<div class="grid form-side">
+  <form class="card" method="post" action="/recommendations">
+    <h2>Ny anbefaling</h2>
+    <div class="field">
+      <label for="account_value">Kontoverdi (NOK)</label>
+      <input id="account_value" name="account_value" type="number" min="1000" step="1000" required
+             value="{{ policy.account_value | int }}">
+    </div>
+    <div class="field">
+      <label>Fordeling: langsiktig / kortsiktig / kontanter (%)</label>
+      <div class="row3">
+        <input name="long_pct" type="number" min="0" max="100" step="1" value="{{ policy.long_pct | int }}" aria-label="Langsiktig %">
+        <input name="short_pct" type="number" min="0" max="100" step="1" value="{{ policy.short_pct | int }}" aria-label="Kortsiktig %">
+        <input name="cash_pct" type="number" min="0" max="100" step="1" value="{{ policy.cash_pct | int }}" aria-label="Kontanter %">
+      </div>
+    </div>
+    <div class="field row2">
+      <div>
+        <label for="max_positions">Maks antall posisjoner</label>
+        <input id="max_positions" name="max_positions" type="number" min="1" max="40" value="{{ policy.max_positions }}">
+      </div>
+      <div>
+        <label for="min_position">Minste posisjon (NOK)</label>
+        <input id="min_position" name="min_position" type="number" min="1000" step="1000" value="{{ policy.min_position | int }}">
+      </div>
+    </div>
+    <label class="check"><input type="checkbox" name="refresh" checked>
+      <span>Oppdater data først<small>Ferske kurser, børsmeldinger og innsidehandler (omtrent 30 sekunder)</small></span></label>
+    <label class="check"><input type="checkbox" name="paper_short" {{ 'checked' if policy.short_paper_only }}>
+      <span>Kortsiktig del kun på papir<small>Loggføres for å bygge historikk; pengene står i kontanter</small></span></label>
+    <label class="check"><input type="checkbox" name="ask_only" {{ 'checked' if policy.ask_only }}>
+      <span>Aksjesparekonto (ASK)<small>Bare aksjer på regulerte markeder (ikke Euronext Growth, First North, Spotlight eller NGM)</small></span></label>
+    <button class="wide" type="submit">Hent data og foreslå fordeling</button>
+    <p class="small muted" style="margin-top:10px">Minste posisjon holder kurtasjen nede: i Nordnets kurtasjeklasse Mini
+      koster en handel minst 29&nbsp;NOK, som først tilsvarer 0,15&nbsp;% ved omtrent 19&nbsp;300&nbsp;NOK.</p>
+  </form>
+
+  <div>
+    <div class="card">
+      <h2>Siste anbefalinger</h2>
+      {% if recommendations %}
+      <div class="table-wrap"><table>
+        <thead><tr><th>Nr.</th><th>Tidspunkt</th><th class="num">Konto</th><th class="num">Posisjoner</th><th>Status</th><th>Modell</th></tr></thead>
+        <tbody>
+        {% for rec in recommendations %}
+          <tr>
+            <td><a href="/recommendations/{{ rec.id }}">{{ rec.id }}</a></td>
+            <td><a href="/recommendations/{{ rec.id }}">{{ rec.created_at | when }}</a></td>
+            <td class="num">{{ rec.account_value | nok }}</td>
+            <td class="num">{{ rec.summary.positions if rec.summary else "–" }}</td>
+            <td>{% include "_status.html" %}</td>
+            <td>{{ rec.model_version }}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+      {% else %}
+      <p class="muted">Ingen ennå. Fyll ut skjemaet for å lage den første; den loggføres og måles senere mot faktiske kurser.</p>
+      {% endif %}
+    </div>
+
+    <div class="card">
+      <h2>Datastatus</h2>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Kilde</th><th>Sist vellykket</th><th>Siste kjøring</th></tr></thead>
+        <tbody>
+        {% for s in statuses %}
+          <tr>
+            <td>{{ s.source }}<div class="small muted">{{ s.purpose }}</div></td>
+            <td class="nowrap">{{ s.last_ok | ago }}</td>
+            <td>{% set state = s.state or "never" %}{% include "_state.html" %}</td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

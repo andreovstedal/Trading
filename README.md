@@ -1,16 +1,18 @@
 # Nordic signals
 
-A personal web app, in progress, for Nordnet-tradable Norwegian and Swedish shares. It gathers insider trades, company announcements, short positions, prices and other public data. When you enter an account value, it suggests how to split the account between a long-term value sleeve and a short-term trading sleeve. It never places trades. Every input and recommendation is logged, so the formula can be scored against outcomes and improved over time.
+A personal web app for Nordnet-tradable Norwegian and Swedish shares. It gathers insider trades, company announcements, short positions, prices and other public data. When you enter an account value, it suggests how to split the account between a long-term value sleeve and a short-term trading sleeve. It never places trades. Every input and recommendation is logged, so the formula can be scored against outcomes and improved over time.
+
+The app speaks Norwegian (bokmål), with Norwegian number and date formats. The code, logs and this README are in English.
 
 ## Status
 
 | Part | State |
 |---|---|
 | Research | Done: [`reports/Nordic stock signal data sources.md`](reports/Nordic%20stock%20signal%20data%20sources.md) covers sources, evidence per sleeve, allocation rules and the logging design. The per-topic notes are in `research_notes/` |
-| Collectors | Done for the six core sources (this package, see below), deployable on Railway with PostgreSQL |
-| Features, scoring and allocation | Not started |
-| Prediction and outcome log | Not started (raw-data layer is in place) |
-| Dashboard | Not started |
+| Collectors | Done for the six core sources (see below), deployable on Railway with PostgreSQL |
+| Features, scoring and allocation | Model v1 (`src/nordic_signals/advisor/`) |
+| Prediction and outcome log | Done: every recommendation stores every stock's score and inputs; outcomes are added nightly |
+| Web app | Done (`src/nordic_signals/web/`) |
 
 ## Setup
 
@@ -19,6 +21,33 @@ Python 3.11 or newer.
 ```sh
 uv venv && uv pip install -e ".[dev]"
 # or: python -m venv .venv && .venv/bin/pip install -e ".[dev]"
+```
+
+## The web app
+
+```sh
+nordic-signals web                     # http://127.0.0.1:8000, or --host/--port; uses $PORT when set
+```
+
+| Page | What it does |
+|---|---|
+| **Råd** (`/`) | Enter the account value and the split between the long-term sleeve, the short-term sleeve and cash, then press **Hent data og foreslå fordeling**. With **Oppdater data først** ticked it refreshes prices, announcements and insider trades first (about 30 seconds). The result lists whole-share positions, runners-up, short-term signals, an avoid list and the reasons behind each pick, and can be downloaded as CSV (semicolons and decimal commas, for Excel with Norwegian settings). |
+| **Signaler** | Fresh events from the last four days: Swedish insider purchases, Norwegian insider notices, new buyback programmes and rising short interest. |
+| **Resultater** | The track record: excess return, hit rate and rank IC per model version and horizon, and per short-term signal type. |
+| **Data** | When each source last ran, row counts, and buttons for a manual refresh and the one-off history load (**Hent historikk**). |
+
+Each stock links to a page with its score, themes, key figures, announcements, insider trades and open short positions.
+
+How a recommendation is made (model v1, explained in the app under **Slik ble dette beregnet**): every stock gets a percentile rank within its own country on momentum, value, quality and low volatility; small capped adjustments are added for insider trading, buybacks and short interest. Filters remove unprofitable, illiquid and very small companies, penny stocks and duplicate share classes, and the top-ranked stocks get equal weights in whole shares. The short-term sleeve follows new buyback programmes and clusters of insider buying, and stays on paper by default, so its track record builds up before any money goes in.
+
+Set `APP_PASSWORD` to require a login, and `SECRET_KEY` so sessions survive restarts. On Railway the app refuses to serve pages until `APP_PASSWORD` is set.
+
+The same advice is available from the command line:
+
+```sh
+nordic-signals recommend --account-value 300000 [--long 85 --short 10 --cash 5] [--max-positions 12]
+                         [--min-position 20000] [--ask] [--trade-short] [--refresh]
+nordic-signals evaluate                        # score past recommendations against later closing prices
 ```
 
 ## Collecting data
@@ -32,7 +61,9 @@ nordic-signals collect no-short                # Norwegian short positions
 nordic-signals collect mfn --slug nibe-industrier --days 30
 nordic-signals collect yahoo --symbol EQNR.OL --symbol VOLV-B.ST --range 1y
 nordic-signals collect intraday                # today's NewsWeb announcements and FI insider trades
-nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short
+nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate
+nordic-signals collect backfill                # one-off history load for a new database (1-2 hours)
+nordic-signals nightly                         # the daily set, then evaluate past recommendations
 nordic-signals status                          # row counts and the latest run per source
 ```
 
@@ -57,7 +88,7 @@ Some registers keep no history: Norway's short register keeps two years, FI's ag
 | Job | Command | When (UTC, weekdays) |
 |---|---|---|
 | `collect-intraday` | `nordic-signals collect intraday` | `*/15 5-18 * * 1-5`: every 15 min, 07:00–20:45 Oslo summer time |
-| `collect-daily` | `nordic-signals collect daily` | `30 20 * * 1-5`: after both closes and the evening owner-count update |
+| `collect-daily` | `nordic-signals nightly` | `30 20 * * 1-5`: after both closes and the evening owner-count update; then scores past recommendations |
 | `collect-mfn` | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | `0 21 * * 1-5`: needs the universe from `collect-daily` |
 | `collect-prices` | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | `30 21 * * 1-5`: about 90 minutes at 4 s per symbol |
 
@@ -65,22 +96,26 @@ The times are in UTC because Railway's cron is UTC-only; they hold in both summe
 
 ## Deploying on Railway
 
-The `Dockerfile` builds one image for every job, and Railway uses it automatically. Each job is a Railway cron service: it starts on schedule, runs one command and exits. All jobs share one PostgreSQL database. Data volume is small, roughly 1 GB a year.
+The `Dockerfile` builds one image for the web app and every job, and Railway uses it automatically; by default it starts the web app. Each job is a Railway cron service with its own start command: it starts on schedule, runs one command and exits. Everything shares one PostgreSQL database. Data volume is small, roughly 1 GB a year.
 
 ### In the dashboard
 
 1. In the project, choose **+ New → Database → PostgreSQL**.
-2. Create one service per job in the table above (**+ New → GitHub Repo**, this repository). For each one:
-   - **Variables:** add `DATABASE_URL` with the value `${{Postgres.DATABASE_URL}}`. This is a reference to the database's private URL.
+2. Add the web app: **+ New → GitHub Repo**, this repository.
+   - **Variables:** `DATABASE_URL` = `${{Postgres.DATABASE_URL}}` (a reference to the database's private URL), `APP_PASSWORD` = a password of your choice, and `SECRET_KEY` = a long random string (for example from `openssl rand -hex 32`).
+   - **Settings → Deploy:** set **Healthcheck Path** to `/health`. The start command comes from the `Dockerfile`.
+   - **Settings → Networking:** choose **Generate Domain** to get the app's address.
+3. Create one more service from the same repository per job in the table above. For each one:
+   - **Variables:** add `DATABASE_URL` as above.
    - **Settings → Deploy:** set the **Custom Start Command** and **Cron Schedule** from the table, and set **Restart Policy** to **Never**.
-   - **Settings → Source:** pick the branch to deploy from.
-3. The jobs then run on schedule. `collect-daily` must have run once before `collect-mfn` and `collect-prices` have a universe to work through.
+4. For every service, pick the branch to deploy from under **Settings → Source**.
+5. Open the app, sign in, and press **Hent historikk** on the **Data** page once. It loads the history the model needs (a year of prices, insider trades, announcements and short positions) in one to two hours; the app stays usable meanwhile. After that, the cron jobs keep the data current.
 
 Without `DATABASE_URL`, a job on Railway stops with an error rather than writing to a throwaway SQLite file. If you deploy with `railway up` instead of GitHub, pull the latest commit first so the `Dockerfile` is included.
 
 ### As code
 
-[`.railway/railway.ts`](.railway/railway.ts) describes the same setup (Postgres plus the four cron services) for Railway's infrastructure-as-code tooling (Railway CLI 5.42.1 or newer):
+[`.railway/railway.ts`](.railway/railway.ts) describes the same setup (Postgres, the web app and the four cron services) for Railway's infrastructure-as-code tooling (Railway CLI 5.42.1 or newer):
 
 ```sh
 npm install --prefix .railway    # installs the "railway" SDK the file imports
@@ -89,7 +124,7 @@ railway config plan              # preview
 railway config apply             # create or update the services
 ```
 
-The file describes the whole project: anything not listed in it is proposed for deletion. Either start from an empty project or read the plan carefully. The name in `project("nordic-signals", ...)` and the repository in `REPO` should match yours.
+The file describes the whole project: anything not listed in it is proposed for deletion. Either start from an empty project or read the plan carefully. The name in `project("nordic-signals", ...)` and the repository in `REPO` should match yours. Set `APP_PASSWORD` and `SECRET_KEY` on the web service in the dashboard; the file keeps whatever values are there. Generating the domain and the first history load are still done by hand, as in steps 2 and 5 above.
 
 ## How data is stored
 

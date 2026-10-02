@@ -1,0 +1,179 @@
+{% extends "base.html" %}
+{% block title %}Anbefaling nr. {{ rec.id }} · Nordic signals{% endblock %}
+{% block head %}{% if rec.status in ("queued", "running") %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>Anbefaling nr. {{ rec.id }}</h1>
+    <p class="muted">{{ rec.created_at | when }} · modell {{ rec.model_version }}
+      {% if rec.policy.ask_only %} · ASK (bare regulerte markeder){% endif %}</p>
+  </div>
+  {% if rec.status == "done" %}<a class="button secondary" href="/recommendations/{{ rec.id }}/export.csv">Last ned CSV</a>{% endif %}
+</div>
+
+{% if rec.status in ("queued", "running") %}
+<div class="card"><span class="spinner"></span>Henter data og beregner poeng for alle aksjene. Siden oppdateres av seg
+  selv; med «Oppdater data først» tar det omtrent 30 sekunder.</div>
+{% elif rec.status == "failed" %}
+<div class="notice error"><span class="icon">!</span>Anbefalingen feilet: {{ rec.error }}</div>
+{% else %}
+{% set s = rec.summary %}
+{% set candidates = signals | selectattr("direction", "gt", 0) | list %}
+{% set avoid = signals | selectattr("direction", "lt", 0) | list %}
+{% set paper_amount = candidates | selectattr("paper") | sum(attribute="amount") %}
+{% set account = rec.account_value %}
+
+<div class="tiles">
+  <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ account | nok }}</div>
+    <div class="sub">fordeling {{ rec.policy.long_pct | int }} / {{ rec.policy.short_pct | int }} / {{ rec.policy.cash_pct | int }}</div></div>
+  <div class="tile"><div class="label">Langsiktig del</div><div class="value">{{ s.long_invested | nok }}</div>
+    <div class="sub">{{ s.positions }} posisjoner · {{ (s.long_invested / account) | pct }}</div></div>
+  <div class="tile"><div class="label">Kortsiktig del</div><div class="value">{{ s.short_invested | nok }}</div>
+    <div class="sub">{% if rec.policy.short_paper_only %}{{ paper_amount | nok }} på papir{% else %}{{ candidates | length }} hendelseshandler{% endif %}</div></div>
+  <div class="tile"><div class="label">Kontanter</div><div class="value">{{ s.cash | nok }}</div>
+    <div class="sub">{{ (s.cash / account) | pct }} inkl. avrunding</div></div>
+</div>
+
+<div class="card">
+  <h2>Slik fordeles kontoen</h2>
+  <div class="split" role="img" aria-label="Langsiktig {{ (s.long_invested / account) | pct }}, kortsiktig {{ (s.short_invested / account) | pct }}, kontanter {{ (s.cash / account) | pct }}">
+    <div class="bar">
+      {% if s.long_invested > 0 %}<div class="seg s1" style="flex: {{ s.long_invested }}" title="Langsiktig: {{ s.long_invested | nok }}"></div>{% endif %}
+      {% if s.short_invested > 0 %}<div class="seg s2" style="flex: {{ s.short_invested }}" title="Kortsiktig: {{ s.short_invested | nok }}"></div>{% endif %}
+      {% if s.cash > 0 %}<div class="seg s3" style="flex: {{ s.cash }}" title="Kontanter: {{ s.cash | nok }}"></div>{% endif %}
+    </div>
+    <div class="legend">
+      <span><span class="key s1"></span>Langsiktig <strong>{{ s.long_invested | nok }}</strong> ({{ (s.long_invested / account) | pct }})</span>
+      <span><span class="key s2"></span>Kortsiktig <strong>{{ s.short_invested | nok }}</strong> ({{ (s.short_invested / account) | pct }})</span>
+      <span><span class="key s3"></span>Kontanter <strong>{{ s.cash | nok }}</strong> ({{ (s.cash / account) | pct }})</span>
+    </div>
+  </div>
+  {% for note in s.notes %}<p class="small muted">{{ note }}</p>{% endfor %}
+</div>
+
+<div class="card">
+  <h2>Langsiktige posisjoner</h2>
+  {% if picks %}
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">Plass</th><th>Aksje</th><th class="num">Antall</th><th class="num">Beløp</th>
+      <th class="num">Vekt</th><th class="num">Kurs</th><th class="num">Poeng</th><th>Hvorfor</th></tr></thead>
+    <tbody>
+    {% for line in picks %}
+      <tr>
+        <td class="num">{{ line.rank }}</td>
+        <td><a href="/stocks/{{ line.instrument_id }}">{{ line.name }}</a>
+          <div class="ticker">{{ line.symbol }} · {{ line.segments | join(", ") or line.country }}</div></td>
+        <td class="num">{{ line.long_shares | num }}</td>
+        <td class="num">{{ line.long_amount | nok }}</td>
+        <td class="num">{{ line.long_weight | pct }}</td>
+        <td class="num nowrap">{{ line.ref_price | num(2) }} {{ line.currency }}</td>
+        <td class="num">{{ line.score | num(2) }}</td>
+        <td><div class="chips">{% for reason in line.reasons %}<span class="chip">{{ reason }}</span>{% endfor %}</div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  <p class="small muted">Like vekter i hele aksjer, rundet ned; resten står i kontanter. Kursene er fra siste
+    øyeblikksbilde fra Nordnet og kan være forsinket. Svenske aksjer er regnet om til
+    {{ s.fx.SEK | num(4) if s.fx.SEK else "–" }} NOK per SEK.</p>
+  {% else %}
+  <p class="muted">Ingen posisjoner. Se merknadene over.</p>
+  {% endif %}
+</div>
+
+{% if runners_up %}
+<div class="card">
+  <h2>Neste i køen</h2>
+  <p class="small muted">Bruk disse hvis du ikke kan eller vil kjøpe en av posisjonene over.</p>
+  <div class="table-wrap"><table>
+    <thead><tr><th class="num">Plass</th><th>Aksje</th><th class="num">Kurs</th><th class="num">Poeng</th><th>Hvorfor</th></tr></thead>
+    <tbody>
+    {% for line in runners_up %}
+      <tr>
+        <td class="num">{{ line.rank }}</td>
+        <td><a href="/stocks/{{ line.instrument_id }}">{{ line.name }}</a><div class="ticker">{{ line.symbol }} · {{ line.segments | join(", ") or line.country }}</div></td>
+        <td class="num nowrap">{{ line.ref_price | num(2) }} {{ line.currency }}</td>
+        <td class="num">{{ line.score | num(2) }}</td>
+        <td><div class="chips">{% for reason in line.reasons %}<span class="chip">{{ reason }}</span>{% endfor %}</div></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Kortsiktig del</h2>
+  <p class="small muted">Hendelsessignaler med forskning bak seg: nye tilbakekjøpsprogrammer og flere innsidere som kjøper
+    samtidig. Holdes i omtrent fem handelsdager, med kjøp i neste åpningsauksjon. De fleste kortsiktige fortrinn er
+    mindre enn det et kjøp og salg koster hos Nordnet, så denne delen står på papir til dens egne resultater viser noe
+    annet.</p>
+  {% if candidates %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Aksje</th><th>Signal</th><th class="num">Antall</th><th class="num">Beløp</th><th>Modus</th></tr></thead>
+    <tbody>
+    {% for sig in candidates %}
+      <tr>
+        <td><a href="/stocks/{{ sig.instrument_id }}">{{ sig.name }}</a><div class="ticker">{{ sig.symbol }} · {{ sig.country }}</div></td>
+        <td>{{ sig.description }}</td>
+        <td class="num">{{ sig.shares | num if sig.shares else "–" }}</td>
+        <td class="num">{{ sig.amount | nok if sig.amount else "–" }}</td>
+        <td>{% if not sig.shares %}<span class="muted">Bare loggført</span>{% elif sig.paper %}Papir{% else %}<strong>Kjøp</strong>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">Ingen ferske hendelsessignaler akkurat nå.</p>
+  {% endif %}
+  {% if avoid %}
+  <h3>Unngå inntil videre</h3>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Aksje</th><th>Hvorfor</th></tr></thead>
+    <tbody>
+    {% for sig in avoid %}
+      <tr><td><a href="/stocks/{{ sig.instrument_id }}">{{ sig.name }}</a><div class="ticker">{{ sig.symbol }} · {{ sig.country }}</div></td>
+        <td>{{ sig.description }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+  {% endif %}
+</div>
+
+<div class="grid two">
+  <div class="card">
+    <h2>Hva som ble vurdert</h2>
+    <p>{{ universe | num }} aksjer i Nordnet-universet, og {{ eligible | num }} besto filtrene.</p>
+    <details>
+      <summary>Hvorfor de andre ble utelatt</summary>
+      <table><tbody>
+      {% for reason, count in exclusions %}<tr><td>{{ reason }}</td><td class="num">{{ count | num }}</td></tr>{% endfor %}
+      </tbody></table>
+    </details>
+  </div>
+  <div class="card">
+    <h2>Data som ble brukt</h2>
+    <dl class="kv">
+      {% for source, at in (rec.data_cutoff or {}).items() | sort %}<dt>{{ source }}</dt><dd>{{ at | when }}</dd>{% endfor %}
+    </dl>
+    {% if rec.refresh %}<p class="small muted" style="margin-top:8px">Oppdatert før beregningen:
+      {% for source, result in rec.refresh.items() %}{{ source }} {{ "✕ feilet" if result == "failed" else "✓" }}{{ ", " if not loop.last }}{% endfor %}</p>{% endif %}
+  </div>
+</div>
+
+<details class="card">
+  <summary><strong>Slik ble dette beregnet</strong></summary>
+  <p>Hver aksje får en persentilrangering innenfor sitt eget land på fire temaer, og snittet av dem blir poengsummen:
+    <strong>momentum</strong> (avkastning siste 12 måneder, uten den siste måneden), <strong>verdi</strong>
+    (resultatavkastning, bok/kurs og direkteavkastning), <strong>kvalitet</strong> (egenkapitalavkastning, anslått som
+    P/B ÷ P/E) og <strong>lav volatilitet</strong> (når minst halvparten av aksjene har 60 dager med kurshistorikk). Små
+    justeringer, begrenset til −0,15 og +0,08, legges til for innsidekjøp eller -salg, tilbakekjøpsprogrammer og
+    offentliggjorte shortposisjoner.</p>
+  <p>Filtre: bare lønnsomme selskaper, en markedsverdi på minst 500&nbsp;mill. NOK, en aksjekurs på minst 5&nbsp;NOK
+    og nok daglig omsetning til at en posisjon utgjør høyst 2&nbsp;% av den. Én aksjeklasse per selskap. Deretter får de
+    høyest rangerte aksjene like vekter.</p>
+  <p>Poengsummen til hver aksje og tallene bak den lagres sammen med anbefalingen, slik at
+    <a href="/track-record">resultatsiden</a> senere kan sjekke om høyere poeng ga høyere avkastning.</p>
+</details>
+{% endif %}
+{% endblock %}

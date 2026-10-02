@@ -165,6 +165,7 @@ def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, 
     server.add("GET", SSR, httpx.Response(200, json=fixture_json("ssr_instruments.json")))
     server.add("GET", STOCKLIST,
                httpx.Response(200, json=fixture_json("nordnet_stocklist.json") | {"total_hits": 2}))
+    server.add("GET", f"{CHART}/SEKNOK=X", httpx.Response(200, json=fixture_json("yahoo_chart.json")))
     monkeypatch.setattr(cli, "PoliteClient", server.client)
     assert cli.main(["--db", db_url, "collect", "daily"]) == 0
     assert cli.main(["--db", db_url, "status"]) == 0
@@ -173,7 +174,7 @@ def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, 
     assert "fi-insider: 1 requests; se_insider_trades +3 new" in out
     with Store(db_url) as store:
         runs = {r["source"]: r for r in store.last_runs()}
-        assert set(runs) == {"nordnet", "newsweb", "fi-insider", "fi-short", "no-short"}
+        assert set(runs) == {"nordnet", "newsweb", "fi-insider", "fi-short", "no-short", "yahoo"}
         assert all(r["ok"] is True for r in runs.values())
         assert runs["no-short"]["summary"]["tables"]["no_short_totals"]["inserted"] == 4
 

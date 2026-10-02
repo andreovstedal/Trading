@@ -1,0 +1,4 @@
+{% if state == "ok" %}<span class="status ok">✓ OK</span>
+{% elif state == "failed" %}<span class="status failed" title="{{ s.error or '' }}">✕ Feilet</span>
+{% elif state == "running" %}<span class="status running">⋯ Kjører</span>
+{% else %}<span class="status never">– Aldri kjørt</span>{% endif %}
