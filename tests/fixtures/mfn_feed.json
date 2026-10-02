@@ -1,0 +1,186 @@
+{
+ "version": "https://www.mfn.se/feed/version/1",
+ "home_page_url": "https://feed.mfn.se/v1/feed/f9cedcd2-6006-4325-bb43-6ffb51e93b6b",
+ "feed_url": "https://feed.mfn.se/v1/feed/f9cedcd2-6006-4325-bb43-6ffb51e93b6b?limit=3",
+ "next_url": "https://feed.mfn.se/v1/feed/f9cedcd2-6006-4325-bb43-6ffb51e93b6b?limit=3&offset=3",
+ "items": [
+  {
+   "news_id": "843722e3-16e9-4702-95d0-b2a6e5b04345",
+   "group_id": "733500bd-e113-449c-ab5b-31e634dc42c2",
+   "url": "https://feed.mfn.se/v1/feed/f9cedcd2-6006-4325-bb43-6ffb51e93b6b/item/843722e3-16e9-4702-95d0-b2a6e5b04345.html",
+   "author": {
+    "entity_id": "f9cedcd2-6006-4325-bb43-6ffb51e93b6b",
+    "slug": "nibe-industrier",
+    "slugs": [
+     "nibe-industrier"
+    ],
+    "name": "NIBE Industrier",
+    "brand_image_url": "https://storage.mfn.se/3f6a48a2-23f1-4502-aba3-6687636dc7a1/nibe-industrier.png",
+    "isins": [
+     "SE0015988019"
+    ],
+    "leis": [
+     "549300ZQH0FIF1P0MX67"
+    ],
+    "local_refs": [
+     "SE:556374-8309"
+    ],
+    "tickers": [
+     "XSTO:NIBE B",
+     "XLON:0RH0"
+    ]
+   },
+   "subjects": [
+    {
+     "entity_id": "f9cedcd2-6006-4325-bb43-6ffb51e93b6b",
+     "slug": "nibe-industrier",
+     "slugs": [
+      "nibe-industrier"
+     ],
+     "name": "NIBE Industrier",
+     "brand_image_url": "https://storage.mfn.se/3f6a48a2-23f1-4502-aba3-6687636dc7a1/nibe-industrier.png",
+     "isins": [
+      "SE0015988019"
+     ],
+     "leis": [
+      "549300ZQH0FIF1P0MX67"
+     ],
+     "local_refs": [
+      "SE:556374-8309"
+     ],
+     "tickers": [
+      "XSTO:NIBE B",
+      "XLON:0RH0"
+     ]
+    }
+   ],
+   "properties": {
+    "lang": "en",
+    "tags": [
+     "sub:ci",
+     "sub:ci:other"
+    ],
+    "type": "ir",
+    "scopes": [
+     "SE",
+     "GB"
+    ]
+   },
+   "content": {
+    "title": "CEO and MD, Test Person, comments on the Interim Report 2, 2026",
+    "slug": "ceo-and-md-test-person-comments-on-the-interim-report-2-2026",
+    "publish_date": "2026-08-21T06:02:00Z",
+    "html": "<div class=\"mfn-preamble\"><p><strong>Continued good growth and further improvement in profitability</strong></p></div>\n<div class=\"mfn-body\"><p><strong>SECOND QUARTER 2026</strong><br/>During the quarter, net sales, profitability and operating margin continued to show good growth.</p><p>For the sixt",
+    "attachments": [
+     {
+      "file_title": "CEO and MD, Test Person, comments on the Interim Report 2, 2026",
+      "content_type": "application/pdf",
+      "url": "https://storage.mfn.se/d28c7cd9-b267-4a1a-9a42-a74c9b25e836/ceo-and-md-test-person-comments-on-the-interim-report-2-2026.pdf",
+      "tags": [
+       ":generated",
+       ":primary",
+       ":release"
+      ]
+     },
+     {
+      "file_title": "Test Person",
+      "content_type": "image/jpeg",
+      "url": "https://storage.mfn.se/023def26-e817-4993-acee-f0889617a936/test-person.jpg",
+      "tags": []
+     }
+    ]
+   },
+   "extensions": {},
+   "source": "mfn"
+  },
+  {
+   "news_id": "3265e000-a025-470e-b1aa-95a5fee17a3f",
+   "group_id": "733500bd-e113-449c-ab5b-31e634dc42c2",
+   "url": "https://feed.mfn.se/v1/feed/f9cedcd2-6006-4325-bb43-6ffb51e93b6b/item/3265e000-a025-470e-b1aa-95a5fee17a3f.html",
+   "author": {
+    "entity_id": "f9cedcd2-6006-4325-bb43-6ffb51e93b6b",
+    "slug": "nibe-industrier",
+    "slugs": [
+     "nibe-industrier"
+    ],
+    "name": "NIBE Industrier",
+    "brand_image_url": "https://storage.mfn.se/3f6a48a2-23f1-4502-aba3-6687636dc7a1/nibe-industrier.png",
+    "isins": [
+     "SE0015988019"
+    ],
+    "leis": [
+     "549300ZQH0FIF1P0MX67"
+    ],
+    "local_refs": [
+     "SE:556374-8309"
+    ],
+    "tickers": [
+     "XSTO:NIBE B",
+     "XLON:0RH0"
+    ]
+   },
+   "subjects": [
+    {
+     "entity_id": "f9cedcd2-6006-4325-bb43-6ffb51e93b6b",
+     "slug": "nibe-industrier",
+     "slugs": [
+      "nibe-industrier"
+     ],
+     "name": "NIBE Industrier",
+     "brand_image_url": "https://storage.mfn.se/3f6a48a2-23f1-4502-aba3-6687636dc7a1/nibe-industrier.png",
+     "isins": [
+      "SE0015988019"
+     ],
+     "leis": [
+      "549300ZQH0FIF1P0MX67"
+     ],
+     "local_refs": [
+      "SE:556374-8309"
+     ],
+     "tickers": [
+      "XSTO:NIBE B",
+      "XLON:0RH0"
+     ]
+    }
+   ],
+   "properties": {
+    "lang": "de",
+    "tags": [
+     "sub:ci",
+     "sub:ci:other"
+    ],
+    "type": "ir",
+    "scopes": [
+     "SE",
+     "GB"
+    ]
+   },
+   "content": {
+    "title": "Anmerkungen von Test Person, CEO, zum Zwischenbericht 2, 2026",
+    "slug": "anmerkungen-von-test-person-ceo-zum-zwischenbericht-2-2026",
+    "publish_date": "2026-08-21T06:02:00Z",
+    "html": "<div class=\"mfn-preamble\"><p><strong>Weiterhin gutes Wachstum und weiterhin verbesserte Rentabilität</strong></p></div>\n<div class=\"mfn-body\"><p><strong>QUARTAL 2 2026</strong><br/>Das Quartal zeichnete sich durch ein anhaltend gutes Wachstum sowohl beim Umsatz als auch bei der Rentabilität und der ",
+    "attachments": [
+     {
+      "file_title": "Anmerkungen von Test Person, CEO, zum Zwischenbericht 2, 2026",
+      "content_type": "application/pdf",
+      "url": "https://storage.mfn.se/8230f0f9-b157-4274-8f5a-1a9d3a7317e8/anmerkungen-von-test-person-ceo-zum-zwischenbericht-2-2026.pdf",
+      "tags": [
+       ":generated",
+       ":primary",
+       ":release"
+      ]
+     },
+     {
+      "file_title": "Test Person",
+      "content_type": "image/jpeg",
+      "url": "https://storage.mfn.se/559f062d-391d-438c-beb0-3d630d9f7c6a/test-person.jpg",
+      "tags": []
+     }
+    ]
+   },
+   "extensions": {},
+   "source": "mfn"
+  }
+ ]
+}

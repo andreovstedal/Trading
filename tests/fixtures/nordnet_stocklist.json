@@ -1,0 +1,260 @@
+{
+ "rows": 2,
+ "total_hits": 295,
+ "results": [
+  {
+   "instrument_info": {
+    "instrument_id": 16105420,
+    "name": "EQUINOR",
+    "long_name": "EQUINOR",
+    "symbol": "EQNR",
+    "instrument_group_type": "EQ",
+    "instrument_type_hierarchy": "EQ/ESH",
+    "instrument_type": "ESH",
+    "isin": "NO0010096985",
+    "currency": "NOK",
+    "price_unit": "NOK",
+    "clearing_place": "VPS",
+    "is_tradable": true,
+    "instrument_pawn_percentage": 80,
+    "is_shortable": true,
+    "issuer_id": 261996,
+    "issuer_name": "Equinor",
+    "is_monthly_saveable": false,
+    "mifid2_id": 0,
+    "instrument_icon_url": "https://cdn.prod.nntech.io/cms-proxy/6xe8ehctp75g/1g0ykLy6DuEW29ZDoCgtKF/e200733fbeb962a1fa24bea48acab31c/image.png"
+   },
+   "status_info": {
+    "trading_status": "CLOSED",
+    "translated_trading_status": "Stengt",
+    "tick_timestamp": 1790865900000
+   },
+   "market_info": {
+    "market_id": 15,
+    "market_sub_id": 15,
+    "identifier": "2274236",
+    "tick_size_id": 34831241
+   },
+   "price_info": {
+    "last": {
+     "price": 401.8,
+     "decimals": 1
+    },
+    "open": {
+     "price": 394.3,
+     "decimals": 1
+    },
+    "close": {
+     "price": 399.5,
+     "decimals": 1
+    },
+    "turnover": 1182515357.0,
+    "turnover_normalized": 1232417505.07,
+    "turnover_volume": 2976465,
+    "bid": {
+     "price": 393.5,
+     "decimals": 1
+    },
+    "ask": {
+     "price": 402.0,
+     "decimals": 1
+    },
+    "bid_volume": 1000,
+    "ask_volume": 10,
+    "high": {
+     "price": 401.8,
+     "decimals": 1
+    },
+    "low": {
+     "price": 391.4,
+     "decimals": 1
+    },
+    "diff": {
+     "diff": 2.3,
+     "decimals": 1
+    },
+    "diff_pct": 0.58,
+    "spread": {
+     "price": 8.5,
+     "decimals": 3
+    },
+    "spread_pct": 2.11,
+    "tick_timestamp": 1790865980000,
+    "realtime": false
+   },
+   "exchange_info": {
+    "exchange_country": "NO",
+    "exchanges": [
+     "Euronext Oslo"
+    ]
+   },
+   "key_ratios_info": {
+    "pe": 11.29,
+    "ps": 0.87,
+    "eps": 1.94,
+    "pb": 2.34,
+    "dividend_per_share": 1.41,
+    "dividend_yield": 3.64
+   },
+   "historical_returns_info": {
+    "yield_1d": 0.58,
+    "yield_1w": -1.08,
+    "yield_1m": 0.6,
+    "yield_3m": 28.17,
+    "yield_ytd": 69.54,
+    "yield_1y": 65.08,
+    "yield_3y": 14.42,
+    "yield_5y": 80.46,
+    "yield_10y": 200.07,
+    "yield_max": 489.15,
+    "realtime": false
+   },
+   "company_info": {
+    "dividend_date": 1795561200000,
+    "dividend_amount": 3.77,
+    "dividend_currency": "NOK",
+    "excluding_date": 1794524400000,
+    "report_date": 1793142000000,
+    "report_type": "THIRD_QUARTER_EARNINGS_RESULTS",
+    "report_description": "Kvartalsrapport (3. kvartal)",
+    "market_cap": 957848819035
+   },
+   "statistical_info": {
+    "statistics_timestamp": 1790877159513,
+    "number_of_owners": 45182
+   },
+   "nnx_info": {
+    "nnx_instrument_id": "64af12c5-f522-41d0-baf2-dd7a7303e86e",
+    "trading_order_book_id": "f7f85027-4979-41fd-be87-b24f2fbc5825",
+    "market_data_order_book_id": "f7f85027-4979-41fd-be87-b24f2fbc5825",
+    "display_slug": "equinor-eqnr-xosl",
+    "instrument_class": "STOCK"
+   }
+  },
+  {
+   "instrument_info": {
+    "instrument_id": 17951057,
+    "name": "FRONTLINE PLC",
+    "long_name": "FRONTLINE PLC",
+    "symbol": "FRO",
+    "instrument_group_type": "EQ",
+    "instrument_type_hierarchy": "EQ/ESH",
+    "instrument_type": "ESH",
+    "isin": "CY0200352116",
+    "currency": "NOK",
+    "price_unit": "NOK",
+    "clearing_place": "VPS",
+    "is_tradable": true,
+    "instrument_pawn_percentage": 70,
+    "is_shortable": true,
+    "issuer_id": 263403,
+    "issuer_name": "FRONTLINE PLC",
+    "is_monthly_saveable": false,
+    "mifid2_id": 0,
+    "instrument_icon_url": "https://cdn.prod.nntech.io/cms-proxy/6xe8ehctp75g/1IOlXvDmbV7NqUKtCgRqAd/a0cb1829b3ca9c177b38419f6fa0b2e1/Frontline.png"
+   },
+   "status_info": {
+    "trading_status": "CLOSED",
+    "translated_trading_status": "Stengt",
+    "tick_timestamp": 1790865900000
+   },
+   "market_info": {
+    "market_id": 15,
+    "market_sub_id": 15,
+    "identifier": "3295743",
+    "tick_size_id": 34831241
+   },
+   "price_info": {
+    "last": {
+     "price": 486.6,
+     "decimals": 1
+    },
+    "open": {
+     "price": 476.2,
+     "decimals": 1
+    },
+    "close": {
+     "price": 476.2,
+     "decimals": 1
+    },
+    "turnover": 541048337.0,
+    "turnover_normalized": 563880576.82,
+    "turnover_volume": 1126209,
+    "bid": {
+     "price": 479.5,
+     "decimals": 1
+    },
+    "ask": {
+     "price": 488.0,
+     "decimals": 1
+    },
+    "bid_volume": 110,
+    "ask_volume": 100,
+    "high": {
+     "price": 487.9,
+     "decimals": 1
+    },
+    "low": {
+     "price": 469.8,
+     "decimals": 1
+    },
+    "diff": {
+     "diff": 10.4,
+     "decimals": 1
+    },
+    "diff_pct": 2.18,
+    "spread": {
+     "price": 8.5,
+     "decimals": 3
+    },
+    "spread_pct": 1.74,
+    "tick_timestamp": 1790865900000,
+    "realtime": false
+   },
+   "exchange_info": {
+    "exchange_country": "NO",
+    "exchanges": [
+     "Euronext Oslo"
+    ]
+   },
+   "key_ratios_info": {
+    "pe": 7.2,
+    "ps": 3.94,
+    "eps": 1.7,
+    "pb": 3.39,
+    "dividend_per_share": 0.93,
+    "dividend_yield": 6.51
+   },
+   "historical_returns_info": {
+    "yield_1d": 2.18,
+    "yield_1w": 8.3,
+    "yield_1m": 18.25,
+    "yield_3m": 41.7,
+    "yield_ytd": 118.8,
+    "yield_1y": 113.42,
+    "yield_3y": 147.01,
+    "yield_5y": 509.77,
+    "yield_10y": 745.53,
+    "yield_max": 255.09,
+    "realtime": false
+   },
+   "company_info": {
+    "report_date": 1795993200000,
+    "report_type": "THIRD_QUARTER_EARNINGS_RESULTS",
+    "report_description": "Kvartalsrapport (3. kvartal)",
+    "market_cap": 102957896823
+   },
+   "statistical_info": {
+    "statistics_timestamp": 1790877159124,
+    "number_of_owners": 17470
+   },
+   "nnx_info": {
+    "nnx_instrument_id": "32f6d165-8d72-4ee7-a8b9-0695db1d67ac",
+    "trading_order_book_id": "bc1ba8ce-0d19-4b0d-b28b-857632edbf01",
+    "market_data_order_book_id": "bc1ba8ce-0d19-4b0d-b28b-857632edbf01",
+    "display_slug": "frontline-fro-xosl",
+    "instrument_class": "STOCK"
+   }
+  }
+ ]
+}

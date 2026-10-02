@@ -1,0 +1,72 @@
+[
+ {
+  "isin": "BMG9156K1018",
+  "issuerName": "2020 BULKERS",
+  "events": [
+   {
+    "date": "2026-09-30T00:00:00",
+    "shortPercent": 1.8,
+    "shares": 413635,
+    "activePositions": [
+     {
+      "date": "2026-09-30T00:00:00",
+      "shortPercent": 1.8,
+      "shares": 413635,
+      "positionHolder": "GSA CAPITAL PARTNERS LLP"
+     }
+    ]
+   },
+   {
+    "date": "2026-09-29T00:00:00",
+    "shortPercent": 1.64,
+    "shares": 377008,
+    "activePositions": [
+     {
+      "date": "2026-09-29T00:00:00",
+      "shortPercent": 1.64,
+      "shares": 377008,
+      "positionHolder": "GSA CAPITAL PARTNERS LLP"
+     }
+    ]
+   }
+  ]
+ },
+ {
+  "isin": "NO0010345853",
+  "issuerName": "AKER BP",
+  "events": [
+   {
+    "date": "2026-07-14T00:00:00",
+    "shortPercent": 0.71,
+    "shares": 4505000,
+    "activePositions": [
+     {
+      "date": "2025-04-08T00:00:00",
+      "shortPercent": 0.71,
+      "shares": 4505000,
+      "positionHolder": "KGH Ltd"
+     }
+    ]
+   },
+   {
+    "date": "2026-07-07T00:00:00",
+    "shortPercent": 1.21,
+    "shares": 7669209,
+    "activePositions": [
+     {
+      "date": "2026-07-07T00:00:00",
+      "shortPercent": 0.5,
+      "shares": 3164209,
+      "positionHolder": "AQR CAPITAL MANAGEMENT, LLC"
+     },
+     {
+      "date": "2025-04-08T00:00:00",
+      "shortPercent": 0.71,
+      "shares": 4505000,
+      "positionHolder": "KGH Ltd"
+     }
+    ]
+   }
+  ]
+ }
+]

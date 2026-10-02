@@ -1,0 +1,47 @@
+{
+ "header": {
+  "OB_REQUEST_ID": "7abce9aa-cfeb-4ddf-aa68-2be34478c1f8",
+  "result.val": 0,
+  "http.code": 200,
+  "result.text": "OK"
+ },
+ "data": {
+  "message": {
+   "id": 683462,
+   "messageId": 683462,
+   "newsId": 636044,
+   "title": "Mandatory Notification of Trading by Primary Insiders",
+   "body": "October 1, 2026 \nOla Nordmann, Chief Investment Officer (CIO) of Nordic Financials ASA, has today through his wholly owned company Nordmann Holding AS, purchased 6,737 shares in Nordic Financials ASA at a price of NOK 1.30 per share. Following this transaction, Nordmann Holding AS owns 2,738,191 shares in Nordic Financials ASA. \n\nFor details see attached KRT 1500.",
+   "category": [
+    {
+     "id": 1102,
+     "category_no": "MELDEPLIKTIG HANDEL FOR PRIMÆRINNSIDERE",
+     "category_en": "MANAGERS’ TRANSACTION"
+    }
+   ],
+   "markets": [
+    "XOAX"
+   ],
+   "issuerId": 11273,
+   "correctionForMessageId": 0,
+   "correctedByMessageId": 0,
+   "issuerSign": "NOFIN",
+   "issuerName": "Nordic Financials ASA",
+   "instrId": 2165765,
+   "instrumentName": "NOFIN",
+   "instrumentFullName": "NORDIC FINANCIALS",
+   "publishedTime": "2026-10-01T19:33:50.664Z",
+   "test": false,
+   "numbAttachments": 1,
+   "attachments": [
+    {
+     "id": 334111,
+     "name": "Holding 01102026 KRT-1500.pdf"
+    }
+   ],
+   "clientAnnouncementId": "553f5e09-6008-435c-8f76-87f08a2044e8",
+   "infoRequired": 1,
+   "oamMandatory": 1
+  }
+ }
+}

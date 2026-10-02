@@ -1,0 +1,118 @@
+{
+ "chart": {
+  "result": [
+   {
+    "meta": {
+     "currency": "NOK",
+     "symbol": "MOWI.OL",
+     "exchangeName": "OSL",
+     "fullExchangeName": "Oslo",
+     "instrumentType": "EQUITY",
+     "firstTradeDate": 946886400,
+     "regularMarketTime": 1790864851,
+     "hasPrePostMarketData": false,
+     "gmtoffset": 7200,
+     "timezone": "CEST",
+     "exchangeTimezoneName": "Europe/Oslo",
+     "regularMarketPrice": 201.4,
+     "regularMarketChangePercent": -0.983,
+     "fulldayPrice": 201.4,
+     "fulldayChange": -2.0,
+     "fulldayChangePercent": -0.983,
+     "fiftyTwoWeekHigh": 245.8,
+     "fiftyTwoWeekLow": 179.4,
+     "regularMarketDayHigh": 204.2,
+     "regularMarketDayLow": 201.2,
+     "regularMarketVolume": 788544,
+     "longName": "Mowi ASA",
+     "shortName": "MOWI",
+     "chartPreviousClose": 143.1,
+     "priceHint": 2,
+     "currentTradingPeriod": {
+      "pre": {
+       "timezone": "CEST",
+       "start": 1790924400,
+       "end": 1790924400,
+       "gmtoffset": 7200
+      },
+      "regular": {
+       "timezone": "CEST",
+       "start": 1790924400,
+       "end": 1790950800,
+       "gmtoffset": 7200
+      },
+      "post": {
+       "timezone": "CEST",
+       "start": 1790950800,
+       "end": 1790950800,
+       "gmtoffset": 7200
+      }
+     },
+     "dataGranularity": "1d",
+     "range": "10y"
+    },
+    "timestamp": [
+     1790665200,
+     1790751600,
+     1790838000,
+     1790924400
+    ],
+    "events": {
+     "dividends": {
+      "1787900400": {
+       "amount": 2.3,
+       "date": 1787900400
+      }
+     }
+    },
+    "indicators": {
+     "quote": [
+      {
+       "open": [
+        206.8000030517578,
+        205.0,
+        202.8000030517578,
+        null
+       ],
+       "low": [
+        203.39999389648438,
+        203.39999389648438,
+        201.1999969482422,
+        null
+       ],
+       "volume": [
+        772372,
+        1143939,
+        788544,
+        null
+       ],
+       "high": [
+        207.1999969482422,
+        207.39999389648438,
+        204.1999969482422,
+        null
+       ],
+       "close": [
+        203.39999389648438,
+        203.39999389648438,
+        null,
+        null
+       ]
+      }
+     ],
+     "adjclose": [
+      {
+       "adjclose": [
+        203.39999389648438,
+        203.39999389648438,
+        null,
+        null
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "error": null
+ }
+}

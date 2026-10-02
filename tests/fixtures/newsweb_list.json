@@ -1,0 +1,103 @@
+{
+ "header": {
+  "OB_REQUEST_ID": "1e0c2808-b306-47d5-a8f8-e33527291be3",
+  "result.val": 0,
+  "http.code": 200,
+  "result.text": "OK"
+ },
+ "data": {
+  "messages": [
+   {
+    "id": 683462,
+    "messageId": 683462,
+    "newsId": 636044,
+    "title": "Mandatory Notification of Trading by Primary Insiders",
+    "category": [
+     {
+      "id": 1102,
+      "category_no": "MELDEPLIKTIG HANDEL FOR PRIMÆRINNSIDERE",
+      "category_en": "MANAGERS’ TRANSACTION"
+     }
+    ],
+    "markets": [
+     "XOAX"
+    ],
+    "issuerId": 11273,
+    "correctionForMessageId": 0,
+    "correctedByMessageId": 0,
+    "issuerSign": "NOFIN",
+    "issuerName": "Nordic Financials ASA",
+    "instrId": 0,
+    "instrumentName": "",
+    "instrumentFullName": "",
+    "publishedTime": "2026-10-01T19:33:50.664Z",
+    "test": false,
+    "numbAttachments": 1,
+    "clientAnnouncementId": "553f5e09-6008-435c-8f76-87f08a2044e8",
+    "infoRequired": 0,
+    "oamMandatory": 0
+   },
+   {
+    "id": 683454,
+    "messageId": 683454,
+    "newsId": 636035,
+    "title": "The Goldman Sachs Group, Inc. Disclosure in HIMALAYA SHIPPING LTD",
+    "category": [
+     {
+      "id": 1006,
+      "category_no": "FLAGGING",
+      "category_en": "MAJOR SHAREHOLDINGS NOTIFICATION"
+     }
+    ],
+    "markets": [
+     "XOSL"
+    ],
+    "issuerId": 12940,
+    "correctionForMessageId": 0,
+    "correctedByMessageId": 0,
+    "issuerSign": "HSHP",
+    "issuerName": "Himalaya Shipping Ltd",
+    "instrId": 0,
+    "instrumentName": "",
+    "instrumentFullName": "",
+    "publishedTime": "2026-10-01T15:25:47.802Z",
+    "test": false,
+    "numbAttachments": 1,
+    "clientAnnouncementId": "90ebc953-8c6b-45ba-80cd-975d5b4b9b26",
+    "infoRequired": 0,
+    "oamMandatory": 0
+   },
+   {
+    "id": 683463,
+    "messageId": 683463,
+    "newsId": 636046,
+    "title": "September 2026 Operational Update",
+    "category": [
+     {
+      "id": 1104,
+      "category_no": "IKKE-INFORMASJONSPLIKTIGE PRESSEMELDINGER",
+      "category_en": "NON-REGULATORY PRESS RELEASES"
+     }
+    ],
+    "markets": [
+     "XOSL"
+    ],
+    "issuerId": 12854,
+    "correctionForMessageId": 0,
+    "correctedByMessageId": 0,
+    "issuerSign": "OTOVO",
+    "issuerName": "Otovo ASA",
+    "instrId": 0,
+    "instrumentName": "",
+    "instrumentFullName": "",
+    "publishedTime": "2026-10-01T21:47:08.345Z",
+    "test": false,
+    "numbAttachments": 0,
+    "clientAnnouncementId": "654eb65f-b4f3-4917-a87c-991455b9d5ea",
+    "infoRequired": 0,
+    "oamMandatory": 0
+   }
+  ],
+  "overflow": false
+ }
+}

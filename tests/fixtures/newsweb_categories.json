@@ -1,0 +1,137 @@
+{
+ "header": {
+  "OB_REQUEST_ID": "725f03e5-3c55-4f3b-8b7b-27e0cf44f27c",
+  "result.val": 0,
+  "http.code": 200,
+  "result.text": "OK"
+ },
+ "data": {
+  "categories": [
+   {
+    "id": 1101,
+    "category_no": "EKS.DATO",
+    "category_en": "EX DATE"
+   },
+   {
+    "id": 1102,
+    "category_no": "MELDEPLIKTIG HANDEL FOR PRIMÆRINNSIDERE",
+    "category_en": "MANAGERS’ TRANSACTION"
+   },
+   {
+    "id": 1103,
+    "category_no": "PROSPEKT / OPPTAKSDOKUMENT",
+    "category_en": "PROSPECTUS / ADMISSION DOCUMENT"
+   },
+   {
+    "id": 1104,
+    "category_no": "IKKE-INFORMASJONSPLIKTIGE PRESSEMELDINGER",
+    "category_en": "NON-REGULATORY PRESS RELEASES"
+   },
+   {
+    "id": 1105,
+    "category_no": "RENTEREGULERING",
+    "category_en": "ADJUSTMENT OF INTEREST RATE"
+   },
+   {
+    "id": 1301,
+    "category_no": "MELDING FRA FINANSTILSYNET",
+    "category_en": "ANNOUNCEMENT FROM THE FSA"
+   },
+   {
+    "id": 1302,
+    "category_no": "MELDING FRA NORGES BANK",
+    "category_en": "ANNOUNCEMENT FROM NORGES BANK"
+   },
+   {
+    "id": 1001,
+    "category_no": "ÅRSRAPPORT",
+    "category_en": "ANNUAL FINANCIAL REPORT"
+   },
+   {
+    "id": 1002,
+    "category_no": "HALVÅRSRAPPORT",
+    "category_en": "HALF YEAR FINANCIAL REPORT"
+   },
+   {
+    "id": 1003,
+    "category_no": "RAPPORTERING OM BETALING TIL MYNDIGHETER",
+    "category_en": "PAYMENTS TO GOVERNMENT / REPORT ON PAYMENTS TO GOVERNMENTS"
+   },
+   {
+    "id": 1004,
+    "category_no": "VALG AV HJEMSTAT",
+    "category_en": "HOME MEMBER STATE"
+   },
+   {
+    "id": 1005,
+    "category_no": "INNSIDEINFORMASJON",
+    "category_en": "INSIDE INFORMATION"
+   },
+   {
+    "id": 1006,
+    "category_no": "FLAGGING",
+    "category_en": "MAJOR SHAREHOLDINGS NOTIFICATION"
+   },
+   {
+    "id": 1007,
+    "category_no": "UTSTEDERS MELDEPLIKT VED HANDEL I EGNE AKSJER",
+    "category_en": "ACQUISITION OR DISPOSAL OF AN ISSUER'S OWN SHARES"
+   },
+   {
+    "id": 1008,
+    "category_no": "KAPITAL- OG STEMMERETTSENDRINGER",
+    "category_en": "TOTAL NUMBER OF VOTING RIGHTS AND CAPITAL"
+   },
+   {
+    "id": 1009,
+    "category_no": "ENDRINGER I RETTIGHETENE TIL AKSJER/VERDIPAPIRER",
+    "category_en": "CHANGES IN THE RIGHTS ATTACHING TO SHARES OR SECURITIES OTHER THAN SHARES"
+   },
+   {
+    "id": 1201,
+    "category_no": "NOTERING / OPPTAK AV VERDIPAPIRER",
+    "category_en": "LISTING / ADMISSION OF SECURITIES"
+   },
+   {
+    "id": 1010,
+    "category_no": "ANNEN INFORMASJONSPLIKTIG REGULATORISK INFORMASJON",
+    "category_en": "ADDITIONAL REGULATED INFORMATION REQUIRED TO BE DISCLOSED UNDER THE LAWS OF A MEMBER STATE"
+   },
+   {
+    "id": 1202,
+    "category_no": "SUSPENSJONER",
+    "category_en": "TRADING HALTS"
+   },
+   {
+    "id": 1203,
+    "category_no": "BØRSPAUSE / HANDELSPAUSE",
+    "category_en": "MATCHING HALT"
+   },
+   {
+    "id": 1204,
+    "category_no": "SÆRLIG OBSERVASJON",
+    "category_en": "SPECIAL OBSERVATION"
+   },
+   {
+    "id": 1205,
+    "category_no": "SLUTTKURSER DERIVATER",
+    "category_en": "CLOSING PRICES DERIVATIVES"
+   },
+   {
+    "id": 1206,
+    "category_no": "DERIVATMELDINGER",
+    "category_en": "DERIVATIVE NOTICES"
+   },
+   {
+    "id": 1207,
+    "category_no": "MELDING FRA OSLO BØRS",
+    "category_en": "ANNOUNCEMENT FROM OSLO BØRS"
+   },
+   {
+    "id": 1208,
+    "category_no": "MELDING FRA ANDRE AKTØRER",
+    "category_en": "ANNOUNCEMENT FROM OTHER PARTICIPANTS"
+   }
+  ]
+ }
+}
