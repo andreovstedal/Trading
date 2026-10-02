@@ -87,6 +87,23 @@ def test_ask_accounts_only_get_regulated_markets(store):
     assert scored["GRW"].exclusion == "Ikke notert på regulert marked (ikke tillatt på ASK)"
 
 
+def test_windfalls_stay_out_of_the_long_term_sleeve(store):
+    """Model v2: a P/E below 4 or a rise of more than 300 % in a year (Hunter Group, October 2026)."""
+    now = seed_universe(store)
+    stocks = features_by_symbol(store, now)
+    stocks["AAA"].features.update(pe=2.2, earnings_yield=1 / 2.2)  # earnings from contracts that end soon
+    stocks["BBB"].features.update(ret_1y=13.0)  # +1 300 %
+    stocks["SEB"].features.update(pe=4.0, earnings_yield=1 / 4.0)  # exactly at the limit is fine
+
+    scored = {s.stock.symbol: s for s in score_stocks(list(stocks.values()), {"NOK": 1.0, "SEK": 0.95},
+                                                      target_position=20_000)}
+
+    assert scored["AAA"].exclusion.startswith("P/E under 4 ")
+    assert scored["BBB"].exclusion.startswith("Steget over 300\u00a0% på 12 mnd.")
+    assert scored["SEB"].eligible
+    assert {s for s, item in scored.items() if item.eligible} == {"GRW", "SEA B", "SEB", "SEC"}
+
+
 def test_overlays(store):
     scored = scored_universe(store)
     assert scored["SEC"].overlays["insider"] == 0.05  # two insiders, net buying above 5 bps of market cap

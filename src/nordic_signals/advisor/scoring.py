@@ -1,4 +1,4 @@
-"""Model v1: the long-term score and the eligibility rules.
+"""The long-term score and the eligibility rules.
 
 The score follows the research report's recommendations: an equal-weighted
 average of four themes with Nordic evidence behind them (12-1 momentum,
@@ -6,6 +6,14 @@ value, quality, low volatility), each a percentile rank within the stock's
 own country, plus small capped overlays for insider trading, buybacks and
 disclosed short interest. Change MODEL_VERSION whenever any rule or weight
 here changes, so the track record keeps versions apart.
+
+v2 keeps windfalls out of the long-term sleeve. A P/E below 4 usually comes
+from a one-off gain, changes in the value of holdings (investment companies)
+or a short-lived peak, and it inflates value and quality at once. A rise of
+more than 300 % in a year is an event (a takeover bid, a turnaround, a
+temporary boom), not the persistent trend the momentum evidence is about.
+Hunter Group in October 2026 was both: two tanker charters earning extreme
+spot rates, ending within months.
 """
 
 from __future__ import annotations
@@ -17,7 +25,7 @@ from typing import Any
 from .. import text
 from .features import Stock
 
-MODEL_VERSION = "v1"
+MODEL_VERSION = "v2"
 
 THEMES = ("value", "quality", "momentum", "low_vol")
 
@@ -39,6 +47,8 @@ PARAMS: dict[str, Any] = {
     "adv_multiple": 50,
     "min_price_nok": 5.0,  # below this one tick is a large share of the price
     "min_market_cap_nok": 500e6,
+    "min_pe": 4.0,  # v2: lower usually means one-off or temporary earnings
+    "max_ret_1y": 3.0,  # v2: a rise of more than 300 % in 12 months is an event, not momentum
     "low_vol_min_coverage": 0.5,
 }
 
@@ -100,8 +110,12 @@ def _exclusion(item: Scored, *, target_position: float, ask_only: bool) -> str |
         return f"Markedsverdi under {PARAMS['min_market_cap_nok'] / 1e6:.0f} mill. NOK"
     if f.get("earnings_yield") is None:
         return "Ikke positivt resultat (mangler P/E)"
+    if f["pe"] < PARAMS["min_pe"]:
+        return f"P/E under {PARAMS['min_pe']:.0f} (trolig engangseffekter eller verdiendringer, ikke varig inntjening)"
     if f.get("momentum") is None:
         return "Mindre enn 12 måneders kurshistorikk"
+    if f["ret_1y"] > PARAMS["max_ret_1y"]:
+        return f"Steget over {text.percent(PARAMS['max_ret_1y'], 0)} på 12 mnd. (hendelsesdrevet, ikke momentum)"
     adv_nok = item.adv_nok
     if adv_nok is None or adv_nok < PARAMS["adv_multiple"] * target_position:
         return f"For lav omsetning for en posisjon på {text.nok(target_position)}"
