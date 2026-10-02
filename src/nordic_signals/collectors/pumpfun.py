@@ -17,7 +17,9 @@ Each run (every 5 minutes on Railway):
    * holder concentration from ``getTokenLargestAccounts``, only when SOLANA_RPC_URL points at a private
      RPC node (Helius, QuickNode, ...), because the public node refuses that call with HTTP 429.
 3. **Follow** the price on DexScreener every run for the first 6 hours after scoring, then every 30
-   minutes, recording it 1, 6 and 24 hours after scoring. At 24 hours the token is done and labelled.
+   minutes, recording it (and the peak so far) 1, 6 and 24 hours after scoring. At 24 hours the token is
+   done and labelled.
+4. **Record** the fake-money portfolio's value (``pumpfun.snapshot``).
 
 A token whose wallet (or, with a private node, holder) lookup failed is scored as incomplete and left out
 of the results, so an outage cannot let tokens pass unchecked. A DexScreener request that fails counts
@@ -55,6 +57,7 @@ FAST_PHASE = timedelta(hours=6)
 SLOW_INTERVAL = timedelta(minutes=29)  # every 30 minutes, with slack for run times
 HORIZON = timedelta(hours=24)
 CHECKPOINTS = (("price_1h", timedelta(hours=1)), ("price_6h", timedelta(hours=6)), ("price_24h", HORIZON))
+PEAK_AT = {"price_1h": "peak_1h", "price_6h": "peak_6h"}  # at 24 hours the peak is peak_after
 MISSING_BEFORE_SCORING = 3  # runs without a DexScreener pair before a new token is given up
 MISSING_AFTER_SCORING = 12
 SERIAL_WINDOW = timedelta(hours=24)
@@ -79,6 +82,7 @@ class PumpFunCollector(Collector):
         self._score(now)
         self._follow(now)
         self._prune(now)
+        pumpfun.snapshot(self.store, now)  # the fake-money portfolio's value, for the chart
         return self.summary
 
     # 1. Discover
@@ -216,6 +220,8 @@ class PumpFunCollector(Collector):
             for column, after in CHECKPOINTS:
                 if r[column] is None and elapsed >= after:
                     changes[column] = price
+                    if column in PEAK_AT:
+                        changes[PEAK_AT[column]] = changes["peak_after"]
             if elapsed >= HORIZON:
                 final = changes.get("price_24h", r["price_24h"])
                 changes.update(status="done", collapsed=final <= pumpfun.COLLAPSE_LEVEL * changes["peak_after"])

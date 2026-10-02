@@ -15,6 +15,7 @@ MONTHS = ("jan.", "feb.", "mars", "apr.", "mai", "juni", "juli", "aug.", "sep.",
 
 
 def number(value: float, digits: int = 0) -> str:
+    value = round(value, digits) + 0.0  # no "-0" when a small negative number rounds to zero
     text = f"{value:,.{digits}f}"
     return text.replace(",", NBSP).replace(".", ",")
 

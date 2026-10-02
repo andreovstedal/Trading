@@ -114,14 +114,24 @@ def test_tokens_are_scored_followed_and_labelled(server, store):
     assert (rows["good"]["price_1h"], rows["good"]["price_6h"], rows["good"]["price_24h"]) == (1.2e-7, 1.5e-7, 1.3e-7)
     assert rows["dumpy"]["collapsed"] is True  # 0.2 is at most 10 % of the 3.0 peak
     assert rows["dumpy"]["peak_after"] == 3.0e-7 and rows["dumpy"]["low_after"] == 0.2e-7
+    assert (rows["dumpy"]["peak_1h"], rows["dumpy"]["peak_6h"]) == (3.0e-7, 3.0e-7)
 
     r = pumpfun.results(store)
-    assert r["measured"] == 3 and r["collapse_rate"] == pytest.approx(2 / 3)
-    assert r["caught"] == 1.0 and r["kept"] == 1.0 and r["passed"] == 1 and r["passed_collapse_rate"] == 0.0
-    passed_24h = r["returns"][0]["horizons"][2]
-    assert passed_24h["median"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
+    one_hour, six_hours, day = r["horizons"]
+    assert r["measured"] and one_hour["measured"] == six_hours["measured"] == day["measured"] == 3
+    assert one_hour["collapse_rate"] == 0 and six_hours["collapse_rate"] == 0  # 0.5 is still above 10 % of 3.0
+    assert day["collapse_rate"] == pytest.approx(2 / 3)
+    assert day["caught"] == 1.0 and day["kept"] == 1.0 and day["passed"] == 1 and day["passed_collapse_rate"] == 0.0
+    assert day["passed_returns"]["median"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
+    assert r["warnings_horizon"] == "24 timer"
     serial = next(w for w in r["warnings"] if w["key"] == "serial")
     assert (serial["n"], serial["collapse_with"], serial["collapse_without"]) == (2, 1.0, 0.0)
+
+    # The fake-money portfolio bought the one token that passed and sold it after 24 hours.
+    p = pumpfun.paper(store)
+    assert p["trades"] == 1 and p["open"] == [] and p["win_rate"] == 1.0
+    assert p["equity"] == pytest.approx(10 - 0.1 + 0.1 * 1.3 * (1 - pumpfun.FEE) ** 2)
+    assert len(pumpfun.equity_history(store)) == 4  # recorded after each run since it bought
 
 
 def test_slow_phase_and_missing_prices(server, store):
@@ -179,7 +189,7 @@ def test_a_failed_wallet_lookup_leaves_the_token_out(server, store):
     market.prices = {"a": 1e-8}
     run(server, store, scored + timedelta(hours=24))
     r = pumpfun.results(store)
-    assert r["incomplete"] == 1 and r["measured"] == 0
+    assert r["incomplete"] == 1 and not r["measured"]
 
 
 def test_holder_concentration_needs_a_private_rpc(server, store, monkeypatch):
@@ -235,10 +245,75 @@ def test_measurement_page(server, store, db_url, monkeypatch):
     monkeypatch.delenv("RAILWAY_ENVIRONMENT_ID", raising=False)
     monkeypatch.setenv("SCHEDULER", "off")
     with TestClient(web.create_app(db_url)) as client:
-        assert "Ingen ferdige målinger ennå" in client.get("/pumpfun").text
+        page = client.get("/pumpfun").text
+    assert "Ingen målinger ennå" in page and "Ingen åpne posisjoner" in page
 
     test_tokens_are_scored_followed_and_labelled(server, store)
     with TestClient(web.create_app(db_url)) as client:
         page = client.get("/pumpfun").text
-    assert "Siste ferdige tokens" in page and "good coin" in page and "Kollapset" in page
+    assert "Siste ferdig målte tokens" in page and "good coin" in page and "Kollapset" in page
     assert "Utstederen har lansert andre tokens det siste døgnet" in page
+    assert "Siste lukkede handler" in page and page.count("<svg") == 2  # account value and results per trade
+
+
+def add_token(store, mint, scored, status, *, price_24h=None, last_price=None, last_checked=None, passed=True):
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_tokens").insert().values(
+            mint=mint, name=f"{mint} coin", symbol=mint.upper(), creator="c", created_at=scored, discovered_at=scored,
+            sampled=True, status=status, scored_at=scored, screen_version=pumpfun.SCREEN_VERSION, active=True,
+            complete=True, passed=passed, warnings=[], price_t=1.0, price_24h=price_24h, last_price=last_price,
+            last_checked_at=last_checked, misses=0))
+
+
+def test_paper_portfolio_replays_the_tokens_that_passed(store, monkeypatch):
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.3)  # room for three positions
+    add_token(store, "won", T0, "done", price_24h=2.0)
+    add_token(store, "lost", T0 + timedelta(hours=1), "missing", last_checked=T0 + timedelta(hours=3))
+    add_token(store, "open", T0 + timedelta(hours=2), "tracking", last_price=0.5)
+    add_token(store, "late", T0 + timedelta(hours=2, minutes=30), "tracking", last_price=1.0)  # no cash left
+    add_token(store, "stopped", T0, "done", price_24h=9.0, passed=False)  # never bought
+
+    p = pumpfun.paper(store)
+
+    kept = (1 - pumpfun.FEE) ** 2
+    won = next(c for c in p["closed"] if c["mint"] == "won")
+    assert won["result"] == pytest.approx(2.0 * kept - 1)
+    lost = next(c for c in p["closed"] if c["mint"] == "lost")
+    assert lost["lost"] and lost["result"] == -1.0
+    assert [o["mint"] for o in p["open"]] == ["open"] and p["open"][0]["result"] == pytest.approx(0.5 * kept - 1)
+    assert p["skipped"] == 1 and p["trades"] == 2 and p["win_rate"] == 0.5
+    assert p["cash"] == pytest.approx(0.1 * 2.0 * kept)
+    assert p["equity"] == pytest.approx(0.1 * 2.0 * kept + 0.1 * 0.5 * kept)
+    counts = {b["label"]: b["count"] for b in p["bins"]}
+    assert counts["≤ −90"] == 1 and counts["+50…+100"] == 1 and sum(counts.values()) == 2
+
+
+def test_account_value_is_recorded_and_thinned_for_the_chart(store):
+    pumpfun.snapshot(store, T0)
+    assert pumpfun.equity_history(store) == []  # nothing bought yet, nothing recorded
+    add_token(store, "a", T0, "tracking", last_price=1.0)
+    for minutes in range(0, 50, 5):
+        pumpfun.snapshot(store, T0 + timedelta(minutes=minutes))
+    history = pumpfun.equity_history(store, points=4)
+    assert len(history) <= 5 and history[-1][0] == T0 + timedelta(minutes=45)
+    assert history[0][1] == pytest.approx(10 - 0.1 + 0.1 * (1 - pumpfun.FEE) ** 2)
+
+
+def test_new_columns_are_added_to_an_existing_table(db_url):
+    from nordic_signals.store import Store
+    with Store(db_url) as store, store.engine.begin() as conn:
+        conn.exec_driver_sql('ALTER TABLE pf_tokens DROP COLUMN peak_6h')
+    with Store(db_url) as store:
+        from sqlalchemy import inspect
+        assert "peak_6h" in {c["name"] for c in inspect(store.engine).get_columns("pf_tokens")}
+
+
+def test_charts():
+    from nordic_signals.web import charts
+
+    assert charts.account_chart([(T0, 10.0)], 10.0) == ""
+    svg = charts.account_chart([(T0, 10.0), (T0 + timedelta(hours=1), 9.5), (T0 + timedelta(hours=2), 10.4)], 10.0)
+    assert 'class="line"' in svg and "data-points" in svg and "10,40\u00a0SOL" in svg and 'class="ref"' in svg
+    bars = charts.result_bars(pumpfun._bins([-1.0, -0.95, 0.0, 0.7]))
+    assert [bars.count(f'class="bar {kind}"') for kind in ("neg", "mid", "pos")] == [1, 1, 1]
+    assert "2 handler" in bars

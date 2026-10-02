@@ -67,12 +67,20 @@ Every 5 minutes the web service's schedule (see [Scheduling](#scheduling)):
    A token with no warning signs and trades in the last 5 minutes passes.
 3. **Follows the price on DexScreener for 24 hours:** every 5 minutes for the first 6 hours, then every 30 minutes.
 
-After 24 hours each token is labelled *collapsed* if its price is at most 10 % of its peak since scoring. The page then shows:
+A token counts as *collapsed* at 1, 6 or 24 hours after scoring if its price then is at most 10 % of its peak since scoring. For each horizon the page shows:
 - how often active launches collapse
 - the share of collapses the filter caught, and the share of survivors it let through
 - how many of the tokens that passed still collapsed
-- the returns after 1, 6 and 24 hours, after pump.fun's 1.25 % fee on each trade
+- the returns after pump.fun's 1.25 % fee on each trade
 - how well each warning sign separates collapses from survivors
+
+The 1-hour figures come about an hour after collection starts. The decision on real money uses the 24-hour figures.
+
+The page also runs the filter with fake money:
+- The account starts with 10 SOL.
+- Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts, and sold after 24 hours.
+- Fees are charged on both trades, and a token that disappears from DexScreener counts as lost.
+- Its value is recorded every 5 minutes, and the page shows it as a chart, along with open positions, closed trades and how the results spread.
 
 Slippage is not included, so real results would be worse. With about 98 % of launches ending as pump-and-dumps, the filter has to catch well over 99 % of them before what passes is mostly honest.
 

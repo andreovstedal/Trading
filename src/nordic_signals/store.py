@@ -43,7 +43,9 @@ from sqlalchemy import (
     event,
     func,
     insert,
+    inspect,
     select,
+    text,
 )
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Engine, RowMapping
@@ -328,11 +330,22 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("price_1h", Float),
         Column("price_6h", Float),
         Column("price_24h", Float),
+        Column("peak_1h", Float),  # highest price from scoring until the 1-hour and 6-hour prices
+        Column("peak_6h", Float),
         Column("last_price", Float),
         Column("last_checked_at", DateTime(timezone=True)),
         Column("misses", Integer, nullable=False, default=0),  # price lookups that found nothing
         Column("graduated", Boolean),
         Column("collapsed", Boolean),
+    )
+    # The fake-money portfolio's value after each collector run, for the chart.
+    Table(
+        "pf_equity", metadata,
+        Column("at", DateTime(timezone=True), primary_key=True),
+        Column("cash", Float, nullable=False),
+        Column("positions", Float, nullable=False),
+        Column("equity", Float, nullable=False),
+        Column("open_positions", Integer, nullable=False),
     )
 
 
@@ -373,7 +386,20 @@ class Store:
         self.engine = _create_engine(self.url)
         self.metadata = _build_metadata()
         self.metadata.create_all(self.engine)
+        self._add_missing_columns()
         self._fetch_times: dict[int, datetime] = {}
+
+    def _add_missing_columns(self) -> None:
+        """Columns added to a table after it was first created. There are no migrations otherwise, so only
+        additive changes to nullable columns are possible; anything else needs Alembic or a manual ALTER."""
+        inspector = inspect(self.engine)
+        with self.engine.begin() as conn:
+            for table in self.metadata.sorted_tables:
+                existing = {c["name"] for c in inspector.get_columns(table.name)}
+                for column in table.columns:
+                    if column.name not in existing and column.nullable and not column.primary_key:
+                        kind = column.type.compile(dialect=self.engine.dialect)
+                        conn.execute(text(f'ALTER TABLE "{table.name}" ADD COLUMN "{column.name}" {kind}'))
 
     def close(self) -> None:
         self.engine.dispose()

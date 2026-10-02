@@ -36,7 +36,7 @@ from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
 from ..store import Store
-from . import queries
+from . import charts, queries
 
 log = logging.getLogger("nordic_signals.web")
 
@@ -229,7 +229,11 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/pumpfun", response_class=HTMLResponse)
     def pumpfun_page(request: Request) -> HTMLResponse:
-        return render(request, "pumpfun.html", r=pumpfun.results(store), horizons=pumpfun.HORIZONS, fee=pumpfun.FEE)
+        portfolio, history = pumpfun.paper(store), pumpfun.equity_history(store)
+        return render(request, "pumpfun.html", r=pumpfun.results(store), paper=portfolio, fee=pumpfun.FEE,
+                      horizons=pumpfun.HORIZONS, history=history,
+                      account_chart=charts.account_chart(history, portfolio["start"]),
+                      result_chart=charts.result_bars(portfolio["bins"]))
 
     @app.get("/data", response_class=HTMLResponse)
     def data(request: Request, message: str | None = None) -> HTMLResponse:
