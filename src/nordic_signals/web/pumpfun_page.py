@@ -39,6 +39,7 @@ FRESH = timedelta(minutes=10)  # the newest data is at most this old: the page s
 NEW = timedelta(minutes=10)  # a position bought this recently is marked new
 FIRST_HOUR = timedelta(hours=1)  # an open position's chart shows at least its first hour
 MOVERS = 3  # best and worst open positions beside the account chart
+SPARK_SLICES = 24  # about 50 points per position chart: plenty at card size, and the page stays light
 NEON = ("#22d3ee", "#14f195", "#ff4fd8", "#b78bff")  # the avatars' gradients; decoration, not data
 
 
@@ -72,7 +73,7 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
 
     p = pumpfun.paper(store)
     closed = p["closed"][:CLOSED_ROWS]
-    paths = pumpfun.histories(store, [*p["open"], *closed], now)
+    paths = pumpfun.histories(store, [*p["open"], *closed], now, slices=SPARK_SLICES)
     for position in p["open"]:
         _decorate(position, paths.get(position["mint"], []), now, closed=False)
     for position in closed:

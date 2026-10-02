@@ -321,7 +321,7 @@ def test_charts():
     assert 'class="line up"' in svg and "data-points" in svg and "10,400\u00a0SOL" in svg and 'class="ref"' in svg
     assert 'clip-path="url(#acct-down)"' in svg
     live = charts.account_chart([(T0, 10.0), (T0 + timedelta(hours=1), 9.5)], 10.0, live=True)
-    tooltips = json.loads(html.unescape(re.search(r'data-points="([^"]*)"', live).group(1)))
+    tooltips = json.loads(html.unescape(re.search(r"data-points='([^']*)'", live).group(1)))
     assert tooltips[-1]["t"] == "nå · 9,500\u00a0SOL" and ">nå</text>" in live and 'class="dot down"' in live
 
     path = [(T0, -0.025), (T0 + timedelta(hours=1), 0.4), (T0 + timedelta(hours=2), -0.3)]

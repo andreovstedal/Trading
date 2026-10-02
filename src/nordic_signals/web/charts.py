@@ -166,7 +166,10 @@ def _hover(top: float, bottom: float, left: float, width: float) -> str:
 
 def _figure(parts: list[str], label: str, data: list[dict[str, Any]] | None, size: tuple[int, int], *,
             css: str = "") -> Markup:
-    attrs = f' data-points="{escape(json.dumps(data))}"' if data else ""
+    # Single quotes around the JSON, so its many double quotes need no escaping: a page has dozens of these.
+    points = json.dumps(data, ensure_ascii=False, separators=(",", ":")) if data else ""
+    attrs = (" data-points='" + points.replace("&", "&amp;").replace("'", "&#39;").replace("<", "&lt;") + "'"
+             if data else "")
     svg = (f'<svg viewBox="0 0 {size[0]} {size[1]}" role="img" aria-label="{escape(label)}">'
            + "".join(parts) + "</svg>")
     tip = '<div class="tip" hidden></div>' if data else ""
