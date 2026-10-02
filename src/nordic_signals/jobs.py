@@ -85,7 +85,7 @@ def options_for(store: Store, source: str, raw: dict[str, Any]) -> dict[str, Any
             symbols += universe_symbols(store, raw["universe"], raw.get("limit"))
         return {"symbols": symbols, "range_": raw.get("range_", "5d"), "interval": raw.get("interval", "1d")}
     if source == "pumpfun":
-        return {"sample": raw.get("sample", 20)}
+        return {"sample": raw.get("sample", 50)}
     raise ValueError(f"unknown source {source}")
 
 

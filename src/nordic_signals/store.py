@@ -338,7 +338,8 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("graduated", Boolean),
         Column("collapsed", Boolean),
     )
-    # The fake-money portfolio's value after each collector run, for the chart.
+    # The fake-money portfolio's value after each collector run, for the chart. Each screen version trades
+    # its own portfolio; rows from before versions were recorded have none.
     Table(
         "pf_equity", metadata,
         Column("at", DateTime(timezone=True), primary_key=True),
@@ -346,6 +347,7 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("positions", Float, nullable=False),
         Column("equity", Float, nullable=False),
         Column("open_positions", Integer, nullable=False),
+        Column("screen_version", Text),
     )
     # Price history of the tokens that passed, for the position charts: every price the collector saw, and
     # the open positions' live quotes. Kept for a week (``collectors.pumpfun.PRICE_HISTORY``).

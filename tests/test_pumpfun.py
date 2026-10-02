@@ -13,7 +13,7 @@ import pytest
 from conftest import FakeServer
 from sqlalchemy import select
 
-from nordic_signals import cli, pumpfun
+from nordic_signals import cli, jobs, pumpfun
 from nordic_signals.collectors.pumpfun import PumpFunCollector
 from nordic_signals.web import app as web
 
@@ -21,6 +21,7 @@ COINS = "https://frontend-api-v3.pump.fun/coins"
 DEX = "https://api.dexscreener.com/tokens/v1/solana/"
 RPC = "https://api.mainnet-beta.solana.com/"
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
+OLD_WALLET = [int((T0 - timedelta(days=30)).timestamp()), int((T0 - timedelta(days=29)).timestamp())]
 
 
 def coin(mint, creator, minutes_before=1, **extra):
@@ -36,6 +37,7 @@ class Market:
 
     def __init__(self, server: FakeServer):
         self.prices: dict[str, float] = {}
+        self.untraded: set[str] = set()  # no trades in the last 5 minutes
         self.dex: dict[str, str] = {}
         self.wallets: dict[str, list[int]] = {}  # creator -> blockTimes of its transactions
         self.holders: dict[str, list[tuple[str, float]]] = {}
@@ -48,7 +50,8 @@ class Market:
         return httpx.Response(200, json=[{
             "chainId": "solana", "dexId": self.dex.get(m, "pumpfun"), "baseToken": {"address": m},
             "quoteToken": {"symbol": "SOL"}, "priceNative": str(self.prices[m]), "marketCap": 4000.0,
-            "txns": {"m5": {"buys": 3, "sells": 1}, "h1": {"buys": 20, "sells": 9}},
+            "txns": {"m5": {"buys": 0, "sells": 0} if m in self.untraded else {"buys": 3, "sells": 1},
+                     "h1": {"buys": 20, "sells": 9}},
             "volume": {"h1": 900.0, "h24": 2000.0},
         } for m in mints if m in self.prices])
 
@@ -141,6 +144,7 @@ def test_tokens_are_scored_followed_and_labelled(server, store):
 def test_slow_phase_and_missing_prices(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x"), coin("gone", "y")]))
     market = Market(server)
+    market.wallets = {"x": OLD_WALLET, "y": OLD_WALLET}
     market.prices = {"a": 1e-7, "gone": 1e-7}
     scored = T0 + timedelta(minutes=10)
     run(server, store, T0)
@@ -165,6 +169,7 @@ def test_slow_phase_and_missing_prices(server, store):
 def test_a_dexscreener_outage_counts_against_no_token(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x")]))
     market = Market(server)
+    market.wallets = {"x": OLD_WALLET}
     market.prices = {"a": 1e-7}
     scored = T0 + timedelta(minutes=10)
     run(server, store, T0)
@@ -229,11 +234,62 @@ def test_warning_signs(features, expected):
     assert pumpfun.warning_signs(features) == expected
 
 
+def test_only_tokens_with_real_money_are_measured(server, store):
+    """At pump.fun's launch price a token has had no net buying; such tokens are scored but not followed."""
+    server.add("GET", COINS, httpx.Response(200, json=[coin("flat", "a"), coin("bought", "b"), coin("idle", "c")]))
+    market = Market(server)
+    market.wallets = {"a": OLD_WALLET, "b": OLD_WALLET, "c": OLD_WALLET}
+    market.prices = {"flat": pumpfun.LAUNCH_PRICE * 1.02, "bought": pumpfun.LAUNCH_PRICE * 1.2,
+                     "idle": pumpfun.LAUNCH_PRICE * 1.5}
+    market.untraded = {"idle"}
+    run(server, store, T0)
+    run(server, store, T0 + timedelta(minutes=11))
+
+    rows = tokens(store)
+    assert (rows["bought"]["active"], rows["bought"]["passed"], rows["bought"]["status"]) == (True, True, "tracking")
+    assert (rows["flat"]["active"], rows["flat"]["passed"], rows["flat"]["status"]) == (False, False, "scored")
+    assert (rows["idle"]["active"], rows["idle"]["status"]) == (False, "scored")
+    assert rows["flat"]["features"]["launch_multiple"] == pytest.approx(1.02)
+
+    server.requests.clear()
+    run(server, store, T0 + timedelta(minutes=16))
+    followed = [m for r in server.requests if r.url.path.startswith("/tokens/v1/solana/")
+                for m in r.url.path.rsplit("/", 1)[-1].split(",")]
+    assert followed == ["bought"]
+    r = pumpfun.results(store)
+    assert r["inactive"] == 2 and r["status"]["scored"] == 2
+
+
+def test_tokens_nobody_traded_after_scoring_are_quiet(store):
+    add_token(store, "still", T0, "done", price_1h=1.0, peak_1h=1.0, price_24h=1.0, peak_after=1.0)
+    add_token(store, "traded", T0, "done", price_1h=1.3, peak_1h=1.5, price_24h=1.2, peak_after=1.6)
+    add_token(store, "rugged", T0, "done", price_1h=0.05, peak_1h=2.0, price_24h=0.01, peak_after=2.0, passed=False,
+              collapsed=True)
+
+    r = pumpfun.results(store)
+
+    one_hour = r["horizons"][0]
+    assert one_hour["measured"] == 3 and one_hour["collapse_rate"] == pytest.approx(1 / 3)
+    assert one_hour["quiet_rate"] == pytest.approx(1 / 3)
+    assert one_hour["kept"] == 1.0 and one_hour["caught"] == 1.0  # of the tokens that held up and were traded
+    assert {t["mint"]: t["quiet"] for t in r["recent"]} == {"still": True, "traded": False, "rugged": False}
+
+
+def test_each_screen_version_has_its_own_account_history(store):
+    with store.engine.begin() as conn:  # an earlier version's portfolio
+        conn.execute(store.table("pf_equity").insert().values(at=T0 - timedelta(hours=1), cash=5.0, positions=0.0,
+                                                               equity=5.0, open_positions=0, screen_version="pf1"))
+    add_token(store, "a", T0, "tracking", last_price=1.0)
+    pumpfun.snapshot(store, T0)
+    assert [v for _, v in pumpfun.equity_history(store)] == [pytest.approx(10 - 0.1 + 0.1 * (1 - pumpfun.FEE) ** 2)]
+
+
 def test_cli_runs_and_logs_the_collector(server, db_url, monkeypatch):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x")]))
     Market(server)
     monkeypatch.setattr(cli, "PoliteClient", server.client)
 
+    assert jobs.options_for(None, "pumpfun", {}) == {"sample": 50}  # every new launch in the list
     assert cli.main(["--db", db_url, "collect", "pumpfun", "--sample", "1"]) == 0
     from nordic_signals.store import Store
     with Store(db_url) as store:
@@ -261,13 +317,14 @@ def test_measurement_page(server, store, db_url, monkeypatch):
     assert page.count("<svg") == 3  # account value, the sold position's path and results per trade
 
 
-def add_token(store, mint, scored, status, *, price_24h=None, last_price=None, last_checked=None, passed=True):
+def add_token(store, mint, scored, status, *, price_24h=None, last_price=None, last_checked=None, passed=True,
+              **columns):
     with store.engine.begin() as conn:
         conn.execute(store.table("pf_tokens").insert().values(
             mint=mint, name=f"{mint} coin", symbol=mint.upper(), creator="c", created_at=scored, discovered_at=scored,
             sampled=True, status=status, scored_at=scored, screen_version=pumpfun.SCREEN_VERSION, active=True,
             complete=True, passed=passed, warnings=[], price_t=1.0, price_24h=price_24h, last_price=last_price,
-            last_checked_at=last_checked, misses=0))
+            last_checked_at=last_checked, misses=0, **columns))
 
 
 def test_paper_portfolio_replays_the_tokens_that_passed(store, monkeypatch):

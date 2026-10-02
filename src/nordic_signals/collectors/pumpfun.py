@@ -6,7 +6,7 @@ Each run (every 5 minutes on Railway):
    ``GET https://frontend-api-v3.pump.fun/coins?sort=created_timestamp&order=DESC&limit=50``, the unofficial
    API behind pump.fun. It serves only the newest tokens (about a minute and a half of launches) and
    rate-limits bursts. Every token is stored, so creators who launch token after token can be recognised;
-   a random sample (20 by default) is scored and followed.
+   all new ones are scored (``sample`` can limit that to a random sample).
 2. **Score** each sampled token once it is 10 minutes old:
 
    * price, trades and graduation from DexScreener,
@@ -16,7 +16,8 @@ Each run (every 5 minutes on Railway):
      the wallet is, or how busy;
    * holder concentration from ``getTokenLargestAccounts``, only when SOLANA_RPC_URL points at a private
      RPC node (Helius, QuickNode, ...), because the public node refuses that call with HTTP 429.
-3. **Follow** the price on DexScreener every run for the first 6 hours after scoring, then every 30
+3. **Follow** the price of each measured token (tradable and fully checked, see ``pumpfun.tradable``;
+   the rest are left as "scored") on DexScreener every run for the first 6 hours after scoring, then every 30
    minutes, recording it (and the peak so far) 1, 6 and 24 hours after scoring. At 24 hours the token is
    done and labelled. Every price seen for a token that passed also goes into ``pf_prices``, for the charts.
 4. **Record** the fake-money portfolio's value (``pumpfun.snapshot``).
@@ -78,7 +79,7 @@ LAUNCH_FIELDS = ("market_cap", "usd_market_cap", "ath_market_cap", "complete", "
 class PumpFunCollector(Collector):
     source = "pumpfun"
 
-    def run(self, *, sample: int = 20, now: datetime | None = None,
+    def run(self, *, sample: int = 50, now: datetime | None = None,
             rng: random.Random | None = None) -> RunSummary:
         now = now or utcnow()
         self.rpc_url = os.environ.get("SOLANA_RPC_URL") or PUBLIC_RPC
@@ -132,10 +133,12 @@ class PumpFunCollector(Collector):
                 continue
             features = self._features(r, pair, now)
             signs = pumpfun.warning_signs(features)
-            active = features["trades_5m"] > 0
+            active = pumpfun.tradable(features)
             price = features["price"]
             passed = active and features["complete"] and not signs
-            self._update(r["mint"], status="tracking", scored_at=now, screen_version=pumpfun.SCREEN_VERSION,
+            measured = active and features["complete"]  # only these are followed: nothing else is measured
+            self._update(r["mint"], status="tracking" if measured else "scored", scored_at=now,
+                         screen_version=pumpfun.SCREEN_VERSION,
                          features=features, warnings=signs, active=active, complete=features["complete"],
                          passed=passed, price_t=price, peak_after=price, low_after=price, last_price=price,
                          last_checked_at=now, graduated=features["graduated"])
@@ -151,6 +154,7 @@ class PumpFunCollector(Collector):
         f: dict[str, Any] = {
             "age_min": round((now - created).total_seconds() / 60, 1),
             "price": pair["price"],
+            "launch_multiple": round(pair["price"] / pumpfun.LAUNCH_PRICE, 3),
             "peak_before": max(p for p in (r["peak_before"], pair["price"]) if p),
             "market_cap_usd": pair.get("marketCap"),
             "trades_5m": (m5.get("buys") or 0) + (m5.get("sells") or 0),

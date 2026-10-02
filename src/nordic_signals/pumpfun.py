@@ -4,12 +4,17 @@ Nothing here trades. Each sampled launch is scored once, about 10 minutes after 
 warning signs from rug-pull research (Solidus Labs' 2025 Rug Pull Report; SolRugDetector, 2026): a
 creator launching token after token, a brand-new or robot-like creator wallet, supply concentrated in a
 few wallets, a price that has already collapsed, and graduation within minutes (the whole bonding curve
-bought at once). Tokens with no trades in the 5 minutes before scoring are "inactive": there is nothing
-to buy, so they count in neither direction. Tokens whose checks could not all be made (an RPC failure) are
-incomplete and left out too, rather than passed unchecked.
+bought at once).
+
+Only tradable tokens are measured (``tradable``): traded in the 5 minutes before scoring, with real money
+in them. On pump.fun's bonding curve the price only rises as SOL is paid in, so a token still at its launch
+price has had no net buying; its few trades are usually bots buying and selling back, and its price cannot
+fall, so it would neither collapse nor earn anything but would make the screen look better than it is.
+Other tokens are "inactive" and count in neither direction. Tokens whose checks could not all be made (an
+RPC failure) are incomplete and left out too, rather than passed unchecked.
 
 A token counts as collapsed at a horizon (1, 6 or 24 hours after scoring) if its price then is at most
-10 % of the highest price seen since scoring. ``results`` answers, per horizon, the questions that decide
+10 % of the highest price seen since scoring, and as quiet if nobody traded it since scoring. ``results`` answers, per horizon, the questions that decide
 whether real money is ever justified: how often active launches collapse, how many collapses the screen
 catches, how many survivors it lets through, what share of the tokens that pass still collapse, and what
 buying at the scoring price would have returned after pump.fun's fees. The 1- and 6-hour figures come
@@ -27,6 +32,8 @@ trades, the creator wallet's activity, ...) and shows how often each quarter col
 returned: where to look for the next rule. ``log_rows`` is the downloadable log of everything measured.
 
 Change SCREEN_VERSION whenever a rule or limit changes; results are shown for the current version only.
+pf1 (2 October 2026) counted any token with a trade as tradable; the first export showed that most of the
+tokens it passed were still at their launch price.
 """
 
 from __future__ import annotations
@@ -43,8 +50,12 @@ from sqlalchemy import func, select
 
 from .store import Store, utcnow
 
-SCREEN_VERSION = "pf1"
+SCREEN_VERSION = "pf2"
 COLLAPSE_LEVEL = 0.10  # collapsed: at most 10 % of the peak since scoring
+# pump.fun's bonding curve at launch: 30 virtual SOL against 1,073,000,191 virtual tokens, a market value of
+# about 27.96 SOL. Some launches use a cheaper curve; they stay below this and are never tradable here.
+LAUNCH_PRICE = 30 / 1_073_000_191  # SOL per token
+REAL_MONEY = 1.10  # tradable from 10 % above the launch price: about 1.5 SOL of net buying
 FEE = 0.0125  # per trade on the bonding curve: 0.95 % to pump.fun and 0.30 % to the token's creator
 # Price column, peak column (highest price from scoring until then), label.
 HORIZONS = (("price_1h", "peak_1h", "1 time"), ("price_6h", "peak_6h", "6 timer"),
@@ -75,6 +86,18 @@ WARNINGS = {
     "dumped": "Kursen har allerede falt under halvparten av toppen",
     "instant_graduation": "Hele kjøpskurven ble kjøpt opp i løpet av minutter",
 }
+
+
+def tradable(f: dict[str, Any]) -> bool:
+    """Traded in the 5 minutes before scoring, and priced clearly above launch: someone has put money in."""
+    return bool(f.get("trades_5m")) and (f.get("price") or 0) >= REAL_MONEY * LAUNCH_PRICE
+
+
+def quiet(start: float | None, end: float | None, peak: float | None) -> bool:
+    """Nobody traded it from scoring until then: the price never rose and ended where it started.
+
+    Any trade on the bonding curve moves the price, so an exact match means no trades."""
+    return start is not None and end == start and peak == start
 
 
 def warning_signs(f: dict[str, Any]) -> list[str]:
@@ -119,6 +142,7 @@ def results(store: Store) -> dict[str, Any]:
     for r in done:
         r["returns"] = [net_return(r["price_t"], r[price]) for price, _, _ in HORIZONS]
         r["warning_labels"] = [WARNINGS.get(key, key) for key in r["warnings"] or []]
+        r["quiet"] = quiet(r["price_t"], r["price_24h"], r["peak_after"])
     return {
         "screen_version": SCREEN_VERSION,
         "status": dict(status),
@@ -139,14 +163,16 @@ def _horizon(measured: list[dict[str, Any]], price: str, peak: str, label: str) 
     rows = [r for r in measured if r[price] is not None and r[peak] and r["price_t"]]
     collapsed = [r for r in rows if r[price] <= COLLAPSE_LEVEL * r[peak]]
     ids = {r["mint"] for r in collapsed}
-    survived = [r for r in rows if r["mint"] not in ids]
+    still = [r for r in rows if quiet(r["price_t"], r[price], r[peak])]
+    held = [r for r in rows if r["mint"] not in ids and r not in still]  # survived, and was traded
     passed = [r for r in rows if r["passed"]]
     returns = {r["mint"]: net_return(r["price_t"], r[price]) for r in rows}
     return {
         "label": label, "measured": len(rows), "rows": rows, "collapsed_ids": ids,
         "collapse_rate": _share(collapsed, rows),
+        "quiet_rate": _share(still, rows),
         "caught": _share([r for r in collapsed if not r["passed"]], collapsed),
-        "kept": _share([r for r in survived if r["passed"]], survived),
+        "kept": _share([r for r in held if r["passed"]], held),
         "passed": len(passed),
         "passed_collapse_rate": _share([r for r in passed if r["mint"] in ids], passed),
         "passed_returns": _summary([returns[r["mint"]] for r in passed]),
@@ -239,14 +265,16 @@ def snapshot(store: Store, now: datetime | None = None) -> None:
     with store.engine.begin() as conn:
         conn.execute(store._insert(e).values(
             at=now or utcnow(), cash=p["cash"], positions=p["positions_value"], equity=p["equity"],
-            open_positions=len(p["open"])).on_conflict_do_nothing(index_elements=["at"]))
+            open_positions=len(p["open"]), screen_version=SCREEN_VERSION,
+        ).on_conflict_do_nothing(index_elements=["at"]))
 
 
 def equity_history(store: Store, *, since: datetime | None = None,
                    points: int = 400) -> list[tuple[datetime, float]]:
-    """The recorded values (from ``since``), thinned to at most ``points`` for the chart, keeping the latest."""
+    """The current screen's recorded values (from ``since``), thinned to at most ``points`` for the chart,
+    keeping the latest. Each screen version has its own portfolio, starting from scratch."""
     e = store.table("pf_equity")
-    stmt = select(e.c.at, e.c.equity).order_by(e.c.at)
+    stmt = select(e.c.at, e.c.equity).where(e.c.screen_version == SCREEN_VERSION).order_by(e.c.at)
     rows = store.query(stmt if since is None else stmt.where(e.c.at >= since))
     if len(rows) > points:
         step = math.ceil(len(rows) / points)
@@ -436,6 +464,7 @@ def log_rows(store: Store) -> Iterator[dict[str, Any]]:
                 r[f"return_{h}"] = net_return(r["price_t"], r[price])
                 r[f"collapsed_{h}"] = (r[price] <= COLLAPSE_LEVEL * r[peak]
                                        if r[price] is not None and r[peak] else None)
+                r[f"quiet_{h}"] = quiet(r["price_t"], r[price], r[peak]) if r[price] is not None else None
             trade = trades.get(r["mint"])
             current = r["passed"] and r["screen_version"] == SCREEN_VERSION
             r["paper"] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)

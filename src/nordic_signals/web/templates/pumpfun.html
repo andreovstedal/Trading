@@ -184,15 +184,19 @@
 </div>
 
 <div id="pf-measure" data-live>
-<h2 class="section-title"><span aria-hidden="true">🔬</span> Måling av filteret</h2>
+<h2 class="section-title"><span aria-hidden="true">🔬</span> Måling av filteret <span class="chip">versjon {{ r.screen_version | replace("pf", "") }}</span></h2>
+<p class="small muted">Bare tokens med ekte penger i seg måles: handel de siste 5 minuttene før vurderingen og en
+  markedsverdi minst 10&nbsp;% over pump.funs startverdi (rundt 1,5&nbsp;SOL kjøpt netto). Et token som fortsatt står
+  på startprisen, kan ikke falle, og handelen i det er som regel roboter som kjøper og selger tilbake. Hver ny
+  lansering vurderes.</p>
 <div class="tiles">
   <div class="tile"><div class="label">Lanseringer sett</div><div class="value mono">{{ r.seen | num }}</div>
-    <div class="sub">{{ (r.status.skipped or 0) | num }} brukes bare til å kjenne igjen utstedere</div></div>
+    <div class="sub">{% if r.status.skipped %}{{ r.status.skipped | num }} brukes bare til å kjenne igjen utstedere{% else %}alle vurderes{% endif %}</div></div>
   <div class="tile"><div class="label">Følges nå</div>
     <div class="value mono">{{ ((r.status.new or 0) + (r.status.tracking or 0)) | num }}</div>
     <div class="sub">i 24 timer etter vurderingen</div></div>
   <div class="tile"><div class="label">Vurdert</div><div class="value mono">{{ r.scored | num }}</div>
-    <div class="sub">{{ r.inactive | num }} uten handel og {{ r.incomplete | num }} ufullstendig vurdert</div></div>
+    <div class="sub">{{ r.inactive | num }} uten ekte kjøp og {{ r.incomplete | num }} ufullstendig vurdert</div></div>
   <div class="tile"><div class="label">Mangler kursdata</div><div class="value mono">{{ (r.status.missing or 0) | num }}</div>
     <div class="sub">ikke funnet hos DexScreener</div></div>
 </div>
@@ -203,8 +207,9 @@
   <div class="table-wrap"><table>
     <thead><tr><th></th>{% for h in r.horizons %}<th class="num">Etter {{ h.label }}</th>{% endfor %}</tr></thead>
     <tbody>
-      <tr><td>Målte tokens (med handel ved vurderingen)</td>{% for h in r.horizons %}<td class="num">{{ h.measured | num }}</td>{% endfor %}</tr>
+      <tr><td>Målte tokens (med ekte kjøp ved vurderingen)</td>{% for h in r.horizons %}<td class="num">{{ h.measured | num }}</td>{% endfor %}</tr>
       <tr><td>Kollapset</td>{% for h in r.horizons %}<td class="num">{{ h.collapse_rate | pct }}</td>{% endfor %}</tr>
+      <tr><td>Ingen handel etter vurderingen</td>{% for h in r.horizons %}<td class="num">{{ h.quiet_rate | pct }}</td>{% endfor %}</tr>
       <tr><td>Filteret stoppet, av dem som kollapset</td>{% for h in r.horizons %}<td class="num">{{ h.caught | pct }}</td>{% endfor %}</tr>
       <tr><td>Filteret slapp gjennom, av dem som holdt seg</td>{% for h in r.horizons %}<td class="num">{{ h.kept | pct }}</td>{% endfor %}</tr>
       <tr><td>Bestod filteret</td>{% for h in r.horizons %}<td class="num">{{ h.passed | num }}</td>{% endfor %}</tr>
@@ -254,9 +259,9 @@
           <div class="ticker">{{ t.symbol }}</div></td>
         <td class="nowrap">{{ t.scored_at | when }}</td>
         <td>{% if t.warning_labels %}<div class="chips">{% for w in t.warning_labels %}<span class="chip">{{ w }}</span>{% endfor %}</div>{% else %}<span class="muted">Ingen</span>{% endif %}</td>
-        <td>{% if not t.active %}<span class="muted">Ingen handel</span>{% elif not t.complete %}<span class="muted">Ufullstendig</span>{% elif t.passed %}Bestod{% else %}Stoppet{% endif %}</td>
+        <td>{% if not t.active %}<span class="muted">Ingen ekte kjøp</span>{% elif not t.complete %}<span class="muted">Ufullstendig</span>{% elif t.passed %}Bestod{% else %}Stoppet{% endif %}</td>
         {% for value in t.returns %}<td class="num">{{ value | pct(0, True) }}</td>{% endfor %}
-        <td>{% if t.collapsed %}<span class="status failed">✕ Kollapset</span>{% else %}<span class="status ok">✓ Holdt seg</span>{% endif %}</td>
+        <td>{% if t.collapsed %}<span class="status failed">✕ Kollapset</span>{% elif t.quiet %}<span class="status never">– Ingen handel</span>{% else %}<span class="status ok">✓ Holdt seg</span>{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

@@ -153,7 +153,8 @@ def _percent(get: Callable[[dict[str, Any]], float | None]) -> Callable[[dict[st
     return lambda r: None if (v := get(r)) is None else v * 100
 
 
-STATUS = {"new": "venter på vurdering", "tracking": "følges", "done": "ferdig", "missing": "forsvant"}
+STATUS = {"new": "venter på vurdering", "tracking": "følges", "done": "ferdig", "missing": "forsvant",
+          "scored": "vurdert, ikke fulgt"}
 PAPER = {"open": "kjøpt, åpen", "sold": "kjøpt og solgt", "skipped": "hoppet over (kontantene var brukt opp)"}
 SOCIALS = ("twitter", "telegram", "website")
 
@@ -165,6 +166,7 @@ CSV_COLUMNS: tuple[tuple[str, Callable[[dict[str, Any]], Any], int | None], ...]
     ("Utsteder", lambda r: r["creator"], None),
     ("Lansert (norsk tid)", lambda r: r["created_at"], None),
     ("Vurdert (norsk tid)", lambda r: r["scored_at"], None),
+    ("Filterversjon", lambda r: r["screen_version"], None),
     ("Status", lambda r: STATUS.get(r["status"], r["status"]), None),
     ("Handel ved vurderingen", lambda r: r["active"], None),
     ("Alle sjekker gjort", lambda r: r["complete"], None),
@@ -177,9 +179,13 @@ CSV_COLUMNS: tuple[tuple[str, Callable[[dict[str, Any]], Any], int | None], ...]
     ("Topp etter vurdering (SOL)", _sol("peak_after"), 3),
     ("Bunn etter vurdering (SOL)", _sol("low_after"), 3),
     ("Topp før vurdering (SOL)", _sol("peak_before"), 3),
+    ("Markedsverdi i forhold til start", _feature("launch_multiple"), 3),
     ("Kollapset etter 1 t", lambda r: r["collapsed_1h"], None),
     ("Kollapset etter 6 t", lambda r: r["collapsed_6h"], None),
     ("Kollapset etter 24 t", lambda r: r["collapsed_24h"], None),
+    ("Ingen handel etter 1 t", lambda r: r["quiet_1h"], None),
+    ("Ingen handel etter 6 t", lambda r: r["quiet_6h"], None),
+    ("Ingen handel etter 24 t", lambda r: r["quiet_24h"], None),
     ("Avkastning etter 1 t (%)", _percent(lambda r: r["return_1h"]), 2),
     ("Avkastning etter 6 t (%)", _percent(lambda r: r["return_6h"]), 2),
     ("Avkastning etter 24 t (%)", _percent(lambda r: r["return_24h"]), 2),
@@ -253,6 +259,11 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
             "return_*": "Buying at the scoring price and selling at that horizon, after pump.fun's fee on both "
                         "trades. Slippage is not included.",
             "collapsed_*": "The price at that horizon was at most 10 % of the highest price since scoring.",
+            "quiet_*": "Nobody traded it from scoring until that horizon: the price never moved.",
+            "screen_version": "pf1 (from 2 October 2026) counted any token with a trade in the 5 minutes before "
+                              "scoring. pf2 also needs a market value at least 10 % above pump.fun's launch value "
+                              "(features.launch_multiple >= 1.1), and scores every new launch. Only measured "
+                              "tokens (status tracking or done) are followed; the rest stay 'scored'.",
             "paper": "open, sold, skipped (passed while the cash was used up) or null (never bought).",
             "price_history": "Every price seen for tokens that passed, and the open positions' quotes; the "
                              f"last {PRICE_HISTORY.days} days only.",

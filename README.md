@@ -56,19 +56,25 @@ A separate experiment, on the **pump.fun** page: can a filter tell pump.fun's pu
 
 Every 5 minutes the web service's schedule (see [Scheduling](#scheduling)):
 
-1. **Discovers launches:** it reads pump.fun's list of the newest tokens and stores all of them, so creators who launch token after token can be recognised. It then picks a random sample of 20 to follow.
-2. **Scores each sampled token** about 10 minutes after launch, on warning signs from rug-pull research:
+1. **Discovers launches:** it reads pump.fun's list of the 50 newest tokens and stores all of them, so creators who launch token after token can be recognised. Every new one is scored (`collect pumpfun --sample N` limits that to a random sample).
+2. **Scores each token** about 10 minutes after launch, on warning signs from rug-pull research:
    - the creator has launched other tokens in the last day
    - the creator's wallet is less than a day old, or behaves like a bot
    - the ten largest holders own more than 30 % (needs `SOLANA_RPC_URL`)
    - the price has already fallen below half its peak
    - the whole bonding curve was bought within minutes
 
-   A token with no warning signs and trades in the last 5 minutes passes.
-3. **Follows the price on DexScreener for 24 hours:** every 5 minutes for the first 6 hours, then every 30 minutes.
+   Only tokens with real money in them are measured:
+   - they traded in the 5 minutes before scoring, and
+   - their market value is at least 10 % above pump.fun's launch value of about 27.96 SOL, which takes roughly 1.5 SOL of net buying.
 
-A token counts as *collapsed* at 1, 6 or 24 hours after scoring if its price then is at most 10 % of its peak since scoring. For each horizon the page shows:
-- how often active launches collapse
+   On the bonding curve the price only rises as SOL is paid in. A token still at its launch price has had no net buying, its few trades are usually bots buying and selling back, and its price can't fall. It would neither collapse nor earn anything, so counting it would make the filter look better than it is.
+
+   A measured token with no warning signs passes.
+3. **Follows the price of each measured token on DexScreener for 24 hours:** every 5 minutes for the first 6 hours, then every 30 minutes. Other scored tokens are not followed.
+
+A token counts as *collapsed* at 1, 6 or 24 hours after scoring if its price then is at most 10 % of its peak since scoring. It counts as *quiet* if nobody traded it since scoring. For each horizon the page shows:
+- how often measured launches collapse, and how many went quiet
 - the share of collapses the filter caught, and the share of survivors it let through
 - how many of the tokens that passed still collapsed
 - the returns after pump.fun's 1.25 % fee on each trade
@@ -99,7 +105,11 @@ Sources:
 - DexScreener's documented token API, for prices and trades
 - Solana JSON-RPC, for the creator wallet's history and the largest holders. The public node refuses the holders call, so set `SOLANA_RPC_URL` to a private node (for example a free Helius key) to measure concentration.
 
-The screen is versioned (`pf1`), and only the current version's results are shown. Code: `src/nordic_signals/pumpfun.py` (screen and results) and `src/nordic_signals/collectors/pumpfun.py` (collection).
+The screen is versioned, and only the current version's results and fake portfolio are shown.
+- `pf1` (from 2 October 2026) counted any token with a trade as active. Its first export showed that most tokens it passed were still at their launch price.
+- `pf2` added the real-money rule and scores every new launch.
+
+Scoring every launch stores about 14,000 tokens a day, roughly 20 MB. Code: `src/nordic_signals/pumpfun.py` (screen and results) and `src/nordic_signals/collectors/pumpfun.py` (collection).
 
 ## Collecting data
 
@@ -157,7 +167,7 @@ The scheduler is on by default on Railway and off elsewhere. Set `SCHEDULER=off`
 
 ## Deploying on Railway
 
-The project needs two things: PostgreSQL and the web service, which also runs the data collection (see [Scheduling](#scheduling)). Railway builds the web service from the `Dockerfile` automatically. Data volume is small, roughly 1–2 GB a year with the pump.fun measurement.
+The project needs two things: PostgreSQL and the web service, which also runs the data collection (see [Scheduling](#scheduling)). Railway builds the web service from the `Dockerfile` automatically. The Nordic data is small, under 1 GB a year. The pump.fun measurement adds about 20 MB a day while it runs.
 
 ### In the dashboard
 
