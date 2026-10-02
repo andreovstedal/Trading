@@ -56,9 +56,44 @@ def test_password_protects_everything_but_health(make_client):
 
 def test_login_ignores_offsite_redirects(make_client):
     with make_client(APP_PASSWORD="s3cret") as client:
-        response = client.post("/login", data={"password": "s3cret", "next": "//evil.example"},
-                               follow_redirects=False)
-        assert response.headers["location"] == "/"
+        for target in ("//evil.example", "/\\evil.example", "https://evil.example"):
+            response = client.post("/login", data={"password": "s3cret", "next": target}, follow_redirects=False)
+            assert response.headers["location"] == "/", target
+
+
+def test_a_form_sent_after_the_session_expired_returns_to_its_page(make_client):
+    # E.g. after a redeploy without SECRET_KEY. The form's own address only accepts the form, so after signing in
+    # the browser must go back to the page the form was on.
+    with make_client(APP_PASSWORD="s3cret") as client:
+        response = client.post("/recommendations", data={"account_value": "300000"},
+                               headers={"referer": "http://testserver/"}, follow_redirects=False)
+        assert response.headers["location"] == "/login?next=/"
+        response = client.post("/data/backfill", headers={"referer": "http://testserver/data"}, follow_redirects=False)
+        assert response.headers["location"] == "/login?next=/data"
+        response = client.post("/data/backfill", follow_redirects=False)  # no referer
+        assert response.headers["location"] == "/login?next=/"
+
+
+def test_form_addresses_opened_as_pages_lead_to_the_page(make_client):
+    with make_client(APP_PASSWORD="s3cret") as client:
+        # An old login link still pointing at a form address.
+        response = client.post("/login", data={"password": "s3cret", "next": "/recommendations"})
+        assert response.status_code == 200 and response.url.path == "/"
+        for path, target in (("/recommendations", "/"), ("/data/backfill", "/data"), ("/logout", "/")):
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code == 303 and response.headers["location"] == target, path
+        # Already signed in: the login page passes straight through.
+        assert client.get("/login?next=/data", follow_redirects=False).headers["location"] == "/data"
+
+
+def test_errors_are_pages_in_norwegian(make_client):
+    with make_client() as client:
+        response = client.get("/no-such-page")
+        assert response.status_code == 404 and "Fant ikke siden" in response.text
+        response = client.put("/data")
+        assert response.status_code == 405 and "Siden kan ikke åpnes slik" in response.text
+        response = client.get("/recommendations/abc")
+        assert response.status_code == 400 and "Ugyldig forespørsel" in response.text
 
 
 def test_railway_refuses_to_serve_without_a_password(make_client):

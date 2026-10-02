@@ -20,13 +20,15 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from fastapi import FastAPI, Form, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from jinja2 import Undefined
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.sessions import SessionMiddleware
 
 from .. import jobs, text
@@ -99,7 +101,7 @@ def create_app(db: str | None = None) -> FastAPI:
                            " på web-tjenesten i Railway, og deploy på nytt.",
             }, status_code=503)
         if password and not request.session.get("signed_in"):
-            return RedirectResponse(f"/login?next={quote(path)}", status_code=303)
+            return RedirectResponse(f"/login?next={quote(_return_path(request))}", status_code=303)
         return await call_next(request)
 
     # Added last so it wraps the login check and request.session is available there.
@@ -119,14 +121,16 @@ def create_app(db: str | None = None) -> FastAPI:
         return JSONResponse({"ok": True})
 
     @app.get("/login", response_class=HTMLResponse)
-    def login_form(request: Request, next: str = "/") -> HTMLResponse:
+    def login_form(request: Request, next: str = "/") -> Response:
+        if request.session.get("signed_in"):
+            return RedirectResponse(_safe_next(next), 303)
         return render(request, "login.html", next=next, error=None)
 
     @app.post("/login")
     def login(request: Request, password_input: str = Form(alias="password"), next: str = Form("/")) -> Response:
         if password and hmac.compare_digest(password_input.encode(), password.encode()):
             request.session["signed_in"] = True
-            return RedirectResponse(next if next.startswith("/") and not next.startswith("//") else "/", 303)
+            return RedirectResponse(_safe_next(next), 303)
         time.sleep(1)  # slow down guessing
         return templates.TemplateResponse(request, "login.html", {"next": next, "error": "Feil passord"},
                                           status_code=401)
@@ -240,11 +244,60 @@ def create_app(db: str | None = None) -> FastAPI:
         message = f"{label} har startet" if started else f"Opptatt: {runner.current} pågår fortsatt"
         return RedirectResponse(f"/data?message={quote(message)}", 303)
 
+    # The forms post to these addresses. Opened as a page (a bookmark, the browser history, or an old link back
+    # after signing in) they lead to the page the form is on instead of a bare "Method Not Allowed".
+    @app.get("/recommendations")
+    def recommendations_page() -> RedirectResponse:
+        return RedirectResponse("/", 303)
+
+    @app.get("/data/{action}")
+    def data_action_page(action: str) -> RedirectResponse:
+        return RedirectResponse("/data", 303)
+
+    @app.get("/logout")
+    def logout_page() -> RedirectResponse:
+        return RedirectResponse("/", 303)
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException) -> Response:
+        fallback = ("Noe gikk galt", f"Serveren svarte med feilkode {exc.status_code}.")
+        title, message = ERRORS.get(exc.status_code, fallback)
+        return render_error(request, title, message, exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def invalid_request(request: Request, exc: RequestValidationError) -> Response:
+        return render_error(request, "Ugyldig forespørsel", "Noe i adressen eller skjemaet var ikke gyldig.", 400)
+
     def render_error(request: Request, title: str, message: str, status: int) -> HTMLResponse:
         return templates.TemplateResponse(request, "error.html", {"title": title, "message": message},
                                           status_code=status)
 
     return app
+
+
+ERRORS = {
+    404: ("Fant ikke siden", "Adressen finnes ikke i appen."),
+    405: ("Siden kan ikke åpnes slik", "Adressen tar bare imot skjemaer. Gå tilbake og prøv igjen."),
+}
+
+
+def _return_path(request: Request) -> str:
+    """Where to go after signing in: the page itself, or for a form, the page the form was on.
+
+    A form's own address only accepts the form, so sending the browser back to it would fail.
+    """
+    if request.method in ("GET", "HEAD"):
+        query = request.url.query
+        return request.url.path + (f"?{query}" if query else "")
+    referer = urlsplit(request.headers.get("referer", ""))
+    if referer.netloc == request.url.netloc and referer.path.startswith("/") and referer.path != "/login":
+        return referer.path + (f"?{referer.query}" if referer.query else "")
+    return "/"
+
+
+def _safe_next(next: str) -> str:
+    """Only paths on this site, never another host ("//host" or "/\\host")."""
+    return next if next.startswith("/") and not next.startswith(("//", "/\\")) else "/"
 
 
 def serve(*, db: str | None, host: str, port: int) -> None:
