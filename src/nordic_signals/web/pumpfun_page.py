@@ -313,5 +313,6 @@ def _encode(value: Any) -> str:
     raise TypeError(f"not JSON serialisable: {type(value).__name__}")
 
 
-def filename(kind: str, today: date) -> str:
-    return f"pumpfun-logg-{today.isoformat()}.{kind}"
+def filename(kind: str, now: datetime) -> str:
+    """With the time as well as the date (Oslo), so two downloads on one day are never mixed up."""
+    return f"pumpfun-logg-{now.astimezone(text.OSLO):%Y-%m-%d-%H%M}.{kind}"

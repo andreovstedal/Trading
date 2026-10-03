@@ -528,7 +528,8 @@ def test_the_log_downloads(server, store, db_url, monkeypatch):
         spreadsheet = client.get("/pumpfun/export.csv")
         everything = client.get("/pumpfun/export.json")
 
-    assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="pumpfun-logg-20')
+    assert re.fullmatch(r'attachment; filename="pumpfun-logg-\d{4}-\d\d-\d\d-\d{4}\.csv"',
+                        spreadsheet.headers["content-disposition"])
     assert spreadsheet.text.startswith("﻿Token (adresse);Navn;")
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
     assert len(rows) == 3  # every sampled token
