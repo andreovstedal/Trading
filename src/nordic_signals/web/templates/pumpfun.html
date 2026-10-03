@@ -204,6 +204,9 @@
   markedsverdi minst 10&nbsp;% over pump.funs startverdi (rundt 1,5&nbsp;SOL kjøpt netto). Et token som fortsatt står
   på startprisen, kan ikke falle, og handelen i det er som regel roboter som kjøper og selger tilbake. Hver ny
   lansering vurderes.</p>
+<p class="small muted">Fra versjon 3 stopper filteret også tokens som allerede har doblet kursen siden lanseringen
+  (rundt 12&nbsp;SOL kjøpt netto). I versjon 2 falt de med rundt 70&nbsp;% på 6 timer (median), mot rundt 15&nbsp;%
+  for resten. Resten tapte også, så det er resultatene til versjon 3 som viser om regelen holder.</p>
 <div class="tiles">
   <div class="tile"><div class="label">Lanseringer sett</div><div class="value mono">{{ r.seen | num }}</div>
     <div class="sub">{% if r.status.skipped %}{{ r.status.skipped | num }} brukes bare til å kjenne igjen utstedere{% else %}alle vurderes{% endif %}</div></div>

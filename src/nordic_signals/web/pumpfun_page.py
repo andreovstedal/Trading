@@ -321,8 +321,10 @@ def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
             "quiet_*": "Nobody traded it from scoring until that horizon: the price never moved.",
             "screen_version": "pf1 (from 2 October 2026) counted any token with a trade in the 5 minutes before "
                               "scoring. pf2 also needs a market value at least 10 % above pump.fun's launch value "
-                              "(features.launch_multiple >= 1.1), and scores every new launch. Only measured "
-                              "tokens (status tracking or done) are followed; the rest stay 'scored'.",
+                              "(features.launch_multiple >= 1.1), and scores every new launch. pf3 (from late on "
+                              "3 October 2026) also stops tokens already at twice the launch value or more "
+                              "(launch_multiple >= 2, warning 'pumped'). Only measured tokens (status tracking or "
+                              "done) are followed, whether they passed or not; the rest stay 'scored'.",
             "paper": "open, sold, skipped (passed while the cash was used up) or null (never bought).",
             "paper_stup": "The same for the stup account: the same rules, but sold at the first price seen at or "
                           "below half the buy price (cliff_at, cliff_price), with the cash used for new buys.",

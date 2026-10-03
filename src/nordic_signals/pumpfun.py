@@ -4,7 +4,8 @@ Nothing here trades. Each sampled launch is scored once, about 10 minutes after 
 warning signs from rug-pull research (Solidus Labs' 2025 Rug Pull Report; SolRugDetector, 2026): a
 creator launching token after token, a brand-new or robot-like creator wallet, supply concentrated in a
 few wallets, a price that has already collapsed, and graduation within minutes (the whole bonding curve
-bought at once).
+bought at once). One more comes from this measurement itself: a price already at twice pump.fun's launch
+price or more (see the versions below).
 
 Only tradable tokens are measured (``tradable``): traded in the 5 minutes before scoring, with real money
 in them. On pump.fun's bonding curve the price only rises as SOL is paid in, so a token still at its launch
@@ -35,7 +36,13 @@ social links its creator added at launch, and paid promotion on DexScreener. ``l
 
 Change SCREEN_VERSION whenever a rule or limit changes; results are shown for the current version only.
 pf1 (2 October 2026) counted any token with a trade as tradable; the first export showed that most of the
-tokens it passed were still at their launch price.
+tokens it passed were still at their launch price. pf2 (from the evening of 2 October) measured only tokens
+with real money in them. In its first day (528 measured tokens had reached 6 hours) the hype at scoring went
+with the dumps: tokens already at twice the launch price or more had a median of -68 % and -74 % after 6
+hours in the first and second half of the day, with about a third collapsed, against -15 % and -16 % (1 %
+collapsed) for the rest. pf3 (from late on 3 October) stops them too (``pumped``). The rest still lost money
+in both halves, so only pf3's own results, on tokens it has not seen, can tell whether the rule is worth
+anything.
 """
 
 from __future__ import annotations
@@ -52,7 +59,7 @@ from sqlalchemy import func, select
 
 from .store import Store, utcnow
 
-SCREEN_VERSION = "pf2"
+SCREEN_VERSION = "pf3"
 COLLAPSE_LEVEL = 0.10  # collapsed: at most 10 % of the peak since scoring
 # pump.fun's bonding curve at launch: 30 virtual SOL against 1,073,000,191 virtual tokens, a market value of
 # about 27.96 SOL. Some launches use a cheaper curve; they stay below this and are never tradable here.
@@ -78,6 +85,7 @@ LIMITS = {
     "busy_wallet_tx_per_hour": 20.0,  # ... at this rate
     "top10_share": 0.30,  # largest ten holders, not counting the bonding curve itself
     "dumped": 0.5,  # price at most half of the peak before scoring
+    "pumped": 2.0,  # price at least twice pump.fun's launch price: about 12 SOL of net buying
 }
 
 # Warning sign -> how the page names it.
@@ -87,6 +95,7 @@ WARNINGS = {
     "busy_wallet": "Utstederens lommebok oppfører seg som en robot",
     "concentrated": "De ti største eierne har over 30 % av tokenene",
     "dumped": "Kursen har allerede falt under halvparten av toppen",
+    "pumped": "Kursen har allerede doblet seg siden lanseringen",
     "instant_graduation": "Hele kjøpskurven ble kjøpt opp i løpet av minutter",
 }
 
@@ -118,6 +127,8 @@ def warning_signs(f: dict[str, Any]) -> list[str]:
         signs.append("concentrated")
     if f.get("price") and f.get("peak_before") and f["price"] <= LIMITS["dumped"] * f["peak_before"]:
         signs.append("dumped")
+    if f.get("price") and f["price"] >= LIMITS["pumped"] * LAUNCH_PRICE:
+        signs.append("pumped")
     if f.get("graduated"):
         signs.append("instant_graduation")  # scored about 10 minutes after launch, so it graduated within minutes
     return signs

@@ -64,6 +64,9 @@ Every 5 minutes the web service's schedule (see [Scheduling](#scheduling)):
    - the price has already fallen below half its peak
    - the whole bonding curve was bought within minutes
 
+   One more sign comes from this measurement itself (from `pf3`, see below):
+   - the price has already doubled since launch, which takes about 12 SOL of net buying
+
    Only tokens with real money in them are measured:
    - they traded in the 5 minutes before scoring, and
    - their market value is at least 10 % above pump.fun's launch value of about 27.96 SOL, which takes roughly 1.5 SOL of net buying.
@@ -135,6 +138,10 @@ The branch is replaced each time, so it only holds the latest copy and the repos
 The screen is versioned, and only the current version's results and fake portfolio are shown.
 - `pf1` (from 2 October 2026) counted any token with a trade as active. Its first export showed that most tokens it passed were still at their launch price.
 - `pf2` added the real-money rule and scores every new launch.
+- `pf3` (from late on 3 October 2026) also stops tokens whose price has already doubled since launch. In `pf2`'s first day, 528 measured tokens had reached 6 hours:
+  - Tokens at twice the launch price or more had a median of −68 % after 6 hours in the first half of the day and −74 % in the second, with about a third collapsed.
+  - The rest had −15 % and −16 %, with 1 % collapsed.
+  - The rest still lost money, so only `pf3`'s own results, on tokens it hasn't seen, show whether the rule is worth anything.
 
 Scoring every launch stores about 14,000 tokens a day, roughly 20 MB. Code: `src/nordic_signals/pumpfun.py` (screen and results) and `src/nordic_signals/collectors/pumpfun.py` (collection).
 

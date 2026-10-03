@@ -22,6 +22,7 @@ DEX = "https://api.dexscreener.com/tokens/v1/solana/"
 RPC = "https://api.mainnet-beta.solana.com/"
 T0 = datetime(2026, 10, 2, 12, 0, tzinfo=timezone.utc)
 OLD_WALLET = [int((T0 - timedelta(days=30)).timestamp()), int((T0 - timedelta(days=29)).timestamp())]
+P = 5e-8  # a price when scored, in SOL: 1.8 times pump.fun's launch price, so real money but not yet doubled
 
 
 def coin(mint, creator, minutes_before=1, **extra):
@@ -105,7 +106,7 @@ def test_tokens_are_scored_followed_and_labelled(server, store):
     market = Market(server)
     market.wallets = {"alice": [day_ago, day_ago + 3600],  # an ordinary month-old wallet
                       "bob": [int((T0 - timedelta(hours=2)).timestamp())]}  # created two hours before the launch
-    market.prices = {"good": 1.0e-7, "dumpy": 1.0e-7, "dumpy2": 1.0e-7}
+    market.prices = {"good": P, "dumpy": P, "dumpy2": P}
 
     scored = T0 + timedelta(minutes=11)
     run(server, store, T0)
@@ -115,17 +116,17 @@ def test_tokens_are_scored_followed_and_labelled(server, store):
     assert rows["dumpy"]["warnings"] == ["serial", "fresh_wallet"] and rows["dumpy"]["passed"] is False
     assert rows["dumpy"]["features"]["creator_age_h"] == pytest.approx(2 - 1 / 60, abs=0.01)
 
-    for after, good, dumpy in ((timedelta(hours=1), 1.2e-7, 3.0e-7), (timedelta(hours=6), 1.5e-7, 0.5e-7),
-                               (timedelta(hours=24), 1.3e-7, 0.2e-7)):
+    for after, good, dumpy in ((timedelta(hours=1), 1.2 * P, 3.0 * P), (timedelta(hours=6), 1.5 * P, 0.5 * P),
+                               (timedelta(hours=24), 1.3 * P, 0.2 * P)):
         market.prices = {"good": good, "dumpy": dumpy, "dumpy2": dumpy}
         run(server, store, scored + after)
 
     rows = tokens(store)
     assert rows["good"]["status"] == "done" and rows["good"]["collapsed"] is False
-    assert (rows["good"]["price_1h"], rows["good"]["price_6h"], rows["good"]["price_24h"]) == (1.2e-7, 1.5e-7, 1.3e-7)
+    assert (rows["good"]["price_1h"], rows["good"]["price_6h"], rows["good"]["price_24h"]) == (1.2 * P, 1.5 * P, 1.3 * P)
     assert rows["dumpy"]["collapsed"] is True  # 0.2 is at most 10 % of the 3.0 peak
-    assert rows["dumpy"]["peak_after"] == 3.0e-7 and rows["dumpy"]["low_after"] == 0.2e-7
-    assert (rows["dumpy"]["peak_1h"], rows["dumpy"]["peak_6h"]) == (3.0e-7, 3.0e-7)
+    assert rows["dumpy"]["peak_after"] == 3.0 * P and rows["dumpy"]["low_after"] == 0.2 * P
+    assert (rows["dumpy"]["peak_1h"], rows["dumpy"]["peak_6h"]) == (3.0 * P, 3.0 * P)
 
     r = pumpfun.results(store)
     one_hour, six_hours, day = r["horizons"]
@@ -149,17 +150,17 @@ def test_slow_phase_and_missing_prices(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x"), coin("gone", "y")]))
     market = Market(server)
     market.wallets = {"x": OLD_WALLET, "y": OLD_WALLET}
-    market.prices = {"a": 1e-7, "gone": 1e-7}
+    market.prices = {"a": P, "gone": P}
     scored = T0 + timedelta(minutes=10)
     run(server, store, T0)
     run(server, store, scored)
 
-    market.prices = {"a": 2e-7}  # "gone" disappears from DexScreener
+    market.prices = {"a": 2 * P}  # "gone" disappears from DexScreener
     for minutes in range(5, 65, 5):
         run(server, store, scored + timedelta(minutes=minutes))
     rows = tokens(store)
     assert rows["gone"]["status"] == "missing" and rows["gone"]["misses"] == 12
-    assert rows["a"]["price_1h"] == 2e-7
+    assert rows["a"]["price_1h"] == 2 * P
 
     # After 6 hours a token is checked every 30 minutes, not every run.
     run(server, store, scored + timedelta(hours=6, minutes=1))
@@ -174,7 +175,7 @@ def test_a_dexscreener_outage_counts_against_no_token(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x")]))
     market = Market(server)
     market.wallets = {"x": OLD_WALLET}
-    market.prices = {"a": 1e-7}
+    market.prices = {"a": P}
     scored = T0 + timedelta(minutes=10)
     run(server, store, T0)
     run(server, store, scored)
@@ -191,7 +192,7 @@ def test_a_dexscreener_outage_counts_against_no_token(server, store):
 def test_a_failed_wallet_lookup_leaves_the_token_out(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x")]))
     market = Market(server)
-    market.prices = {"a": 1e-7}
+    market.prices = {"a": P}
     server.add("POST", RPC, lambda _r: httpx.Response(429))
     scored = T0 + timedelta(minutes=10)
     run(server, store, T0)
@@ -209,7 +210,7 @@ def test_holder_concentration_needs_a_private_rpc(server, store, monkeypatch):
     monkeypatch.setenv("SOLANA_RPC_URL", "https://rpc.example/")
     server.add("GET", COINS, httpx.Response(200, json=[coin("whale", "w")]))
     market = Market(server)
-    market.prices = {"whale": 1e-7}
+    market.prices = {"whale": P}
     market.holders = {"whale": [("whale-curve", 600e6), ("big", 250e6), ("small", 100e6)]}  # the curve is not a holder
 
     run(server, store, T0)
@@ -223,7 +224,7 @@ def test_holder_concentration_needs_a_private_rpc(server, store, monkeypatch):
 
 @pytest.mark.parametrize("features, expected", [
     ({"serial": 0, "creator_tx": 40, "creator_history_complete": True, "creator_age_h": 500, "creator_tx_per_h": 0.1,
-      "price": 1, "peak_before": 1}, []),
+      "price": P, "peak_before": P}, []),
     ({"serial": 3}, ["serial"]),
     ({"creator_tx": 12, "creator_history_complete": True, "creator_age_h": 3}, ["fresh_wallet"]),
     # A full page of transactions: the wallet's age is unknown, but its pace is a robot's.
@@ -231,7 +232,10 @@ def test_holder_concentration_needs_a_private_rpc(server, store, monkeypatch):
      ["busy_wallet"]),
     ({"creator_tx": 8, "creator_history_complete": True, "creator_age_h": 30, "creator_tx_per_h": 80}, []),
     ({"top10_share": 0.31}, ["concentrated"]),
-    ({"price": 0.5, "peak_before": 1.0}, ["dumped"]),
+    ({"price": 0.5 * P, "peak_before": P}, ["dumped"]),
+    ({"price": 1.99 * pumpfun.LAUNCH_PRICE}, []),
+    ({"price": 2 * pumpfun.LAUNCH_PRICE}, ["pumped"]),  # already doubled since launch
+    ({"price": 3 * pumpfun.LAUNCH_PRICE, "peak_before": 8 * pumpfun.LAUNCH_PRICE}, ["dumped", "pumped"]),
     ({"graduated": True}, ["instant_graduation"]),
 ])
 def test_warning_signs(features, expected):
@@ -262,6 +266,21 @@ def test_only_tokens_with_real_money_are_measured(server, store):
     assert followed == ["bought"]
     r = pumpfun.results(store)
     assert r["inactive"] == 2 and r["status"]["scored"] == 2
+
+
+def test_tokens_that_already_doubled_are_followed_but_not_bought(server, store):
+    server.add("GET", COINS, httpx.Response(200, json=[coin("calm", "a"), coin("doubled", "b")]))
+    market = Market(server)
+    market.wallets = {"a": OLD_WALLET, "b": OLD_WALLET}
+    market.prices = {"calm": pumpfun.LAUNCH_PRICE * 1.9, "doubled": pumpfun.LAUNCH_PRICE * 2}
+    run(server, store, T0)
+    run(server, store, T0 + timedelta(minutes=11))
+
+    rows = tokens(store)
+    assert (rows["calm"]["passed"], rows["calm"]["warnings"]) == (True, [])
+    assert (rows["doubled"]["passed"], rows["doubled"]["warnings"]) == (False, ["pumped"])
+    assert rows["doubled"]["status"] == "tracking"  # still measured, so the page can show what the rule stopped
+    assert [o["mint"] for o in pumpfun.paper(store)["open"]] == ["calm"]
 
 
 def test_tokens_nobody_traded_after_scoring_are_quiet(store):
@@ -406,10 +425,10 @@ def test_prices_of_tokens_that_passed_are_kept_for_a_week(server, store):
     test_tokens_are_scored_followed_and_labelled(server, store)
     rows = prices(store)
     assert {r["mint"] for r in rows} == {"good"}  # the others did not pass
-    assert [r["price"] for r in rows] == [1.0e-7, 1.2e-7, 1.5e-7, 1.3e-7]  # when scored and at each check
+    assert [r["price"] for r in rows] == [P, 1.2 * P, 1.5 * P, 1.3 * P]  # when scored and at each check
 
     run(server, store, T0 + timedelta(days=9))
-    assert prices(store) == [] and tokens(store)["good"]["price_24h"] == 1.3e-7  # the checkpoints stay
+    assert prices(store) == [] and tokens(store)["good"]["price_24h"] == 1.3 * P  # the checkpoints stay
 
 
 def held_and_other(server, store):
@@ -418,7 +437,7 @@ def held_and_other(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("held", "alice"), coin("other", "bob")]))
     market = Market(server)
     market.wallets = {"alice": [month_ago, month_ago + 3600], "bob": [int((T0 - timedelta(hours=2)).timestamp())]}
-    market.prices = {"held": 1e-7, "other": 1e-7}
+    market.prices = {"held": P, "other": P}
     run(server, store, T0)
     run(server, store, T0 + timedelta(minutes=11))
     return market
@@ -432,19 +451,19 @@ def quote(server, store, at):
 def test_quotes_move_the_open_positions_but_not_the_measurement(server, store):
     market = held_and_other(server, store)
     scored = T0 + timedelta(minutes=11)
-    market.prices = {"held": 2e-7, "other": 5e-7}
+    market.prices = {"held": 2 * P, "other": 5 * P}
     server.requests.clear()
     assert quote(server, store, scored + timedelta(minutes=1)) == 1
     assert [r.url.path.rsplit("/", 1)[-1] for r in server.requests] == ["held"]  # only what the portfolio holds
     assert quote(server, store, scored + timedelta(minutes=2)) == 0  # unchanged: nothing new to store
-    market.prices["held"] = 3e-7
+    market.prices["held"] = 3 * P
     assert quote(server, store, scored + timedelta(minutes=3)) == 1
 
     (position,) = pumpfun.paper(store)["open"]
-    assert position["price"] == 3e-7 and position["price_at"] == scored + timedelta(minutes=3)
+    assert position["price"] == 3 * P and position["price_at"] == scored + timedelta(minutes=3)
     assert position["result"] == pytest.approx(3 * (1 - pumpfun.FEE) ** 2 - 1)
     row = tokens(store)["held"]  # the measurement keeps to the collector's own checks
-    assert row["last_price"] == 1e-7 and row["peak_after"] == 1e-7
+    assert row["last_price"] == P and row["peak_after"] == P
     assert pumpfun._aware(row["last_checked_at"]) == scored
 
 
@@ -539,7 +558,7 @@ def test_the_log_downloads(server, store, db_url, monkeypatch):
     assert len(rows) == 3  # every sampled token
     good = dict(zip(header, next(r for r in rows if r[0] == "good"), strict=True))
     assert good["Bestod filteret"] == "ja" and good["Kollapset etter 24 t"] == "nei"
-    assert good["Markedsverdi ved vurdering (SOL)"] == "100,000"  # a price of 1e-7 SOL times a billion tokens
+    assert good["Markedsverdi ved vurdering (SOL)"] == "50,000"  # a price of 5e-8 SOL times a billion tokens
     assert good["Avkastning etter 24 t (%)"] == f"{(1.3 * (1 - pumpfun.FEE) ** 2 - 1) * 100:.2f}".replace(".", ",")
     assert good["Fiktiv handel"] == "kjøpt og solgt" and good["Lansert (norsk tid)"] == "2026-10-02 13:59:00"
     dumpy = dict(zip(header, next(r for r in rows if r[0] == "dumpy"), strict=True))
@@ -551,7 +570,7 @@ def test_the_log_downloads(server, store, db_url, monkeypatch):
     token = data["tokens"][2]
     assert token["paper"] == "sold" and token["collapsed_24h"] is False and token["features"]["trades_5m"] == 4
     assert token["return_24h"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
-    assert data["trades"][0]["mint"] == "good" and data["trades"][0]["sell_price"] == 1.3e-7
+    assert data["trades"][0]["mint"] == "good" and data["trades"][0]["sell_price"] == 1.3 * P
     assert len(data["equity"]) == 4 and len(data["price_history"]) == 4
     assert data["meta"]["screen_version"] == pumpfun.SCREEN_VERSION
 
@@ -561,7 +580,7 @@ def test_the_live_page(server, store, db_url, monkeypatch):
     with page_client(db_url, monkeypatch) as client:
         page = client.get("/pumpfun").text
         stamp = client.get("/pumpfun/version").json()["v"]
-        market.prices["held"] = 2e-7
+        market.prices["held"] = 2 * P
         quote(server, store, T0 + timedelta(minutes=12))
         moved = client.get("/pumpfun/version").json()["v"]
         six_hours = client.get("/pumpfun?periode=6t").text
@@ -577,21 +596,21 @@ def test_the_live_page(server, store, db_url, monkeypatch):
 
 
 def test_the_cliff_is_recorded_once_by_follows_and_quotes(server, store):
-    market = held_and_other(server, store)  # "held" passed at T0 + 11 minutes, at 1e-7
+    market = held_and_other(server, store)  # "held" passed at T0 + 11 minutes, at P
     scored = T0 + timedelta(minutes=11)
-    market.prices = {"held": 0.6e-7, "other": 0.4e-7}
+    market.prices = {"held": 0.6 * P, "other": 0.4 * P}
     run(server, store, scored + timedelta(minutes=5))
     rows = tokens(store)
     assert rows["held"]["cliff_at"] is None  # down 40 %: not yet halved
     assert pumpfun._aware(rows["other"]["cliff_at"]) == scored + timedelta(minutes=5)  # every measured token
-    assert rows["other"]["cliff_price"] == 0.4e-7
+    assert rows["other"]["cliff_price"] == 0.4 * P
 
-    market.prices["held"] = 0.45e-7
+    market.prices["held"] = 0.45 * P
     quote(server, store, scored + timedelta(minutes=7))  # the quotes catch it between runs
-    market.prices["held"] = 0.1e-7
+    market.prices["held"] = 0.1 * P
     run(server, store, scored + timedelta(minutes=10))
     held = tokens(store)["held"]
-    assert pumpfun._aware(held["cliff_at"]) == scored + timedelta(minutes=7) and held["cliff_price"] == 0.45e-7
+    assert pumpfun._aware(held["cliff_at"]) == scored + timedelta(minutes=7) and held["cliff_price"] == 0.45 * P
 
 
 def test_cliffs_are_found_in_the_price_history_of_older_positions(server, store):
@@ -630,7 +649,7 @@ def test_hype_is_recorded_when_scored(server, store):
         coin("loud", "a", twitter="https://x.com/loud", telegram="https://t.me/loud"), coin("calm", "b")]))
     market = Market(server)
     market.wallets = {"a": OLD_WALLET, "b": OLD_WALLET}
-    market.prices = {"loud": 1e-7, "calm": 1e-7}
+    market.prices = {"loud": P, "calm": P}
     market.profiles, market.boosts = {"loud"}, {"loud": 10}
     run(server, store, T0)
     run(server, store, T0 + timedelta(minutes=11))
@@ -650,7 +669,7 @@ def test_hype_groups_in_the_patterns(store):
 
 def test_the_page_compares_the_stup_account(server, store, db_url, monkeypatch):
     market = held_and_other(server, store)
-    market.prices["held"] = 0.45e-7
+    market.prices["held"] = 0.45 * P
     quote(server, store, T0 + timedelta(minutes=20))
     with page_client(db_url, monkeypatch) as client:
         page = client.get("/pumpfun").text
