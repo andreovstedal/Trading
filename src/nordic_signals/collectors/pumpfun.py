@@ -23,9 +23,18 @@ Each run (every 5 minutes on Railway):
 4. **Record** the fake-money portfolio's value (``pumpfun.snapshot``).
 
 Between runs, ``PumpFunCollector.quote`` (every minute on Railway) fetches the open fake-money positions'
-prices from DexScreener, so the page moves while it is open. Those quotes only feed the charts and the
-positions' current value; the measurement keeps to the checks above, so its numbers do not depend on how
-often anyone looks.
+prices from DexScreener, so the page moves while it is open. Those quotes only feed the charts, the
+positions' current value and the stup rule; the measurement keeps to the checks above, so its numbers do
+not depend on how often anyone looks.
+
+The stup rule needs the first price seen at or below half the scoring price (``cliff_at``,
+``cliff_price``): the follow step records it for every measured token and the quotes for the open
+positions, each within 24 hours of scoring. Tokens followed before it was recorded get it from their price
+history (``_backfill_cliffs``).
+
+Hype at scoring: the social links the creator added at launch (pump.fun's own fields) and paid promotion on
+DexScreener (a token profile, boosts). X and Telegram cannot be read without paid access or breaking their
+terms, and pump.fun's comment threads are no longer served.
 
 A token whose wallet (or, with a private node, holder) lookup failed is scored as incomplete and left out
 of the results, so an outage cannot let tokens pass unchecked. A DexScreener request that fails counts
@@ -88,6 +97,7 @@ class PumpFunCollector(Collector):
         self._discover(now, sample, rng or random.Random())
         self._score(now)
         self._follow(now)
+        self._backfill_cliffs(now)
         self._prune(now)
         pumpfun.snapshot(self.store, now)  # the fake-money portfolio's value, for the chart
         return self.summary
@@ -163,6 +173,9 @@ class PumpFunCollector(Collector):
             "volume_1h_usd": (pair.get("volume") or {}).get("h1"),
             "dex": pair.get("dexId"),
             "graduated": pair.get("dexId") == "pumpswap" or bool(launch.get("complete")),
+            "links": pumpfun._links(launch),
+            "dex_profile": bool(pair.get("info")),  # a paid token profile on DexScreener
+            "boosts": int((pair.get("boosts") or {}).get("active") or 0),  # paid DexScreener boosts
             "serial": self._serial(r, now),
             **self._creator(r["creator"], created),
         }
@@ -234,6 +247,8 @@ class PumpFunCollector(Collector):
                 "graduated": bool(r["graduated"]) or pair.get("dexId") == "pumpswap",
             }
             elapsed = now - _utc(r["scored_at"])
+            if _cliff(r, price, elapsed):
+                changes.update(cliff_at=now, cliff_price=price)
             for column, after in CHECKPOINTS:
                 if r[column] is None and elapsed >= after:
                     changes[column] = price
@@ -256,16 +271,38 @@ class PumpFunCollector(Collector):
     # Live quotes
 
     def quote(self, now: datetime | None = None) -> int:
-        """The open fake-money positions' prices, stored when they changed; returns how many were stored."""
+        """The open positions' prices, of both fake accounts, stored when they changed; returns how many."""
         now = now or utcnow()
         self._warned = set()
-        mints = [position["mint"] for position in pumpfun.paper(self.store)["open"]]
-        pairs, _ = self._pairs(mints)
+        positions = {p["mint"]: p for p in (*pumpfun.paper(self.store)["open"],
+                                            *pumpfun.paper(self.store, cliff=True)["open"])}
+        pairs, _ = self._pairs(list(positions))
         latest = pumpfun.latest_prices(self.store, list(pairs))
         changed = [{"mint": mint, "at": now, "price": pair["price"]} for mint, pair in pairs.items()
                    if mint not in latest or latest[mint][1] != pair["price"]]
         self._record_prices(changed)
+        for mint, pair in pairs.items():
+            position = positions[mint]
+            if _cliff(position, pair["price"], now - position["opened_at"]):
+                self._update(mint, cliff_at=now, cliff_price=pair["price"])
         return len(changed)
+
+    def _backfill_cliffs(self, now: datetime) -> None:
+        """Tokens followed before the stup rule's price was recorded: find it in their price history.
+
+        Only tokens that passed have a history, and only for a week; the lowest price seen says which
+        tokens fell that far, so the rest are never looked at."""
+        t, p = self._table(), self.store.table("pf_prices")
+        rows = self.store.query(select(t.c.mint, t.c.scored_at, t.c.price_t).where(
+            t.c.passed.is_(True), t.c.cliff_at.is_(None), t.c.scored_at >= now - PRICE_HISTORY,
+            t.c.low_after <= pumpfun.CLIFF * t.c.price_t))
+        for r in rows:
+            scored = _utc(r["scored_at"])
+            first = self.store.query(select(p.c.at, p.c.price).where(
+                p.c.mint == r["mint"], p.c.at > scored, p.c.at <= scored + HORIZON,
+                p.c.price <= pumpfun.CLIFF * r["price_t"]).order_by(p.c.at).limit(1))
+            if first:
+                self._update(r["mint"], cliff_at=first[0]["at"], cliff_price=first[0]["price"])
 
     def _record_prices(self, rows: list[dict[str, Any]]) -> None:
         if rows:
@@ -332,6 +369,12 @@ class PumpFunCollector(Collector):
 
     def _table(self):
         return self.store.table("pf_tokens")
+
+
+def _cliff(r: dict[str, Any], price: float, elapsed: timedelta) -> bool:
+    """The first price at or below half the scoring price within 24 hours: the stup rule sells there."""
+    return (r["cliff_at"] is None and bool(r["price_t"]) and timedelta(0) < elapsed <= HORIZON
+            and price <= pumpfun.CLIFF * r["price_t"])
 
 
 def _due(r: dict[str, Any], now: datetime) -> bool:

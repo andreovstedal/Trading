@@ -87,6 +87,9 @@ The page also runs the filter with fake money:
 - Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts, and sold after 24 hours.
 - Fees are charged on both trades, and a token that disappears from DexScreener counts as lost.
 - Its value is recorded every 5 minutes. Between collector runs the open positions' prices are fetched every minute, so the account value and the positions move while the page is open.
+- A second fake account, the *stup* account, makes the same buys. It sells a position as soon as a price at or below half the buy price is seen, at the price seen, and uses the cash for new buys.
+  - Prices are seen a minute or more apart, so a token that falls straight through the halfway line is sold lower, as it would be in real trading.
+  - The page shows both accounts side by side, and marks the positions the stup account sold.
 
 Slippage is not included, so real results would be worse.
 
@@ -94,6 +97,12 @@ The page is live: it checks for new data every 15 seconds and updates itself, wi
 
 To look for patterns as the data grows:
 - **Mønstre i galskapen** splits the measured tokens into quarters by each feature seen at scoring (market value, trades, buy share, the creator wallet's age and activity, holder concentration). For each quarter it shows how often the tokens collapsed and their median return. The features whose quarters differ most come first, which is where the filter's next rule may be. It covers all tokens with trades and, separately, only those that passed.
+
+  A hype table compares groups by:
+  - the social links the creator added at launch (X, Telegram, a website)
+  - whether the token had a paid DexScreener profile or boosts when scored
+
+  X and Telegram can't be read without paid access or breaking their terms, and pump.fun no longer serves its comment threads.
 - **Last ned loggen** downloads everything measured:
   - `/pumpfun/export.csv`: one row per token, for Excel with Norwegian settings.
   - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths.

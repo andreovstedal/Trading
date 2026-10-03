@@ -25,11 +25,13 @@ catch well over 99 % of them before the tokens that pass are mostly honest.
 (while the cash lasts), sold after 24 hours, fees on both trades, and a token whose price disappears
 counted as lost. Open positions are valued at the latest price, including the live quotes. ``snapshot``
 records the portfolio's value after every collector run, for the chart, and ``histories`` gives each
-position's result over time.
+position's result over time. ``paper(store, cliff=True)`` is the same portfolio with the stup rule: a
+position is sold as soon as a price at or below half its buy price is seen (``CLIFF``), at that price.
 
 ``patterns`` splits the measured tokens into quarters by each feature seen at scoring (market value,
 trades, the creator wallet's activity, ...) and shows how often each quarter collapsed and what it
-returned: where to look for the next rule. ``log_rows`` is the downloadable log of everything measured.
+returned: where to look for the next rule. It does the same for the hype a token showed (``HYPE``): the
+social links its creator added at launch, and paid promotion on DexScreener. ``log_rows`` is the downloadable log of everything measured.
 
 Change SCREEN_VERSION whenever a rule or limit changes; results are shown for the current version only.
 pf1 (2 October 2026) counted any token with a trade as tradable; the first export showed that most of the
@@ -64,6 +66,7 @@ HORIZONS = (("price_1h", "peak_1h", "1 time"), ("price_6h", "peak_6h", "6 timer"
 PAPER_START = 10.0  # SOL in the fake-money account
 PAPER_STAKE = 0.1  # SOL into every token that passes
 PAPER_HOLD = timedelta(hours=24)
+CLIFF = 0.5  # the stup rule: sold at the first price seen at or below half the buy price
 # Result bins for closed trades: (upper limit, label, polarity) with the last one open-ended.
 RESULT_BINS = ((-0.9, "≤ −90", -1), (-0.5, "−90…−50", -1), (-0.1, "−50…−10", -1), (0.1, "±10", 0),
                (0.5, "+10…+50", 1), (1.0, "+50…+100", 1), (math.inf, "> +100", 1))
@@ -201,38 +204,43 @@ def _warning(key: str, label: str, rows: list[dict[str, Any]], collapsed: set[st
 
 # The fake-money portfolio
 
-def paper(store: Store) -> dict[str, Any]:
-    """Replay every token that passed, in order: buy 0.1 SOL while the cash lasts, sell after 24 hours."""
+def paper(store: Store, *, cliff: bool = False) -> dict[str, Any]:
+    """Replay every token that passed, in order: buy 0.1 SOL while the cash lasts, sell after 24 hours.
+
+    With ``cliff``, the stup rule: a position is sold as soon as a price at or below half its buy price is
+    seen, at that price. Prices are seen a minute or more apart, so a token that falls straight through the
+    line is sold lower, as it would be in real trading."""
     t = store.table("pf_tokens")
     rows = [dict(r) for r in store.query(
         select(t.c.mint, t.c.name, t.c.symbol, t.c.status, t.c.scored_at, t.c.price_t, t.c.price_1h, t.c.price_6h,
-               t.c.price_24h, t.c.last_price, t.c.last_checked_at)
+               t.c.price_24h, t.c.last_price, t.c.last_checked_at, t.c.cliff_at, t.c.cliff_price)
         .where(t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.passed.is_(True)))]
     events = []
     for r in rows:
-        opened = _aware(r["scored_at"])
-        events.append((opened, 1, r))
-        if r["status"] == "done":
-            events.append((opened + PAPER_HOLD, 0, r))
+        opened, dropped = _aware(r["scored_at"]), _aware(r["cliff_at"])
+        events.append((opened, 1, "buy", r))
+        if cliff and dropped is not None and opened < dropped <= opened + PAPER_HOLD:
+            events.append((dropped, 0, "cliff", r))
+        elif r["status"] == "done":
+            events.append((opened + PAPER_HOLD, 0, "held", r))
         elif r["status"] == "missing":
-            events.append((_aware(r["last_checked_at"]) or opened, 0, r))
+            events.append((_aware(r["last_checked_at"]) or opened, 0, "lost", r))
     events.sort(key=lambda e: (e[0], e[1]))  # sales before purchases at the same moment, to free the cash
 
     cash, holding, closed, skipped = PAPER_START, {}, [], 0
-    for at, opening, r in events:
-        if opening:
+    for at, _, kind, r in events:
+        if kind == "buy":
             if cash < PAPER_STAKE - 1e-9:
                 skipped += 1
                 continue
             cash -= PAPER_STAKE
             holding[r["mint"]] = {**r, "opened_at": at, "qty": PAPER_STAKE * (1 - FEE) / r["price_t"]}
         elif (position := holding.pop(r["mint"], None)) is not None:
-            lost = r["status"] == "missing"
-            exit_price = 0.0 if lost else r["price_24h"]
+            exit_price = {"cliff": r["cliff_price"], "lost": 0.0}.get(kind, r["price_24h"])
             proceeds = position["qty"] * exit_price * (1 - FEE)
             cash += proceeds
             closed.append({**position, "closed_at": at, "exit_price": exit_price, "proceeds": proceeds,
-                           "result": proceeds / PAPER_STAKE - 1, "lost": lost})
+                           "result": proceeds / PAPER_STAKE - 1, "lost": kind == "lost", "cliff": kind == "cliff"})
 
     latest = latest_prices(store, list(holding))
     open_positions = []
@@ -243,8 +251,11 @@ def paper(store: Store) -> dict[str, Any]:
                                "result": value / PAPER_STAKE - 1})
     positions_value = sum(p["value"] for p in open_positions)
     equity = cash + positions_value
+    cliffs = [(c["closed_at"] - c["opened_at"]).total_seconds() / 60 for c in closed if c["cliff"]]
     return {
         "start": PAPER_START, "stake": PAPER_STAKE, "hold_hours": PAPER_HOLD.total_seconds() / 3600,
+        "cliff_level": CLIFF if cliff else None,
+        "cliff_sales": len(cliffs), "cliff_minutes": median(cliffs) if cliffs else None,
         "started_at": events[0][0] if events else None,
         "cash": cash, "positions_value": positions_value, "equity": equity, "result": equity / PAPER_START - 1,
         "open": sorted(open_positions, key=lambda p: p["opened_at"], reverse=True),
@@ -396,12 +407,30 @@ PATTERNS: tuple[tuple[str, str, str, Callable[[dict[str, Any]], float | None]], 
 )
 
 
+def _links(launch: dict[str, Any] | None) -> int:
+    """Social links the creator added at launch: X, Telegram, a website."""
+    return sum(bool((launch or {}).get(k)) for k in ("twitter", "telegram", "website"))
+
+
+# Hype at scoring: key, label, and the groups (label, test on the features). Tokens scored before a feature
+# was recorded have none, and count in no group.
+HYPE: tuple[tuple[str, str, tuple[tuple[str, Callable[[dict[str, Any]], bool]], ...]], ...] = (
+    ("links", "Lenker ved lanseringen (X, Telegram, nettside)",
+     (("Ingen", lambda f: f.get("links") == 0), ("1", lambda f: f.get("links") == 1),
+      ("2–3", lambda f: (f.get("links") or 0) >= 2))),
+    ("dex_profile", "Betalt profil hos DexScreener",
+     (("Nei", lambda f: f.get("dex_profile") is False), ("Ja", lambda f: f.get("dex_profile") is True))),
+    ("boosts", "Betalt boost hos DexScreener",
+     (("Nei", lambda f: f.get("boosts") == 0), ("Ja", lambda f: (f.get("boosts") or 0) > 0))),
+)
+
+
 def patterns(store: Store) -> dict[str, Any]:
     """Each feature's quarters, for all active tokens and for those that passed, at the longest horizon with
     enough measurements (early on, the one with the most). Sorted by how far apart the quarters' collapse
     rates are."""
     t = store.table("pf_tokens")
-    names = ("mint", "features", "passed", "price_t", *{c for horizon in HORIZONS for c in horizon[:2]})
+    names = ("mint", "features", "launch", "passed", "price_t", *{c for horizon in HORIZONS for c in horizon[:2]})
     rows = [dict(r) for r in store.query(select(*[t.c[n] for n in names]).where(
         t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.active.is_(True),
         t.c.complete.is_(True), t.c.scored_at.is_not(None)))]
@@ -412,7 +441,7 @@ def patterns(store: Store) -> dict[str, Any]:
     enough = [h for h in by_horizon if len(h[0]) >= PATTERN_HORIZON_MIN]
     # On a tie, max keeps the first it meets: the longest horizon.
     measured, price, peak, label = enough[-1] if enough else max(reversed(by_horizon), key=lambda h: len(h[0]))
-    outcomes = [{"features": r["features"] or {}, "passed": r["passed"],
+    outcomes = [{"features": {**(r["features"] or {}), "links": _links(r["launch"])}, "passed": r["passed"],
                  "collapsed": r[price] <= COLLAPSE_LEVEL * r[peak], "return": net_return(r["price_t"], r[price])}
                 for r in measured]
     populations = {"all": outcomes, "passed": [o for o in outcomes if o["passed"]]}
@@ -420,7 +449,16 @@ def patterns(store: Store) -> dict[str, Any]:
         **_outcome(group),
         "features": sorted((_pattern(spec, group) for spec in PATTERNS),
                            key=lambda f: (f["spread"] is None, -(f["spread"] or 0))),
+        "hype": [{"key": key_, "label": label_, "groups": [
+            {"label": name, **_quarter([o for o in group if test(o["features"])])} for name, test in tests]}
+            for key_, label_, tests in HYPE],
     } for key, group in populations.items()}}
+
+
+def _quarter(group: list[dict[str, Any]]) -> dict[str, Any]:
+    """A group's outcome, or only its size when it is too small to say anything."""
+    return _outcome(group) if len(group) >= PATTERN_MIN_GROUP else {"n": len(group), "collapse_rate": None,
+                                                                    "median_return": None}
 
 
 def _outcome(group: list[dict[str, Any]]) -> dict[str, Any]:
@@ -440,8 +478,7 @@ def _pattern(spec: tuple[str, str, str, Callable], group: list[dict[str, Any]]) 
     quarters: list[list[dict[str, Any]]] = [[], [], [], []]
     for v, o in values:
         quarters[bisect.bisect_right(cuts, v)].append(o)
-    stats = [_outcome(q) if len(q) >= PATTERN_MIN_GROUP else {"n": len(q), "collapse_rate": None,
-                                                                "median_return": None} for q in quarters]
+    stats = [_quarter(q) for q in quarters]
     rates = [s["collapse_rate"] for s in stats if s["collapse_rate"] is not None]
     out.update(cuts=cuts, quarters=stats, spread=max(rates) - min(rates) if len(rates) >= 2 else None)
     return out
@@ -452,8 +489,9 @@ def _pattern(spec: tuple[str, str, str, Callable], group: list[dict[str, Any]]) 
 def log_rows(store: Store) -> Iterator[dict[str, Any]]:
     """Every sampled token, oldest first: what was stored, its outcome at each horizon, and what the fake-money
     portfolio did with it."""
-    portfolio = paper(store)
+    portfolio, stup = paper(store), paper(store, cliff=True)
     trades = {p["mint"]: p for p in (*portfolio["open"], *portfolio["closed"])}
+    stup_trades = {p["mint"]: p for p in (*stup["open"], *stup["closed"])}
     t = store.table("pf_tokens")
     stmt = select(t).where(t.c.sampled.is_(True)).order_by(t.c.created_at, t.c.mint)
     with store.engine.connect() as conn:
@@ -469,6 +507,9 @@ def log_rows(store: Store) -> Iterator[dict[str, Any]]:
             current = r["passed"] and r["screen_version"] == SCREEN_VERSION
             r["paper"] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)
             r["paper_result"] = trade["result"] if trade else None
+            trade = stup_trades.get(r["mint"])
+            r["paper_stup"] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)
+            r["paper_stup_result"] = trade["result"] if trade else None
             yield r
 
 

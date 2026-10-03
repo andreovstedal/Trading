@@ -77,6 +77,20 @@
       <p class="muted">Grafen kommer når kontoen har handlet og det finnes minst to målinger i perioden. Kontoverdien
         registreres hvert 5. minutt, og kursene på åpne posisjoner hentes hvert minutt.</p>
       {% endif %}
+      {% if p.started_at %}
+      <div class="compare">
+        <div><div class="label">Holdt i 24 timer</div>
+          <div class="mono"><b>{{ p.equity | num(3) }}&nbsp;SOL</b> {{ arrow(p.result) }}{{ p.result | pct(1, True) }}</div>
+          <div class="sub">kontoen over</div></div>
+        <div><div class="label">⛔ Med stup-regelen</div>
+          <div class="mono"><b data-tick="stup" data-value="{{ stup.equity }}">{{ stup.equity | num(3) }}&nbsp;SOL</b> {{ arrow(stup.result) }}{{ stup.result | pct(1, True) }}</div>
+          <div class="sub">{{ stup.cliff_sales | num }} solgt ved stup{% if stup.cliff_minutes is not none %}, typisk
+            {{ stup.cliff_minutes | num(0) }} min etter kjøpet{% endif %}</div></div>
+      </div>
+      <p class="small muted">Stup-regelen er en egen fiktiv konto med de samme kjøpene. Den selger med en gang kursen er
+        halvert fra kjøpet, til kursen som ble sett. Faller kursen brått, blir det lavere enn halvparten, som i ekte
+        handel. Pengene brukes til nye kjøp.</p>
+      {% endif %}
     </div>
     {% if movers %}
     <aside class="movers" aria-label="Åpne posisjoner som går best og dårligst">
@@ -114,6 +128,7 @@
           <span class="sym">${{ o.symbol }}</span>
         </div>
         {% if o.new %}<span class="chip new">Ny</span>{% endif %}
+        {% if o.stup %}<span class="chip stup" title="Stup-regelen solgte denne etter {{ o.stup.minutes | num(0) }} min, på {{ o.stup.result | pct(0, True) }}">⛔ stup</span>{% endif %}
         {{ badge(o.badge) }}
       </header>
       <p class="pnl">{{ arrow(o.result) }}<span class="mono" data-tick="pos-{{ o.mint }}" data-value="{{ o.result }}">{{ o.result | pct(1, True) }}</span></p>
@@ -295,6 +310,17 @@
         {%- if f.quarters %}{% for q in f.quarters %}<td class="num">{% if q.collapse_rate is not none %}{{ q.collapse_rate | pct(0) }}<div class="ticker">{{ q.median_return | pct(0, True) }}</div>{% else %}<span class="muted" title="Under 10 tokens">–</span>{% endif %}</td>{% endfor %}
         {%- else %}<td colspan="4" class="muted small">For få data ennå</td>{% endif %}</tr>
       {% endfor %}</tbody>
+    </table></div>
+    <h3>Hype</h3>
+    <p class="small muted">Lenkene utstederen la ved lanseringen, og betalt reklame hos DexScreener da tokenet ble
+      vurdert. X og Telegram kan ikke leses uten betalt tilgang eller å bryte vilkårene deres.</p>
+    <div class="table-wrap"><table class="patterns">
+      <thead><tr><th>Kjennetegn</th><th>Gruppe</th><th class="num">Tokens</th><th class="num">Kollapset</th>
+        <th class="num">Median</th></tr></thead>
+      <tbody>{% for h in pop.hype %}{% for g in h.groups %}
+        <tr><td>{% if loop.first %}{{ h.label }}{% endif %}</td><td>{{ g.label }}</td><td class="num">{{ g.n | num }}</td>
+          <td class="num">{{ g.collapse_rate | pct(0) }}</td><td class="num">{{ g.median_return | pct(0, True) }}</td></tr>
+      {% endfor %}{% endfor %}</tbody>
     </table></div>
   </div>
   {% endfor %}

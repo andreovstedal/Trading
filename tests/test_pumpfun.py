@@ -38,6 +38,8 @@ class Market:
     def __init__(self, server: FakeServer):
         self.prices: dict[str, float] = {}
         self.untraded: set[str] = set()  # no trades in the last 5 minutes
+        self.profiles: set[str] = set()  # a paid DexScreener token profile
+        self.boosts: dict[str, int] = {}  # active paid DexScreener boosts
         self.dex: dict[str, str] = {}
         self.wallets: dict[str, list[int]] = {}  # creator -> blockTimes of its transactions
         self.holders: dict[str, list[tuple[str, float]]] = {}
@@ -53,6 +55,8 @@ class Market:
             "txns": {"m5": {"buys": 0, "sells": 0} if m in self.untraded else {"buys": 3, "sells": 1},
                      "h1": {"buys": 20, "sells": 9}},
             "volume": {"h1": 900.0, "h24": 2000.0},
+            **({"info": {"socials": [{"type": "twitter", "url": "https://x.com/example"}]}} if m in self.profiles else {}),
+            **({"boosts": {"active": self.boosts[m]}} if m in self.boosts else {}),
         } for m in mints if m in self.prices])
 
     def rpc(self, request):
@@ -313,7 +317,7 @@ def test_measurement_page(server, store, db_url, monkeypatch):
         page = client.get("/pumpfun").text
     assert "Siste ferdig målte tokens" in page and "good coin" in page and "Kollapset" in page
     assert "Utstederen har lansert andre tokens det siste døgnet" in page
-    assert "Siste salg" in page and 'class="chart spark spark-mini"' in page
+    assert "Siste salg" in page and 'class="chart spark spark-mini"' in page and "Lenker ved lanseringen" in page
     assert page.count("<svg") == 3  # account value, the sold position's path and results per trade
 
 
@@ -570,3 +574,84 @@ def test_the_live_page(server, store, db_url, monkeypatch):
     assert moved != stamp
     assert 'data-periode="6t" class="on"' in six_hours and 'data-periode="24t" class="on"' in unknown
     assert [a.status_code for a in assets] == [200, 200] and assets[1].headers["content-type"] == "image/webp"
+
+
+def test_the_cliff_is_recorded_once_by_follows_and_quotes(server, store):
+    market = held_and_other(server, store)  # "held" passed at T0 + 11 minutes, at 1e-7
+    scored = T0 + timedelta(minutes=11)
+    market.prices = {"held": 0.6e-7, "other": 0.4e-7}
+    run(server, store, scored + timedelta(minutes=5))
+    rows = tokens(store)
+    assert rows["held"]["cliff_at"] is None  # down 40 %: not yet halved
+    assert pumpfun._aware(rows["other"]["cliff_at"]) == scored + timedelta(minutes=5)  # every measured token
+    assert rows["other"]["cliff_price"] == 0.4e-7
+
+    market.prices["held"] = 0.45e-7
+    quote(server, store, scored + timedelta(minutes=7))  # the quotes catch it between runs
+    market.prices["held"] = 0.1e-7
+    run(server, store, scored + timedelta(minutes=10))
+    held = tokens(store)["held"]
+    assert pumpfun._aware(held["cliff_at"]) == scored + timedelta(minutes=7) and held["cliff_price"] == 0.45e-7
+
+
+def test_cliffs_are_found_in_the_price_history_of_older_positions(server, store):
+    add_token(store, "fell", T0, "tracking", last_price=0.3, low_after=0.3)
+    add_token(store, "fine", T0, "tracking", last_price=0.9, low_after=0.8)
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_prices").insert(), [
+            {"mint": "fell", "at": T0 + timedelta(minutes=m), "price": price}
+            for m, price in ((5, 0.8), (20, 0.45), (40, 0.3))])
+    with server.client() as client:
+        PumpFunCollector(client, store)._backfill_cliffs(T0 + timedelta(hours=1))
+    rows = tokens(store)
+    assert pumpfun._aware(rows["fell"]["cliff_at"]) == T0 + timedelta(minutes=20) and rows["fell"]["cliff_price"] == 0.45
+    assert rows["fine"]["cliff_at"] is None
+
+
+def test_the_stup_account_sells_at_the_cliff_and_buys_again(store, monkeypatch):
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.26)  # two positions, and a little cash left over
+    add_token(store, "a", T0, "tracking", last_price=0.2, cliff_at=T0 + timedelta(minutes=30), cliff_price=0.5)
+    add_token(store, "b", T0 + timedelta(minutes=10), "tracking", last_price=1.0)
+    add_token(store, "c", T0 + timedelta(hours=1), "tracking", last_price=1.2)
+
+    hold, stup = pumpfun.paper(store), pumpfun.paper(store, cliff=True)
+
+    kept = (1 - pumpfun.FEE) ** 2
+    assert sorted(o["mint"] for o in hold["open"]) == ["a", "b"] and hold["skipped"] == 1  # no cash for "c"
+    (sold,) = stup["closed"]
+    assert sold["mint"] == "a" and sold["cliff"] and sold["result"] == pytest.approx(0.5 * kept - 1)
+    assert sorted(o["mint"] for o in stup["open"]) == ["b", "c"]  # the sale paid for "c"
+    assert stup["cliff_sales"] == 1 and stup["cliff_minutes"] == 30
+    assert stup["equity"] > hold["equity"]
+
+
+def test_hype_is_recorded_when_scored(server, store):
+    server.add("GET", COINS, httpx.Response(200, json=[
+        coin("loud", "a", twitter="https://x.com/loud", telegram="https://t.me/loud"), coin("calm", "b")]))
+    market = Market(server)
+    market.wallets = {"a": OLD_WALLET, "b": OLD_WALLET}
+    market.prices = {"loud": 1e-7, "calm": 1e-7}
+    market.profiles, market.boosts = {"loud"}, {"loud": 10}
+    run(server, store, T0)
+    run(server, store, T0 + timedelta(minutes=11))
+    loud, calm = (tokens(store)[m]["features"] for m in ("loud", "calm"))
+    assert (loud["links"], loud["dex_profile"], loud["boosts"]) == (2, True, 10)
+    assert (calm["links"], calm["dex_profile"], calm["boosts"]) == (0, False, 0)
+
+
+def test_hype_groups_in_the_patterns(store):
+    measured_tokens(store)  # no launch links, and scored before DexScreener promotion was recorded
+    every = pumpfun.patterns(store)["populations"]["all"]
+    links, profile, boosts = every["hype"]
+    assert [(g["label"], g["n"]) for g in links["groups"]] == [("Ingen", 80), ("1", 0), ("2–3", 0)]
+    assert links["groups"][0]["collapse_rate"] == pytest.approx(30 / 80) and links["groups"][1]["collapse_rate"] is None
+    assert [g["n"] for g in profile["groups"]] == [0, 0] and [g["n"] for g in boosts["groups"]] == [0, 0]
+
+
+def test_the_page_compares_the_stup_account(server, store, db_url, monkeypatch):
+    market = held_and_other(server, store)
+    market.prices["held"] = 0.45e-7
+    quote(server, store, T0 + timedelta(minutes=20))
+    with page_client(db_url, monkeypatch) as client:
+        page = client.get("/pumpfun").text
+    assert "Med stup-regelen" in page and "1 solgt ved stup" in page and "⛔ stup" in page

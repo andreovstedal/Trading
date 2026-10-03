@@ -72,6 +72,7 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
     periode = periode if periode in PERIODS else DEFAULT_PERIOD
 
     p = pumpfun.paper(store)
+    stup = pumpfun.paper(store, cliff=True)  # the same buys, sold at once if the price halves
     closed = p["closed"][:CLOSED_ROWS]
     paths = pumpfun.histories(store, [*p["open"], *closed], now, slices=SPARK_SLICES)
     for position in p["open"]:
@@ -88,7 +89,7 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
     movers = {"best": ranked[:MOVERS], "worst": ranked[::-1][:MOVERS]} if len(ranked) > MOVERS else None
     return {
         "version": version, "updated": updated, "fresh": fresh, "now": now,
-        "paper": p, "closed": closed, "cards": CARDS, "movers": movers,
+        "paper": p, "stup": stup, "closed": closed, "cards": CARDS, "movers": movers,
         "tape": tape * math.ceil(TAPE_FILL / len(tape)) if tape else [],
         "periode": periode, "periods": PERIODS, "history": history,
         "account_chart": charts.account_chart(points, p["start"], live=live),
@@ -107,6 +108,12 @@ def _decorate(position: dict[str, Any], path: list[tuple[datetime, float]], now:
     until = sale if closed else min(max(now, opened + FIRST_HOUR), sale)
     position["chart"] = charts.sparkline(path, opened=opened, until=until, key=mint,
                                          size="mini" if closed else "card", closed=closed)
+    dropped = position.get("cliff_at")
+    if dropped is not None:
+        dropped = dropped if dropped.tzinfo else dropped.replace(tzinfo=timezone.utc)
+    if dropped is not None and opened < dropped <= sale:  # the stup account sold it there
+        position["stup"] = {"minutes": (dropped - opened).total_seconds() / 60,
+                            "result": pumpfun.net_return(position["price_t"], position["cliff_price"])}
     if not closed:
         position["held"] = min(max((now - opened) / pumpfun.PAPER_HOLD, 0.0), 1.0)
         position["left"] = _left(position["opened_at"] + pumpfun.PAPER_HOLD - now)
@@ -205,6 +212,13 @@ CSV_COLUMNS: tuple[tuple[str, Callable[[dict[str, Any]], Any], int | None], ...]
     ("Nettside eller sosiale medier", lambda r: any((r["launch"] or {}).get(k) for k in SOCIALS), None),
     ("Fiktiv handel", lambda r: PAPER.get(r["paper"], ""), None),
     ("Fiktivt resultat (%)", _percent(lambda r: r["paper_result"]), 2),
+    ("Halvert (stup), tidspunkt", lambda r: r["cliff_at"], None),
+    ("Kurs ved stup (SOL)", _sol("cliff_price"), 3),
+    ("Fiktiv handel med stup-regelen", lambda r: PAPER.get(r["paper_stup"], ""), None),
+    ("Fiktivt resultat med stup-regelen (%)", _percent(lambda r: r["paper_stup_result"]), 2),
+    ("Lenker ved lanseringen", lambda r: pumpfun._links(r["launch"]), 0),
+    ("Betalt DexScreener-profil", _feature("dex_profile"), None),
+    ("Betalte DexScreener-boost", _feature("boosts"), 0),
 )
 
 
@@ -265,6 +279,10 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
                               "(features.launch_multiple >= 1.1), and scores every new launch. Only measured "
                               "tokens (status tracking or done) are followed; the rest stay 'scored'.",
             "paper": "open, sold, skipped (passed while the cash was used up) or null (never bought).",
+            "paper_stup": "The same for the stup account: the same rules, but sold at the first price seen at or "
+                          "below half the buy price (cliff_at, cliff_price), with the cash used for new buys.",
+            "hype": "features.links: social links added at launch; features.dex_profile and features.boosts: paid "
+                    "promotion on DexScreener when scored (recorded from 3 October 2026).",
             "price_history": "Every price seen for tokens that passed, and the open positions' quotes; the "
                              f"last {PRICE_HISTORY.days} days only.",
         },

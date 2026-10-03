@@ -337,6 +337,9 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("misses", Integer, nullable=False, default=0),  # price lookups that found nothing
         Column("graduated", Boolean),
         Column("collapsed", Boolean),
+        # The first price seen at or below half the scoring price within 24 hours, and when: the stup rule.
+        Column("cliff_at", DateTime(timezone=True)),
+        Column("cliff_price", Float),
     )
     # The fake-money portfolio's value after each collector run, for the chart. Each screen version trades
     # its own portfolio; rows from before versions were recorded have none.
