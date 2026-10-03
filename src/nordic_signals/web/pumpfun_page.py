@@ -257,7 +257,52 @@ def _drain(out: io.StringIO) -> str:
 def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
     """Everything, for analysis in code: the tokens, the fake trades, the account value and the price paths."""
     p = pumpfun.paper(store)
-    meta = {
+    yield '{"meta": ' + _json(_meta(p, now)) + ',\n"tokens": ['
+    yield from _items(_json(row) for row in pumpfun.log_rows(store))
+    yield '],\n"trades": [' + ",\n".join(_json(t) for t in _trades(p))
+    e = store.table("pf_equity")
+    yield '],\n"equity": ['
+    yield from _items(_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
+    prices = store.table("pf_prices")
+    yield '],\n"price_history": ['
+    with store.engine.connect() as conn:
+        rows = conn.execution_options(yield_per=2000).execute(select(prices).order_by(prices.c.mint, prices.c.at))
+        yield from _items(_json(dict(r)) for r in rows.mappings())
+    yield "]}\n"
+
+
+def export_analysis_json(store: Store, now: datetime | None = None) -> Iterator[str]:
+    """Small enough to send on: every measured token (tradable and fully checked) without pump.fun's launch
+    fields, how many tokens there are of every other kind, both fake accounts' trades and the account value.
+    About 1 MB a day; the full log is some 30 MB, nearly all of it launches that were never followed."""
+    p, stup = pumpfun.paper(store), pumpfun.paper(store, cliff=True)
+    meta = {**_meta(p, now), "kind": "analysis: measured tokens only, no price paths"}
+    yield '{"meta": ' + _json(meta) + ',\n"funnel": ' + _json(pumpfun.funnel(store)) + ',\n"tokens": ['
+    yield from _items(_json(_compact(row)) for row in pumpfun.log_rows(store, measured_only=True))
+    yield '],\n"trades": ' + _json({"hold": _trades(p), "stup": _trades(stup)})
+    e = store.table("pf_equity")
+    yield ',\n"equity": ['
+    yield from _items(_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
+    yield "]}\n"
+
+
+def _compact(row: dict[str, Any]) -> dict[str, Any]:
+    """A token without what only identifies it on pump.fun; the links its creator added are kept as a count."""
+    out = {k: v for k, v in row.items() if k not in ("launch", "discovered_at", "sampled")}
+    out["links"] = pumpfun._links(row["launch"])
+    return out
+
+
+def _trades(p: dict[str, Any]) -> list[dict[str, Any]]:
+    return [{"mint": t["mint"], "name": t["name"], "symbol": t["symbol"], "opened_at": t["opened_at"],
+             "buy_price": t["price_t"], "stake_sol": p["stake"], "closed_at": t.get("closed_at"),
+             "sell_price": t.get("exit_price"), "proceeds_sol": t.get("proceeds"), "lost": t.get("lost"),
+             "cliff": t.get("cliff"), "value_now_sol": t.get("value"), "result": t["result"]}
+            for t in sorted((*p["open"], *p["closed"]), key=lambda t: t["opened_at"])]
+
+
+def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
+    return {
         "exported_at": now or utcnow(),
         "screen_version": pumpfun.SCREEN_VERSION,
         "limits": pumpfun.LIMITS,
@@ -285,25 +330,10 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
                     "promotion on DexScreener when scored (recorded from 3 October 2026).",
             "price_history": "Every price seen for tokens that passed, and the open positions' quotes; the "
                              f"last {PRICE_HISTORY.days} days only.",
+            "funnel": "Analysis export: how many sampled tokens there are of each kind, since only the measured "
+                      "ones are listed.",
         },
     }
-    yield '{"meta": ' + _json(meta) + ',\n"tokens": ['
-    yield from _items(_json(row) for row in pumpfun.log_rows(store))
-    trades = [{"mint": t["mint"], "name": t["name"], "symbol": t["symbol"], "opened_at": t["opened_at"],
-               "buy_price": t["price_t"], "stake_sol": p["stake"], "closed_at": t.get("closed_at"),
-               "sell_price": t.get("exit_price"), "proceeds_sol": t.get("proceeds"), "lost": t.get("lost"),
-               "value_now_sol": t.get("value"), "result": t["result"]}
-              for t in sorted((*p["open"], *p["closed"]), key=lambda t: t["opened_at"])]
-    yield '],\n"trades": [' + ",\n".join(_json(t) for t in trades)
-    e = store.table("pf_equity")
-    yield '],\n"equity": ['
-    yield from _items(_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
-    prices = store.table("pf_prices")
-    yield '],\n"price_history": ['
-    with store.engine.connect() as conn:
-        rows = conn.execution_options(yield_per=2000).execute(select(prices).order_by(prices.c.mint, prices.c.at))
-        yield from _items(_json(dict(r)) for r in rows.mappings())
-    yield "]}\n"
 
 
 def _items(encoded: Iterator[str]) -> Iterator[str]:
@@ -331,6 +361,6 @@ def _encode(value: Any) -> str:
     raise TypeError(f"not JSON serialisable: {type(value).__name__}")
 
 
-def filename(kind: str, now: datetime) -> str:
+def filename(kind: str, now: datetime, name: str = "pumpfun-logg") -> str:
     """With the time as well as the date (Oslo), so two downloads on one day are never mixed up."""
-    return f"pumpfun-logg-{now.astimezone(text.OSLO):%Y-%m-%d-%H%M}.{kind}"
+    return f"{name}-{now.astimezone(text.OSLO):%Y-%m-%d-%H%M}.{kind}"

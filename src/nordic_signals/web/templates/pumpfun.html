@@ -335,12 +335,14 @@
 <div class="card">
   <h2><span aria-hidden="true">📥</span> Last ned loggen</h2>
   <p>Alt som er målt: hvert token som er fulgt, med kjennetegn og varseltegn ved vurderingen, kursen etter 1, 6 og 24
-    timer, om det kollapset, og hva den fiktive porteføljen gjorde med det.</p>
-  <p class="actions"><a class="button" href="/pumpfun/export.csv">Regneark (CSV)</a>
-    <a class="button secondary" href="/pumpfun/export.json">Alt, for analyse (JSON)</a></p>
-  <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger, med kursene som markedsverdi i SOL.
-    JSON-filen har i tillegg alle fiktive handler, kontoverdien over tid og kursforløpene fra de siste
-    {{ price_days }} dagene.</p>
+    timer, om det kollapset, og hva de fiktive kontoene gjorde med det.</p>
+  <p class="actions"><a class="button" href="/pumpfun/export-analyse.json">Til analyse (liten JSON)</a>
+    <a class="button secondary" href="/pumpfun/export.csv">Regneark (CSV)</a>
+    <a class="button secondary" href="/pumpfun/export.json">Alt (stor JSON)</a></p>
+  <p class="small muted">Den lille filen er laget for å sendes videre. Den har alle tokens som ble målt, tellingen av
+    resten og begge de fiktive kontoene, rundt 1&nbsp;MB per døgn. De store filene har også hver lansering som aldri
+    ble fulgt, rundt 30&nbsp;MB per døgn. CSV-filen åpnes rett i Excel med norske innstillinger, med kursene som
+    markedsverdi i SOL. Den store JSON-filen har i tillegg kursforløpene fra de siste {{ price_days }} dagene.</p>
 </div>
 
 </div>

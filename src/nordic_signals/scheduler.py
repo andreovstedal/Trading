@@ -4,7 +4,8 @@ The web service on Railway is always on, so it runs the collectors itself; no se
 needed. Two background threads:
 
 * **pump.fun:** the pump.fun measurement every 5 minutes, around the clock, and between runs the open
-  fake-money positions' prices every minute, for the live page.
+  fake-money positions' prices every minute, for the live page. When GITHUB_TOKEN and LOG_REPO are set, the
+  small analysis log is pushed to GitHub every hour (``logpush``).
 * **Nordic:** the share collectors on weekdays (times in UTC):
 
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
@@ -25,6 +26,7 @@ On by default on Railway. Set SCHEDULER=off to turn it off, or SCHEDULER=on to r
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
@@ -33,7 +35,7 @@ from typing import Any
 
 from sqlalchemy import func, select, update
 
-from . import jobs
+from . import jobs, logpush
 from .advisor import evaluate as evaluation
 from .collectors.pumpfun import PumpFunCollector
 from .http import PoliteClient
@@ -220,6 +222,18 @@ def _quotes(store: Store, client: PoliteClient) -> bool:
     return True
 
 
+def _push_log(store: Store, client: PoliteClient) -> bool:
+    logpush.push(store, client, **logpush.settings(os.environ))
+    return True
+
+
+def when_set_up(is_due: IsDue) -> IsDue:
+    """The log push only runs once GITHUB_TOKEN and LOG_REPO are set."""
+    def check(store: Store, job: str, now: datetime) -> bool:
+        return logpush.settings(os.environ) is not None and is_due(store, job, now)
+    return check
+
+
 def _set(name: str, *, then_evaluate: bool = False) -> Callable[[Store, PoliteClient], bool]:
     def run(store: Store, client: PoliteClient) -> bool:
         ok = all(summary is not None for _, summary in jobs.run_set(store, client, name))
@@ -233,6 +247,7 @@ JOBS = [
     Job("pumpfun", "pumpfun", every(timedelta(minutes=5), source="pumpfun"), _source("pumpfun")),
     Job("pumpfun-quotes", "pumpfun", every(timedelta(minutes=1), source="pumpfun-quotes",
                                            slack=timedelta(seconds=5)), _quotes),
+    Job("pumpfun-log", "pumpfun", when_set_up(every(timedelta(hours=1), source="pumpfun-log")), _push_log),
     Job("intraday", "nordic", every(timedelta(minutes=15), source="newsweb", weekdays=True, hours=(5, 19)),
         _set("intraday")),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),

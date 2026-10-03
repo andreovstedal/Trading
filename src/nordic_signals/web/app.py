@@ -249,6 +249,12 @@ def create_app(db: str | None = None) -> FastAPI:
         return StreamingResponse(pumpfun_page.export_csv(store), media_type="text/csv; charset=utf-8",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
+    @app.get("/pumpfun/export-analyse.json")
+    def pumpfun_analysis_json() -> StreamingResponse:
+        name = pumpfun_page.filename("json", queries.utcnow(), "pumpfun-analyse")
+        return StreamingResponse(pumpfun_page.export_analysis_json(store), media_type="application/json",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
     @app.get("/pumpfun/export.json")
     def pumpfun_json() -> StreamingResponse:
         name = pumpfun_page.filename("json", queries.utcnow())

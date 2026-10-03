@@ -24,7 +24,9 @@ export default defineRailway(() => {
   //   APP_PASSWORD (required) and SECRET_KEY;
   //   SCHEDULER=off to stop the automatic collection;
   //   SOLANA_RPC_URL (optional): a private Solana RPC node, for the pump.fun
-  //   measurement's holder-concentration check.
+  //   measurement's holder-concentration check;
+  //   GITHUB_TOKEN and LOG_REPO (optional): push the small pump.fun log to the
+  //   branch LOG_BRANCH (default pumpfun-logg) every hour, see src/nordic_signals/logpush.py.
   // Generate a public domain under Settings -> Networking after the first deploy.
   const web = service("web", {
     source: github(REPO),
@@ -40,6 +42,9 @@ export default defineRailway(() => {
       SECRET_KEY: preserve(),
       SCHEDULER: preserve(),
       SOLANA_RPC_URL: preserve(),
+      GITHUB_TOKEN: preserve(),
+      LOG_REPO: preserve(),
+      LOG_BRANCH: preserve(),
     },
   });
 

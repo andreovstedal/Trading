@@ -486,16 +486,18 @@ def _pattern(spec: tuple[str, str, str, Callable], group: list[dict[str, Any]]) 
 
 # The downloadable log
 
-def log_rows(store: Store) -> Iterator[dict[str, Any]]:
-    """Every sampled token, oldest first: what was stored, its outcome at each horizon, and what the fake-money
-    portfolio did with it."""
+def log_rows(store: Store, *, measured_only: bool = False) -> Iterator[dict[str, Any]]:
+    """Every sampled token (or only the measured ones: tradable and fully checked), oldest first: what was
+    stored, its outcome at each horizon, and what both fake accounts did with it."""
     portfolio, stup = paper(store), paper(store, cliff=True)
     trades = {p["mint"]: p for p in (*portfolio["open"], *portfolio["closed"])}
     stup_trades = {p["mint"]: p for p in (*stup["open"], *stup["closed"])}
     t = store.table("pf_tokens")
-    stmt = select(t).where(t.c.sampled.is_(True)).order_by(t.c.created_at, t.c.mint)
+    stmt = select(t).where(t.c.sampled.is_(True))
+    if measured_only:
+        stmt = stmt.where(t.c.active.is_(True), t.c.complete.is_(True))
     with store.engine.connect() as conn:
-        for row in conn.execution_options(yield_per=500).execute(stmt).mappings():
+        for row in conn.execution_options(yield_per=500).execute(stmt.order_by(t.c.created_at, t.c.mint)).mappings():
             r = dict(row)
             for price, peak, _ in HORIZONS:
                 h = price.removeprefix("price_")
@@ -511,6 +513,14 @@ def log_rows(store: Store) -> Iterator[dict[str, Any]]:
             r["paper_stup"] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)
             r["paper_stup_result"] = trade["result"] if trade else None
             yield r
+
+
+def funnel(store: Store) -> list[dict[str, Any]]:
+    """How many sampled tokens there are of each kind: screen version, status, tradable, fully checked, passed."""
+    t = store.table("pf_tokens")
+    keys = (t.c.screen_version, t.c.status, t.c.active, t.c.complete, t.c.passed)
+    rows = store.query(select(*keys, func.count().label("tokens")).where(t.c.sampled.is_(True)).group_by(*keys))
+    return sorted((dict(r) for r in rows), key=lambda r: tuple(str(v) for v in r.values()))
 
 
 def _bins(results: list[float]) -> list[dict[str, Any]]:

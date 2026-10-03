@@ -104,8 +104,9 @@ To look for patterns as the data grows:
 
   X and Telegram can't be read without paid access or breaking their terms, and pump.fun no longer serves its comment threads.
 - **Last ned loggen** downloads everything measured:
+  - `/pumpfun/export-analyse.json`, the small one, made to send on, about 1 MB a day. It has every measured token without pump.fun's launch fields, the counts of all the other tokens, both fake accounts' trades and the account value.
   - `/pumpfun/export.csv`: one row per token, for Excel with Norwegian settings.
-  - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths.
+  - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths. About 30 MB a day, because it lists every launch, including the ones never followed.
 
   Price paths are kept for 7 days (`pf_prices`). The 1-, 6- and 24-hour prices in `pf_tokens` are kept for good. With about 98 % of launches ending as pump-and-dumps, the filter has to catch well over 99 % of them before what passes is mostly honest.
 
@@ -113,6 +114,23 @@ Sources:
 - pump.fun's unofficial list API (`frontend-api-v3.pump.fun`), for the newest launches
 - DexScreener's documented token API, for prices and trades
 - Solana JSON-RPC, for the creator wallet's history and the largest holders. The public node refuses the holders call, so set `SOLANA_RPC_URL` to a private node (for example a free Helius key) to measure concentration.
+
+**Reading the log from GitHub.** The web service can push the small log to a branch every hour, so it can be read straight from the repository:
+1. On GitHub, create a fine-grained personal access token (Settings → Developer settings → Fine-grained tokens):
+   - Repository access: only this repository.
+   - Repository permissions: Contents, Read and write.
+2. On the Railway web service, set these variables:
+   - `GITHUB_TOKEN` to the token
+   - `LOG_REPO` to `andreovstedal/Trading`
+   - optionally `LOG_BRANCH` (default `pumpfun-logg`)
+3. Within the hour, the branch `pumpfun-logg` appears, holding `pumpfun-analyse.json.gz`. Read it with:
+
+   ```sh
+   git fetch origin pumpfun-logg
+   git show origin/pumpfun-logg:pumpfun-analyse.json.gz | gunzip > pumpfun-analyse.json
+   ```
+
+The branch is replaced each time, so it only holds the latest copy and the repository doesn't grow. Railway deploys the code branch, not this one, so the pushes don't trigger a deploy.
 
 The screen is versioned, and only the current version's results and fake portfolio are shown.
 - `pf1` (from 2 October 2026) counted any token with a trade as active. Its first export showed that most tokens it passed were still at their launch price.
@@ -160,6 +178,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 |---|---|---|
 | pump.fun | `nordic-signals collect pumpfun` | every 5 minutes, around the clock |
 | pump.fun quotes | none; `PumpFunCollector.quote` | every minute, around the clock: the open fake-money positions' prices, for the live page. Not logged in `runs`. |
+| pump.fun log | none; `logpush.push` | every hour, once `GITHUB_TOKEN` and `LOG_REPO` are set: the small log to the `pumpfun-logg` branch |
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |

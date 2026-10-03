@@ -314,7 +314,7 @@ def test_measurement_page(server, store, db_url, monkeypatch):
 
     test_tokens_are_scored_followed_and_labelled(server, store)
     with TestClient(web.create_app(db_url)) as client:
-        page = client.get("/pumpfun").text
+        page = client.get("/pumpfun?periode=alt").text  # all of the account's history, whatever the date
     assert "Siste ferdig målte tokens" in page and "good coin" in page and "Kollapset" in page
     assert "Utstederen har lansert andre tokens det siste døgnet" in page
     assert "Siste salg" in page and 'class="chart spark spark-mini"' in page and "Lenker ved lanseringen" in page
@@ -655,3 +655,27 @@ def test_the_page_compares_the_stup_account(server, store, db_url, monkeypatch):
     with page_client(db_url, monkeypatch) as client:
         page = client.get("/pumpfun").text
     assert "Med stup-regelen" in page and "1 solgt ved stup" in page and "⛔ stup" in page
+
+
+def test_the_small_analysis_log(server, store, db_url, monkeypatch):
+    test_tokens_are_scored_followed_and_labelled(server, store)
+    with store.engine.begin() as conn:  # a dead token: scored but never measured
+        conn.execute(store.table("pf_tokens").insert().values(
+            mint="dead", creator="c", created_at=T0, discovered_at=T0, sampled=True, status="scored", scored_at=T0,
+            screen_version=pumpfun.SCREEN_VERSION, active=False, complete=True, passed=False, price_t=1.0, misses=0))
+    with page_client(db_url, monkeypatch) as client:
+        small = client.get("/pumpfun/export-analyse.json")
+        full = client.get("/pumpfun/export.json")
+
+    assert re.fullmatch(r'attachment; filename="pumpfun-analyse-\d{4}-\d\d-\d\d-\d{4}\.json"',
+                        small.headers["content-disposition"])
+    data = small.json()
+    assert list(data) == ["meta", "funnel", "tokens", "trades", "equity"]
+    assert [t["mint"] for t in data["tokens"]] == ["dumpy2", "dumpy", "good"]  # measured only, oldest first
+    assert all("launch" not in t and t["links"] == 0 for t in data["tokens"])
+    dead = [f for f in data["funnel"] if f["status"] == "scored"]
+    assert dead == [{"screen_version": pumpfun.SCREEN_VERSION, "status": "scored", "active": False, "complete": True,
+                     "passed": False, "tokens": 1}]
+    assert sum(f["tokens"] for f in data["funnel"]) == 4
+    assert [t["mint"] for t in data["trades"]["hold"]] == ["good"] and data["trades"]["stup"][0]["cliff"] is False
+    assert len(small.content) < len(full.content)
