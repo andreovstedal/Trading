@@ -24,13 +24,14 @@ Each run (every 5 minutes on Railway):
 
 Between runs, ``PumpFunCollector.quote`` (every minute on Railway) fetches the open fake-money positions'
 prices from DexScreener, so the page moves while it is open. Those quotes only feed the charts, the
-positions' current value and the stup rule; the measurement keeps to the checks above, so its numbers do
+positions' current value and the exit rules; the measurement keeps to the checks above, so its numbers do
 not depend on how often anyone looks.
 
-The stup rule needs the first price seen at or below half the scoring price (``cliff_at``,
-``cliff_price``): the follow step records it for every measured token and the quotes for the open
-positions, each within 24 hours of scoring. Tokens followed before it was recorded get it from their price
-history (``_backfill_cliffs``).
+The exit rules need the first price seen beyond their line within 24 hours of scoring: at or below half the
+scoring price for the stup rule (``cliff_at``, ``cliff_price``), at or above the take-profit line for the
+main account (``profit_at``, ``profit_price``). The follow step records them for every measured token and
+the quotes for the open positions. Tokens followed before a rule was recorded get it from their price
+history (``_backfill_exits``).
 
 Hype at scoring: the social links the creator added at launch (pump.fun's own fields) and paid promotion on
 DexScreener (a token profile, boosts). X and Telegram cannot be read without paid access or breaking their
@@ -97,7 +98,7 @@ class PumpFunCollector(Collector):
         self._discover(now, sample, rng or random.Random())
         self._score(now)
         self._follow(now)
-        self._backfill_cliffs(now)
+        self._backfill_exits(now)
         self._prune(now)
         pumpfun.snapshot(self.store, now)  # the fake-money portfolio's value, for the chart
         return self.summary
@@ -247,8 +248,7 @@ class PumpFunCollector(Collector):
                 "graduated": bool(r["graduated"]) or pair.get("dexId") == "pumpswap",
             }
             elapsed = now - _utc(r["scored_at"])
-            if _cliff(r, price, elapsed):
-                changes.update(cliff_at=now, cliff_price=price)
+            changes.update(_exits(r, price, elapsed, now))
             for column, after in CHECKPOINTS:
                 if r[column] is None and elapsed >= after:
                     changes[column] = price
@@ -271,11 +271,10 @@ class PumpFunCollector(Collector):
     # Live quotes
 
     def quote(self, now: datetime | None = None) -> int:
-        """The open positions' prices, of both fake accounts, stored when they changed; returns how many."""
+        """The open positions' prices, of every fake account, stored when they changed; returns how many."""
         now = now or utcnow()
         self._warned = set()
-        positions = {p["mint"]: p for p in (*pumpfun.paper(self.store)["open"],
-                                            *pumpfun.paper(self.store, cliff=True)["open"])}
+        positions = {p["mint"]: p for account in pumpfun.accounts(self.store).values() for p in account["open"]}
         pairs, _ = self._pairs(list(positions))
         latest = pumpfun.latest_prices(self.store, list(pairs))
         changed = [{"mint": mint, "at": now, "price": pair["price"]} for mint, pair in pairs.items()
@@ -283,26 +282,29 @@ class PumpFunCollector(Collector):
         self._record_prices(changed)
         for mint, pair in pairs.items():
             position = positions[mint]
-            if _cliff(position, pair["price"], now - position["opened_at"]):
-                self._update(mint, cliff_at=now, cliff_price=pair["price"])
+            if changes := _exits(position, pair["price"], now - position["opened_at"], now):
+                self._update(mint, **changes)
         return len(changed)
 
-    def _backfill_cliffs(self, now: datetime) -> None:
-        """Tokens followed before the stup rule's price was recorded: find it in their price history.
+    def _backfill_exits(self, now: datetime) -> None:
+        """Tokens followed before an exit rule's price was recorded: find it in their price history.
 
-        Only tokens that passed have a history, and only for a week; the lowest price seen says which
-        tokens fell that far, so the rest are never looked at."""
+        Only tokens that passed have a history, and only for a week. The quotes are in it too, so this finds
+        the price the follow step or the quotes would have recorded."""
         t, p = self._table(), self.store.table("pf_prices")
-        rows = self.store.query(select(t.c.mint, t.c.scored_at, t.c.price_t).where(
-            t.c.passed.is_(True), t.c.cliff_at.is_(None), t.c.scored_at >= now - PRICE_HISTORY,
-            t.c.low_after <= pumpfun.CLIFF * t.c.price_t))
-        for r in rows:
-            scored = _utc(r["scored_at"])
-            first = self.store.query(select(p.c.at, p.c.price).where(
-                p.c.mint == r["mint"], p.c.at > scored, p.c.at <= scored + HORIZON,
-                p.c.price <= pumpfun.CLIFF * r["price_t"]).order_by(p.c.at).limit(1))
-            if first:
-                self._update(r["mint"], cliff_at=first[0]["at"], cliff_price=first[0]["price"])
+        for name, beyond in (("cliff", p.c.price <= pumpfun.CLIFF * t.c.price_t),
+                             ("profit", p.c.price >= pumpfun.PROFIT_LINE * t.c.price_t)):
+            rows = self.store.query(
+                select(t.c.mint, t.c.scored_at, p.c.at, p.c.price).join(p, p.c.mint == t.c.mint)
+                .where(t.c.passed.is_(True), t.c[f"{name}_at"].is_(None), t.c.scored_at >= now - PRICE_HISTORY,
+                       p.c.at > t.c.scored_at, beyond)
+                .order_by(t.c.mint, p.c.at))
+            first: dict[str, Any] = {}
+            for r in rows:
+                if r["mint"] not in first and _utc(r["at"]) <= _utc(r["scored_at"]) + HORIZON:
+                    first[r["mint"]] = r
+            for mint, r in first.items():
+                self._update(mint, **{f"{name}_at": r["at"], f"{name}_price": r["price"]})
 
     def _record_prices(self, rows: list[dict[str, Any]]) -> None:
         if rows:
@@ -371,10 +373,18 @@ class PumpFunCollector(Collector):
         return self.store.table("pf_tokens")
 
 
-def _cliff(r: dict[str, Any], price: float, elapsed: timedelta) -> bool:
-    """The first price at or below half the scoring price within 24 hours: the stup rule sells there."""
-    return (r["cliff_at"] is None and bool(r["price_t"]) and timedelta(0) < elapsed <= HORIZON
-            and price <= pumpfun.CLIFF * r["price_t"])
+def _exits(r: dict[str, Any], price: float, elapsed: timedelta, now: datetime) -> dict[str, Any]:
+    """The exit rules' lines this price crosses for the first time within 24 hours of scoring: at or below
+    half the scoring price, where the stup rule sells, and at or above the take-profit line, where the main
+    account sells."""
+    if not r["price_t"] or not timedelta(0) < elapsed <= HORIZON:
+        return {}
+    changes: dict[str, Any] = {}
+    if r["cliff_at"] is None and price <= pumpfun.CLIFF * r["price_t"]:
+        changes.update(cliff_at=now, cliff_price=price)
+    if r["profit_at"] is None and price >= pumpfun.PROFIT_LINE * r["price_t"]:
+        changes.update(profit_at=now, profit_price=price)
+    return changes
 
 
 def _due(r: dict[str, Any], now: datetime) -> bool:

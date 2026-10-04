@@ -53,7 +53,7 @@
     <div class="sub">åpne posisjoner, verdt {{ p.positions_value | num(2) }}&nbsp;SOL · {{ p.cash | num(2) }}&nbsp;SOL i kontanter</div></div>
   <div class="tile"><div class="label">Salg</div>
     <div class="value mono" data-tick="trades" data-value="{{ p.trades }}">{{ p.trades }}</div>
-    <div class="sub">{% if p.trades %}{{ p.win_rate | pct(0) }} i pluss{% else %}selges 24 timer etter kjøpet{% endif %}</div></div>
+    <div class="sub">{% if p.trades %}{{ p.win_rate | pct(0) }} i pluss{% if p.profit_sales %}, {{ p.profit_sales }} ved +100&nbsp;%{% endif %}{% else %}selges ved +100&nbsp;% eller etter 24 timer{% endif %}</div></div>
 </div>
 
 <div id="pf-account" class="card" data-live>
@@ -79,17 +79,23 @@
       {% endif %}
       {% if p.started_at %}
       <div class="compare">
-        <div><div class="label">Holdt i 24 timer</div>
+        <div class="main"><div class="label">🚀 Selger ved +100&nbsp;%</div>
           <div class="mono"><b>{{ p.equity | num(3) }}&nbsp;SOL</b> {{ arrow(p.result) }}{{ p.result | pct(1, True) }}</div>
-          <div class="sub">kontoen over</div></div>
+          <div class="sub">kontoen over · {{ p.profit_sales | num }} solgt ved +100&nbsp;%{% if p.profit_minutes is not none %},
+            typisk {{ p.profit_minutes | num(0) }} min etter kjøpet{% endif %}</div></div>
+        <div><div class="label">💎 Holdt i 24 timer</div>
+          <div class="mono"><b data-tick="hold" data-value="{{ hold.equity }}">{{ hold.equity | num(3) }}&nbsp;SOL</b> {{ arrow(hold.result) }}{{ hold.result | pct(1, True) }}</div>
+          <div class="sub">målestokken: alt holdes i 24 timer</div></div>
         <div><div class="label">⛔ Med stup-regelen</div>
           <div class="mono"><b data-tick="stup" data-value="{{ stup.equity }}">{{ stup.equity | num(3) }}&nbsp;SOL</b> {{ arrow(stup.result) }}{{ stup.result | pct(1, True) }}</div>
           <div class="sub">{{ stup.cliff_sales | num }} solgt ved stup{% if stup.cliff_minutes is not none %}, typisk
             {{ stup.cliff_minutes | num(0) }} min etter kjøpet{% endif %}</div></div>
       </div>
-      <p class="small muted">Stup-regelen er en egen fiktiv konto med de samme kjøpene. Den selger med en gang kursen er
-        halvert fra kjøpet, til kursen som ble sett. Faller kursen brått, blir det lavere enn halvparten, som i ekte
-        handel. Pengene brukes til nye kjøp.</p>
+      <p class="small muted">De tre kontoene gjør de samme kjøpene. Hovedkontoen selger så snart en posisjon er verdt
+        det dobbelte etter gebyrer, og salget regnes til nøyaktig +100&nbsp;%, også når kursen hoppet forbi mellom to
+        målinger, så den får aldri en heldig kurs. Stup-regelen selger med en gang kursen er halvert fra kjøpet, til
+        kursen som ble sett. Faller kursen brått, blir det lavere enn halvparten, som i ekte handel. Pengene fra
+        salgene brukes til nye kjøp.</p>
       {% endif %}
     </div>
     {% if movers %}
@@ -104,7 +110,8 @@
   </div>
   <p class="small muted rules">Kontoen starter med {{ p.start | num(0) }}&nbsp;SOL. Hvert token som består filteret,
     kjøpes for {{ p.stake | num(1) }}&nbsp;SOL til kursen da det ble vurdert (så lenge det er kontanter igjen), og
-    selges etter {{ p.hold_hours | num(0) }} timer. Pump.funs gebyr på {{ (fee * 100) | num(2) }}&nbsp;% trekkes ved
+    selges så snart det er verdt det dobbelte etter gebyrer (+100&nbsp;%), ellers etter {{ p.hold_hours | num(0) }}
+    timer. Pump.funs gebyr på {{ (fee * 100) | num(2) }}&nbsp;% trekkes ved
     både kjøp og salg. Et token som forsvinner fra DexScreener, regnes som tapt. Glidning i kursen er ikke med, så
     ekte handel blir dårligere.{% if p.skipped %} {{ p.skipped }} tokens ble hoppet over fordi kontantene var brukt
     opp.{% endif %}</p>
@@ -112,10 +119,10 @@
 
 <section id="pf-positions" class="positions" data-live>
   <div class="section-head">
-    <h2><span aria-hidden="true">💎🙌</span> Diamanthender</h2>
-    <p class="muted small">Hver posisjon holdes i 24 timer, uansett hva som skjer. Ingen panikksalg, ingen FOMO.
-      Grafene viser resultatet etter gebyrer siden kjøpet, med null som stiplet linje. Streken under viser hvor mye
-      av de 24 timene som er gått.</p>
+    <h2><span aria-hidden="true">💰</span> Bags</h2>
+    <p class="muted small">Hver posisjon selges så snart den er verdt det dobbelte etter gebyrer (+100&nbsp;%), og
+      ellers etter 24 timer. Grafene viser resultatet etter gebyrer siden kjøpet, med null som stiplet linje. Streken
+      under viser hvor mye av de 24 timene som er gått.</p>
   </div>
   {% if p.open %}
   <div class="pos-grid">
@@ -135,7 +142,7 @@
       {{ o.chart }}
       <div class="held" role="img" aria-label="{{ (o.held * 100) | num(0) }} % av de 24 timene er gått"><span style="width: {{ (o.held * 100) | round(1) }}%"></span></div>
       <footer>
-        <span>Kjøpt {{ o.opened_at | clock }} · selges {{ o.left }}</span>
+        <span>Kjøpt {{ o.opened_at | clock }} · selges senest {{ o.left }}</span>
         <span class="mono">{{ o.value | num(4) }}&nbsp;SOL</span>
       </footer>
     </article>
@@ -175,7 +182,8 @@
       <tr><td>{{ c.name or c.mint[:8] }}<div class="ticker">${{ c.symbol }}</div></td>
         <td class="spark-cell">{{ c.chart }}</td>
         <td class="nowrap">{{ c.opened_at | when }}</td>
-        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, regnet som tapt</span>{% endif %}</td>
+        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, regnet som tapt</span>{% endif %}
+          {%- if c.profit %} <span class="chip profit">gevinst sikret</span>{% endif %}</td>
         <td class="num nowrap">{{ c.proceeds | num(4) }}&nbsp;SOL</td>
         <td class="num nowrap">{{ arrow(c.result) }} {{ c.result | pct(0, True) }}{% if c.badge %} {{ badge(c.badge) }}{% endif %}</td></tr>
     {% endfor %}</tbody>
@@ -343,7 +351,7 @@
     <a class="button secondary" href="/pumpfun/export.csv">Regneark (CSV)</a>
     <a class="button secondary" href="/pumpfun/export.json">Alt (stor JSON)</a></p>
   <p class="small muted">Den lille filen er laget for å sendes videre. Den har alle tokens som ble målt, tellingen av
-    resten og begge de fiktive kontoene, rundt 1&nbsp;MB per døgn. De store filene har også hver lansering som aldri
+    resten og alle de tre fiktive kontoene, rundt 1&nbsp;MB per døgn. De store filene har også hver lansering som aldri
     ble fulgt, rundt 30&nbsp;MB per døgn. CSV-filen åpnes rett i Excel med norske innstillinger, med kursene som
     markedsverdi i SOL. Den store JSON-filen har i tillegg kursforløpene fra de siste {{ price_days }} dagene.</p>
 </div>

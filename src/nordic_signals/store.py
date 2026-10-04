@@ -340,9 +340,15 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         # The first price seen at or below half the scoring price within 24 hours, and when: the stup rule.
         Column("cliff_at", DateTime(timezone=True)),
         Column("cliff_price", Float),
+        # The first price seen at or above the take-profit line within 24 hours, and when: the main account's
+        # rule (``pumpfun.TAKE_PROFIT``).
+        Column("profit_at", DateTime(timezone=True)),
+        Column("profit_price", Float),
     )
-    # The fake-money portfolio's value after each collector run, for the chart. Each screen version trades
-    # its own portfolio; rows from before versions were recorded have none.
+    # The main fake-money account's value after each collector run, for the chart. Each screen version trades
+    # its own portfolio, and each set of rules for the main account has its own history (``account``); rows
+    # from before versions were recorded have no version, and rows from before accounts were named (the
+    # 24-hour account) have no account.
     Table(
         "pf_equity", metadata,
         Column("at", DateTime(timezone=True), primary_key=True),
@@ -351,6 +357,7 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("equity", Float, nullable=False),
         Column("open_positions", Integer, nullable=False),
         Column("screen_version", Text),
+        Column("account", Text),
     )
     # Price history of the tokens that passed, for the position charts: every price the collector saw, and
     # the open positions' live quotes. Kept for a week (``collectors.pumpfun.PRICE_HISTORY``).

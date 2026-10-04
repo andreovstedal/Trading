@@ -298,10 +298,14 @@ def test_tokens_nobody_traded_after_scoring_are_quiet(store):
     assert {t["mint"]: t["quiet"] for t in r["recent"]} == {"still": True, "traded": False, "rugged": False}
 
 
-def test_each_screen_version_has_its_own_account_history(store):
-    with store.engine.begin() as conn:  # an earlier version's portfolio
-        conn.execute(store.table("pf_equity").insert().values(at=T0 - timedelta(hours=1), cash=5.0, positions=0.0,
-                                                               equity=5.0, open_positions=0, screen_version="pf1"))
+def test_each_screen_version_and_main_account_has_its_own_history(store):
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_equity").insert(), [
+            # an earlier version's portfolio, and this version's before the main account took profit
+            {"at": T0 - timedelta(hours=2), "cash": 5.0, "positions": 0.0, "equity": 5.0, "open_positions": 0,
+             "screen_version": "pf1"},
+            {"at": T0 - timedelta(hours=1), "cash": 6.0, "positions": 0.0, "equity": 6.0, "open_positions": 0,
+             "screen_version": pumpfun.SCREEN_VERSION}])
     add_token(store, "a", T0, "tracking", last_price=1.0)
     pumpfun.snapshot(store, T0)
     assert [v for _, v in pumpfun.equity_history(store)] == [pytest.approx(10 - 0.1 + 0.1 * (1 - pumpfun.FEE) ** 2)]
@@ -570,7 +574,9 @@ def test_the_log_downloads(server, store, db_url, monkeypatch):
     token = data["tokens"][2]
     assert token["paper"] == "sold" and token["collapsed_24h"] is False and token["features"]["trades_5m"] == 4
     assert token["return_24h"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
-    assert data["trades"][0]["mint"] == "good" and data["trades"][0]["sell_price"] == 1.3 * P
+    assert list(data["trades"]) == ["take_profit", "hold", "stup"]
+    (sold,) = data["trades"]["take_profit"]  # it never reached +100 %, so it was sold after 24 hours
+    assert sold["mint"] == "good" and sold["sell_price"] == 1.3 * P and sold["profit"] is False
     assert len(data["equity"]) == 4 and len(data["price_history"]) == 4
     assert data["meta"]["screen_version"] == pumpfun.SCREEN_VERSION
 
@@ -613,18 +619,25 @@ def test_the_cliff_is_recorded_once_by_follows_and_quotes(server, store):
     assert pumpfun._aware(held["cliff_at"]) == scored + timedelta(minutes=7) and held["cliff_price"] == 0.45 * P
 
 
-def test_cliffs_are_found_in_the_price_history_of_older_positions(server, store):
+def test_exit_prices_are_found_in_the_price_history_of_older_positions(server, store):
     add_token(store, "fell", T0, "tracking", last_price=0.3, low_after=0.3)
     add_token(store, "fine", T0, "tracking", last_price=0.9, low_after=0.8)
+    add_token(store, "rose", T0, "tracking", last_price=1.8)  # its rise was seen only by the quotes
+    add_token(store, "late", T0 - timedelta(hours=25), "done", price_24h=1.0)  # got there after its 24 hours
     with store.engine.begin() as conn:
         conn.execute(store.table("pf_prices").insert(), [
-            {"mint": "fell", "at": T0 + timedelta(minutes=m), "price": price}
-            for m, price in ((5, 0.8), (20, 0.45), (40, 0.3))])
+            *({"mint": "fell", "at": T0 + timedelta(minutes=m), "price": price}
+              for m, price in ((5, 0.8), (20, 0.45), (40, 0.3))),
+            *({"mint": "rose", "at": T0 + timedelta(minutes=m), "price": price}
+              for m, price in ((5, 1.5), (15, 2.2), (30, 3.0), (50, 1.8))),
+            {"mint": "late", "at": T0 - timedelta(minutes=30), "price": 2.5}])
     with server.client() as client:
-        PumpFunCollector(client, store)._backfill_cliffs(T0 + timedelta(hours=1))
+        PumpFunCollector(client, store)._backfill_exits(T0 + timedelta(hours=1))
     rows = tokens(store)
     assert pumpfun._aware(rows["fell"]["cliff_at"]) == T0 + timedelta(minutes=20) and rows["fell"]["cliff_price"] == 0.45
-    assert rows["fine"]["cliff_at"] is None
+    assert rows["fine"]["cliff_at"] is None and rows["fell"]["profit_at"] is None
+    assert pumpfun._aware(rows["rose"]["profit_at"]) == T0 + timedelta(minutes=15) and rows["rose"]["profit_price"] == 2.2
+    assert rows["late"]["profit_at"] is None
 
 
 def test_the_stup_account_sells_at_the_cliff_and_buys_again(store, monkeypatch):
@@ -642,6 +655,47 @@ def test_the_stup_account_sells_at_the_cliff_and_buys_again(store, monkeypatch):
     assert sorted(o["mint"] for o in stup["open"]) == ["b", "c"]  # the sale paid for "c"
     assert stup["cliff_sales"] == 1 and stup["cliff_minutes"] == 30
     assert stup["equity"] > hold["equity"]
+
+
+def test_the_main_account_takes_profit_at_the_line(store, monkeypatch):
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.26)  # two positions, and a little cash left over
+    add_token(store, "a", T0, "tracking", last_price=1.5, profit_at=T0 + timedelta(minutes=20), profit_price=5.0)
+    add_token(store, "b", T0 + timedelta(minutes=10), "tracking", last_price=1.0)
+    add_token(store, "c", T0 + timedelta(hours=1), "tracking", last_price=1.2)
+
+    main, hold = pumpfun.paper(store, take_profit=True), pumpfun.paper(store)
+
+    (sold,) = main["closed"]
+    assert sold["mint"] == "a" and sold["profit"] and not sold["cliff"]
+    assert sold["result"] == 1.0  # exactly +100 %: the 5.0 it jumped to between two looks is not credited
+    assert sold["exit_price"] == pytest.approx(pumpfun.PROFIT_LINE) and sold["proceeds"] == pytest.approx(0.2)
+    assert sorted(o["mint"] for o in main["open"]) == ["b", "c"]  # the sale paid for "c"
+    assert main["profit_sales"] == 1 and main["profit_minutes"] == 20 and main["equity"] > hold["equity"]
+    assert sorted(o["mint"] for o in hold["open"]) == ["a", "b"] and hold["skipped"] == 1  # the yardstick holds on
+    assert list(pumpfun.accounts(store)) == ["take_profit", "hold", "stup"]
+
+
+def test_the_take_profit_line_is_recorded_by_follows_and_quotes(server, store, db_url, monkeypatch):
+    market = held_and_other(server, store)  # "held" passed at T0 + 11 minutes, at P
+    scored = T0 + timedelta(minutes=11)
+    market.prices["held"] = 2 * P  # doubled, but not yet worth twice its cost after fees
+    quote(server, store, scored + timedelta(minutes=1))
+    assert tokens(store)["held"]["profit_at"] is None
+    market.prices["held"] = 2.1 * P
+    quote(server, store, scored + timedelta(minutes=2))
+    market.prices = {"held": 3 * P, "other": 2.5 * P}
+    run(server, store, scored + timedelta(minutes=5))
+
+    rows = tokens(store)
+    assert pumpfun._aware(rows["held"]["profit_at"]) == scored + timedelta(minutes=2)  # the first time only
+    assert rows["held"]["profit_price"] == 2.1 * P
+    assert rows["other"]["profit_price"] == 2.5 * P  # every measured token, as for the stup rule
+    (sold,) = pumpfun.paper(store, take_profit=True)["closed"]
+    assert sold["mint"] == "held" and sold["result"] == 1.0
+    with page_client(db_url, monkeypatch) as client:
+        page = client.get("/pumpfun").text
+    assert "gevinst sikret" in page and "1 solgt ved +100" in page and "💎 Holdt i 24 timer" in page
+    assert "Ingen bags akkurat nå" in page  # the main account sold its only position
 
 
 def test_hype_is_recorded_when_scored(server, store):
@@ -677,6 +731,7 @@ def test_the_page_compares_the_stup_account(server, store, db_url, monkeypatch):
 
 
 def test_the_small_analysis_log(server, store, db_url, monkeypatch):
+    kept = (1 - pumpfun.FEE) ** 2
     test_tokens_are_scored_followed_and_labelled(server, store)
     with store.engine.begin() as conn:  # a dead token: scored but never measured
         conn.execute(store.table("pf_tokens").insert().values(
@@ -696,5 +751,9 @@ def test_the_small_analysis_log(server, store, db_url, monkeypatch):
     assert dead == [{"screen_version": pumpfun.SCREEN_VERSION, "status": "scored", "active": False, "complete": True,
                      "passed": False, "tokens": 1}]
     assert sum(f["tokens"] for f in data["funnel"]) == 4
+    assert list(data["trades"]) == ["take_profit", "hold", "stup"]
     assert [t["mint"] for t in data["trades"]["hold"]] == ["good"] and data["trades"]["stup"][0]["cliff"] is False
+    good = data["tokens"][2]
+    assert good["paper_take_profit"] == "sold" and good["paper_take_profit_result"] == pytest.approx(1.3 * kept - 1)
+    assert data["meta"]["paper"]["take_profit"] == 1.0
     assert len(small.content) < len(full.content)

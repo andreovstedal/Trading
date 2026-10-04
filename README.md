@@ -85,18 +85,20 @@ A token counts as *collapsed* at 1, 6 or 24 hours after scoring if its price the
 
 The 1-hour figures come about an hour after collection starts. The decision on real money uses the 24-hour figures.
 
-The page also runs the filter with fake money:
-- The account starts with 10 SOL.
-- Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts, and sold after 24 hours.
-- Fees are charged on both trades, and a token that disappears from DexScreener counts as lost.
-- Its value is recorded every 5 minutes. Between collector runs the open positions' prices are fetched every minute, so the account value and the positions move while the page is open.
-- A second fake account, the *stup* account, makes the same buys. It sells a position as soon as a price at or below half the buy price is seen, at the price seen, and uses the cash for new buys.
-  - Prices are seen a minute or more apart, so a token that falls straight through the halfway line is sold lower, as it would be in real trading.
-  - The page shows both accounts side by side, and marks the positions the stup account sold.
+The page also runs the filter with fake money, in three accounts that make the same buys:
+- Each starts with 10 SOL. Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts.
+- Fees are charged on both trades, and a token that disappears from DexScreener counts as lost. Cash from sales goes into new buys.
+- **The main account** sells a position as soon as it is worth twice its cost after fees (+100 %), and otherwise after 24 hours.
+  - The sale is credited at exactly +100 %, even when the price jumped past the line between two looks, so the account never gets a lucky price.
+  - It has run since 4 October 2026. In `pf2`'s day, 20 of the 149 tokens that passed reached +100 % within 24 hours, and held instead they ended at a median of −2 %. On the full log's minute-by-minute prices, this rule would have left that account at 8.25 SOL instead of 7.03.
+- **The 24-hour account** holds every position for exactly 24 hours. It's the yardstick the other two are compared with.
+- **The stup account** sells as soon as a price at or below half the buy price is seen, at the price seen. Prices are seen a minute or more apart, so a token that falls straight through the halfway line is sold lower, as it would be in real trading.
+- The main account's value is recorded every 5 minutes for the chart. Between collector runs the open positions' prices are fetched every minute, so the accounts and the positions move while the page is open.
+- The page shows the three accounts side by side. It marks the positions the stup account sold, and the main account's sales at +100 %.
 
 Slippage is not included, so real results would be worse.
 
-The page is live: it checks for new data every 15 seconds and updates itself, with no reload. New positions slide in, changed numbers flash, and a ticker tape runs along the top. Each open position has its own card with a chart of its result since it was bought, and each sale has a small chart of its 24 hours.
+The page is live: it checks for new data every 15 seconds and updates itself, with no reload. New positions slide in, changed numbers flash, and a ticker tape runs along the top. Each open position has its own card with a chart of its result since it was bought, and each sale has a small chart from purchase to sale.
 
 To look for patterns as the data grows:
 - **Mønstre i galskapen** splits the measured tokens into quarters by each feature seen at scoring (market value, trades, buy share, the creator wallet's age and activity, holder concentration). For each quarter it shows how often the tokens collapsed and their median return. The features whose quarters differ most come first, which is where the filter's next rule may be. It covers all tokens with trades and, separately, only those that passed.
@@ -107,7 +109,7 @@ To look for patterns as the data grows:
 
   X and Telegram can't be read without paid access or breaking their terms, and pump.fun no longer serves its comment threads.
 - **Last ned loggen** downloads everything measured:
-  - `/pumpfun/export-analyse.json`, the small one, made to send on, about 1 MB a day. It has every measured token without pump.fun's launch fields, the counts of all the other tokens, both fake accounts' trades and the account value.
+  - `/pumpfun/export-analyse.json`, the small one, made to send on, about 1 MB a day. It has every measured token without pump.fun's launch fields, the counts of all the other tokens, the three fake accounts' trades and the main account's value.
   - `/pumpfun/export.csv`: one row per token, for Excel with Norwegian settings.
   - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths. About 30 MB a day, because it lists every launch, including the ones never followed.
 
