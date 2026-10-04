@@ -42,7 +42,7 @@ def test_the_log_replaces_the_branch(server, store):
     assert all(auth == "Bearer secret" for _, auth, _ in github.sent)
     blob, tree, commit, update = (body for _, _, body in github.sent)
     log = json.loads(gzip.decompress(base64.b64decode(blob["content"])))
-    assert list(log) == ["meta", "funnel", "tokens", "trades", "equity"]
+    assert list(log) == ["meta", "funnel", "tokens", "trades", "equity", "price_paths"]
     assert [entry["path"] for entry in tree["tree"]] == ["pumpfun-analyse.json.gz", "README.md"]
     assert commit["parents"] == [] and commit["tree"] == "tree1"  # the branch's only commit
     assert update == {"sha": "commit1", "force": True}

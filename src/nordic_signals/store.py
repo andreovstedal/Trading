@@ -380,13 +380,19 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("misses", Integer, nullable=False, default=0),  # price lookups that found nothing
         Column("graduated", Boolean),
         Column("collapsed", Boolean),
-        # The first price seen at or below half the scoring price within 24 hours, and when: the stup rule.
+        # The first price seen at or below half the scoring price within 24 hours, and when: the stup line.
         Column("cliff_at", DateTime(timezone=True)),
         Column("cliff_price", Float),
         # The first price seen at or above the take-profit line within 24 hours, and when: the main account's
         # rule (``pumpfun.TAKE_PROFIT``).
         Column("profit_at", DateTime(timezone=True)),
         Column("profit_price", Float),
+        # The trailing account's sale (``pumpfun.TRAIL``), worked out from the price history of tokens that passed:
+        # once the price has reached the take-profit line, the first price at least TRAIL below the highest since
+        # scoring, within 24 hours. trail_peak is the highest price so far.
+        Column("trail_peak", Float),
+        Column("trail_at", DateTime(timezone=True)),
+        Column("trail_price", Float),
     )
     # The main fake-money account's value after each collector run, for the chart. Each screen version trades
     # its own portfolio, and each set of rules for the main account has its own history (``account``); rows

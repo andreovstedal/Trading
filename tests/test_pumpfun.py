@@ -574,7 +574,7 @@ def test_the_log_downloads(server, store, db_url, monkeypatch):
     token = data["tokens"][2]
     assert token["paper"] == "sold" and token["collapsed_24h"] is False and token["features"]["trades_5m"] == 4
     assert token["return_24h"] == pytest.approx(1.3 * (1 - pumpfun.FEE) ** 2 - 1)
-    assert list(data["trades"]) == ["take_profit", "hold", "stup"]
+    assert list(data["trades"]) == ["take_profit", "hold", "trailing"]
     (sold,) = data["trades"]["take_profit"]  # it never reached +100 %, so it was sold after 24 hours
     assert sold["mint"] == "good" and sold["sell_price"] == 1.3 * P and sold["profit"] is False
     assert len(data["equity"]) == 4 and len(data["price_history"]) == 4
@@ -640,21 +640,67 @@ def test_exit_prices_are_found_in_the_price_history_of_older_positions(server, s
     assert rows["late"]["profit_at"] is None
 
 
-def test_the_stup_account_sells_at_the_cliff_and_buys_again(store, monkeypatch):
+def test_the_trailing_account_sells_at_the_price_seen_and_buys_again(store, monkeypatch):
     monkeypatch.setattr(pumpfun, "PAPER_START", 0.26)  # two positions, and a little cash left over
-    add_token(store, "a", T0, "tracking", last_price=0.2, cliff_at=T0 + timedelta(minutes=30), cliff_price=0.5)
+    add_token(store, "a", T0, "tracking", last_price=1.5, profit_at=T0 + timedelta(minutes=20), profit_price=2.5,
+              trail_peak=6.0, trail_at=T0 + timedelta(minutes=40), trail_price=4.2)
     add_token(store, "b", T0 + timedelta(minutes=10), "tracking", last_price=1.0)
     add_token(store, "c", T0 + timedelta(hours=1), "tracking", last_price=1.2)
 
-    hold, stup = pumpfun.paper(store), pumpfun.paper(store, cliff=True)
+    trailing, main, hold = pumpfun.paper(store, trail=True), pumpfun.paper(store, take_profit=True), pumpfun.paper(store)
 
     kept = (1 - pumpfun.FEE) ** 2
-    assert sorted(o["mint"] for o in hold["open"]) == ["a", "b"] and hold["skipped"] == 1  # no cash for "c"
-    (sold,) = stup["closed"]
-    assert sold["mint"] == "a" and sold["cliff"] and sold["result"] == pytest.approx(0.5 * kept - 1)
-    assert sorted(o["mint"] for o in stup["open"]) == ["b", "c"]  # the sale paid for "c"
-    assert stup["cliff_sales"] == 1 and stup["cliff_minutes"] == 30
-    assert stup["equity"] > hold["equity"]
+    (sold,) = trailing["closed"]
+    assert sold["mint"] == "a" and sold["trail"] and not sold["profit"]
+    assert sold["exit_price"] == 4.2 and sold["result"] == pytest.approx(4.2 * kept - 1)  # the price seen, not the top
+    assert sorted(o["mint"] for o in trailing["open"]) == ["b", "c"]  # the sale paid for "c"
+    assert trailing["trail_sales"] == 1 and trailing["trail_result"] == pytest.approx(4.2 * kept - 1)
+    assert trailing["trail_level"] == pumpfun.TRAIL and trailing["profit_sales"] == 0
+    (taken,) = main["closed"]  # the main account sold the same position at the line, 20 minutes in
+    assert taken["mint"] == "a" and taken["result"] == 1.0 and main["trail_sales"] == 0
+    assert sorted(o["mint"] for o in hold["open"]) == ["a", "b"] and hold["skipped"] == 1  # the yardstick holds on
+    assert trailing["equity"] > main["equity"] > hold["equity"]
+
+
+def test_the_trailing_sale_is_found_in_the_price_history(server, store):
+    add_token(store, "ran", T0, "tracking", last_price=1.0)  # past the line, a new top, then a quarter down
+    add_token(store, "short", T0, "tracking", last_price=1.0)  # a quarter down from a top below the line
+    add_token(store, "late", T0 - timedelta(hours=30), "done", price_24h=1.0)  # it fell after its 24 hours
+    add_token(store, "climbing", T0, "tracking", last_price=3.0)
+    add_token(store, "stopped", T0, "tracking", passed=False, last_price=3.0)  # no price history: not bought
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_prices").insert(), [
+            *({"mint": "ran", "at": T0 + timedelta(minutes=m), "price": price}
+              for m, price in ((0, 1.0), (5, 1.5), (10, 2.5), (20, 4.0), (25, 3.1), (30, 2.9), (40, 1.0))),
+            *({"mint": "short", "at": T0 + timedelta(minutes=m), "price": price} for m, price in ((5, 1.9), (10, 1.2))),
+            *({"mint": "late", "at": T0 - timedelta(hours=30) + timedelta(minutes=m), "price": price}
+              for m, price in ((30, 3.0), (25 * 60, 1.0))),
+            *({"mint": "climbing", "at": T0 + timedelta(minutes=m), "price": price} for m, price in ((5, 2.5), (10, 3.0))),
+        ])
+
+    def trail(at):
+        with server.client() as client:
+            PumpFunCollector(client, store)._trail_exits(at)
+        return tokens(store)
+
+    rows = trail(T0 + timedelta(hours=1))
+    ran = rows["ran"]
+    assert pumpfun._aware(ran["trail_at"]) == T0 + timedelta(minutes=30)  # 3.1 is not yet a quarter below 4.0
+    assert ran["trail_price"] == 2.9 and ran["trail_peak"] == 4.0
+    assert rows["short"]["trail_at"] is None and rows["short"]["trail_peak"] == 1.9
+    assert rows["late"]["trail_at"] is None and rows["late"]["trail_peak"] == 3.0  # once, although older
+    assert rows["climbing"]["trail_at"] is None and rows["climbing"]["trail_peak"] == 3.0
+    assert rows["stopped"]["trail_peak"] is None
+
+    with store.engine.begin() as conn:  # the climber turns, and a price turns up for the old token's day
+        conn.execute(store.table("pf_prices").insert(), [
+            {"mint": "climbing", "at": T0 + timedelta(hours=2), "price": 2.2},
+            {"mint": "late", "at": T0 - timedelta(hours=29), "price": 0.5}])
+    rows = trail(T0 + timedelta(hours=2, minutes=5))
+    assert pumpfun._aware(rows["climbing"]["trail_at"]) == T0 + timedelta(hours=2)
+    assert rows["climbing"]["trail_price"] == 2.2
+    assert rows["late"]["trail_at"] is None  # past its 24 hours and an hour more, it is not worked out again
+    assert rows["ran"] == ran
 
 
 def test_the_main_account_takes_profit_at_the_line(store, monkeypatch):
@@ -666,13 +712,13 @@ def test_the_main_account_takes_profit_at_the_line(store, monkeypatch):
     main, hold = pumpfun.paper(store, take_profit=True), pumpfun.paper(store)
 
     (sold,) = main["closed"]
-    assert sold["mint"] == "a" and sold["profit"] and not sold["cliff"]
+    assert sold["mint"] == "a" and sold["profit"] and not sold["trail"]
     assert sold["result"] == 1.0  # exactly +100 %: the 5.0 it jumped to between two looks is not credited
     assert sold["exit_price"] == pytest.approx(pumpfun.PROFIT_LINE) and sold["proceeds"] == pytest.approx(0.2)
     assert sorted(o["mint"] for o in main["open"]) == ["b", "c"]  # the sale paid for "c"
     assert main["profit_sales"] == 1 and main["profit_minutes"] == 20 and main["equity"] > hold["equity"]
     assert sorted(o["mint"] for o in hold["open"]) == ["a", "b"] and hold["skipped"] == 1  # the yardstick holds on
-    assert list(pumpfun.accounts(store)) == ["take_profit", "hold", "stup"]
+    assert list(pumpfun.accounts(store)) == ["take_profit", "hold", "trailing"]
 
 
 def test_the_take_profit_line_is_recorded_by_follows_and_quotes(server, store, db_url, monkeypatch):
@@ -689,7 +735,7 @@ def test_the_take_profit_line_is_recorded_by_follows_and_quotes(server, store, d
     rows = tokens(store)
     assert pumpfun._aware(rows["held"]["profit_at"]) == scored + timedelta(minutes=2)  # the first time only
     assert rows["held"]["profit_price"] == 2.1 * P
-    assert rows["other"]["profit_price"] == 2.5 * P  # every measured token, as for the stup rule
+    assert rows["other"]["profit_price"] == 2.5 * P  # every measured token, as for the stup line
     (sold,) = pumpfun.paper(store, take_profit=True)["closed"]
     assert sold["mint"] == "held" and sold["result"] == 1.0
     with page_client(db_url, monkeypatch) as client:
@@ -721,13 +767,21 @@ def test_hype_groups_in_the_patterns(store):
     assert [g["n"] for g in profile["groups"]] == [0, 0] and [g["n"] for g in boosts["groups"]] == [0, 0]
 
 
-def test_the_page_compares_the_stup_account(server, store, db_url, monkeypatch):
-    market = held_and_other(server, store)
-    market.prices["held"] = 0.45 * P
-    quote(server, store, T0 + timedelta(minutes=20))
+def test_the_page_compares_the_trailing_account(server, store, db_url, monkeypatch):
+    market = held_and_other(server, store)  # "held" passed at T0 + 11 minutes, at P
+    scored = T0 + timedelta(minutes=11)
+    for minutes, price in ((1, 3 * P), (2, 4 * P), (3, 2.9 * P)):  # the quotes see it run and turn
+        market.prices["held"] = price
+        quote(server, store, scored + timedelta(minutes=minutes))
+    run(server, store, scored + timedelta(minutes=5))  # the run works the trailing sale out
+
+    held = tokens(store)["held"]
+    assert pumpfun._aware(held["trail_at"]) == scored + timedelta(minutes=3) and held["trail_price"] == 2.9 * P
+    assert held["trail_peak"] == 4 * P and pumpfun._aware(held["profit_at"]) == scored + timedelta(minutes=1)
     with page_client(db_url, monkeypatch) as client:
         page = client.get("/pumpfun").text
-    assert "Med stup-regelen" in page and "1 solgt ved stup" in page and "⛔ stup" in page
+    assert "🎢 Følger toppen" in page and "1 solgt 25&nbsp;% under toppen" in page and "stup" not in page
+    assert f"typisk på&nbsp;+{round((2.9 * (1 - pumpfun.FEE) ** 2 - 1) * 100)}\u00a0%" in page
 
 
 def test_the_small_analysis_log(server, store, db_url, monkeypatch):
@@ -744,15 +798,18 @@ def test_the_small_analysis_log(server, store, db_url, monkeypatch):
     assert re.fullmatch(r'attachment; filename="pumpfun-analyse-\d{4}-\d\d-\d\d-\d{4}\.json"',
                         small.headers["content-disposition"])
     data = small.json()
-    assert list(data) == ["meta", "funnel", "tokens", "trades", "equity"]
+    assert list(data) == ["meta", "funnel", "tokens", "trades", "equity", "price_paths"]
     assert [t["mint"] for t in data["tokens"]] == ["dumpy2", "dumpy", "good"]  # measured only, oldest first
     assert all("launch" not in t and t["links"] == 0 for t in data["tokens"])
     dead = [f for f in data["funnel"] if f["status"] == "scored"]
     assert dead == [{"screen_version": pumpfun.SCREEN_VERSION, "status": "scored", "active": False, "complete": True,
                      "passed": False, "tokens": 1}]
     assert sum(f["tokens"] for f in data["funnel"]) == 4
-    assert list(data["trades"]) == ["take_profit", "hold", "stup"]
-    assert [t["mint"] for t in data["trades"]["hold"]] == ["good"] and data["trades"]["stup"][0]["cliff"] is False
+    assert list(data["trades"]) == ["take_profit", "hold", "trailing"]
+    assert [t["mint"] for t in data["trades"]["hold"]] == ["good"] and data["trades"]["trailing"][0]["trail"] is False
+    hours = [round(seconds / 3600) for seconds, _ in data["price_paths"]["good"]]
+    assert list(data["price_paths"]) == ["good"] and hours == [0, 1, 6, 24]  # [seconds after scoring, price]
+    assert data["price_paths"]["good"][-1][1] == 1.3 * P
     good = data["tokens"][2]
     assert good["paper_take_profit"] == "sold" and good["paper_take_profit_result"] == pytest.approx(1.3 * kept - 1)
     assert data["meta"]["paper"]["take_profit"] == 1.0

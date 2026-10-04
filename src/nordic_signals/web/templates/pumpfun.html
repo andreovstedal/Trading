@@ -86,16 +86,16 @@
         <div><div class="label">💎 Holdt i 24 timer</div>
           <div class="mono"><b data-tick="hold" data-value="{{ hold.equity }}">{{ hold.equity | num(3) }}&nbsp;SOL</b> {{ arrow(hold.result) }}{{ hold.result | pct(1, True) }}</div>
           <div class="sub">målestokken: alt holdes i 24 timer</div></div>
-        <div><div class="label">⛔ Med stup-regelen</div>
-          <div class="mono"><b data-tick="stup" data-value="{{ stup.equity }}">{{ stup.equity | num(3) }}&nbsp;SOL</b> {{ arrow(stup.result) }}{{ stup.result | pct(1, True) }}</div>
-          <div class="sub">{{ stup.cliff_sales | num }} solgt ved stup{% if stup.cliff_minutes is not none %}, typisk
-            {{ stup.cliff_minutes | num(0) }} min etter kjøpet{% endif %}</div></div>
+        <div><div class="label">🎢 Følger toppen</div>
+          <div class="mono"><b data-tick="trailing" data-value="{{ trailing.equity }}">{{ trailing.equity | num(3) }}&nbsp;SOL</b> {{ arrow(trailing.result) }}{{ trailing.result | pct(1, True) }}</div>
+          <div class="sub">{{ trailing.trail_sales | num }} solgt {{ (trail * 100) | int }}&nbsp;% under toppen{% if trailing.trail_result is not none %},
+            typisk på&nbsp;{{ trailing.trail_result | pct(0, True) }}{% endif %}</div></div>
       </div>
-      <p class="small muted">De tre kontoene gjør de samme kjøpene. Hovedkontoen selger så snart en posisjon er verdt
+      <p class="small muted">De tre kontoene kjøper etter samme regel. Hovedkontoen selger så snart en posisjon er verdt
         det dobbelte etter gebyrer, og salget regnes til nøyaktig +100&nbsp;%, også når kursen hoppet forbi mellom to
-        målinger, så den får aldri en heldig kurs. Stup-regelen selger med en gang kursen er halvert fra kjøpet, til
-        kursen som ble sett. Faller kursen brått, blir det lavere enn halvparten, som i ekte handel. Pengene fra
-        salgene brukes til nye kjøp.</p>
+        målinger, så den får aldri en heldig kurs. «Følger toppen» lar den samme posisjonen løpe videre og selger først
+        når kursen har falt {{ (trail * 100) | int }}&nbsp;% fra den høyeste siden kjøpet, til kursen som ble sett. Den får
+        med seg de som fortsetter opp, men gir tilbake noe på dem som snur. Pengene fra salgene brukes til nye kjøp.</p>
       {% endif %}
     </div>
     {% if movers %}
@@ -135,7 +135,6 @@
           <span class="sym">${{ o.symbol }}</span>
         </div>
         {% if o.new %}<span class="chip new">Ny</span>{% endif %}
-        {% if o.stup %}<span class="chip stup" title="Stup-regelen solgte denne etter {{ o.stup.minutes | num(0) }} min, på {{ o.stup.result | pct(0, True) }}">⛔ stup</span>{% endif %}
         {{ badge(o.badge) }}
       </header>
       <p class="pnl">{{ arrow(o.result) }}<span class="mono" data-tick="pos-{{ o.mint }}" data-value="{{ o.result }}">{{ o.result | pct(1, True) }}</span></p>

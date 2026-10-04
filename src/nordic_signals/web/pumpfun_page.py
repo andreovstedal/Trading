@@ -14,7 +14,7 @@ import io
 import math
 import threading
 from collections.abc import Callable, Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any
 
 from sqlalchemy import select
@@ -70,7 +70,7 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
     fresh = updated is not None and now - updated < FRESH
     periode = periode if periode in PERIODS else DEFAULT_PERIOD
 
-    books = pumpfun.accounts(store)  # the same buys: sold at +100 % (the main account), after 24 hours, at a halving
+    books = pumpfun.accounts(store)  # the same buys: sold at +100 % (the main account), after 24 hours, trailing
     p = books["take_profit"]
     closed = p["closed"][:CLOSED_ROWS]
     paths = pumpfun.histories(store, [*p["open"], *closed], now, slices=SPARK_SLICES)
@@ -88,7 +88,8 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
     movers = {"best": ranked[:MOVERS], "worst": ranked[::-1][:MOVERS]} if len(ranked) > MOVERS else None
     return {
         "version": version, "updated": updated, "fresh": fresh, "now": now,
-        "paper": p, "hold": books["hold"], "stup": books["stup"], "closed": closed, "cards": CARDS, "movers": movers,
+        "paper": p, "hold": books["hold"], "trailing": books["trailing"], "closed": closed, "cards": CARDS,
+        "movers": movers, "trail": pumpfun.TRAIL,
         "tape": tape * math.ceil(TAPE_FILL / len(tape)) if tape else [],
         "periode": periode, "periods": PERIODS, "history": history,
         "account_chart": charts.account_chart(points, p["start"], live=live),
@@ -107,12 +108,6 @@ def _decorate(position: dict[str, Any], path: list[tuple[datetime, float]], now:
     until = position["closed_at"] if closed else min(max(now, opened + FIRST_HOUR), sale)
     position["chart"] = charts.sparkline(path, opened=opened, until=until, key=mint,
                                          size="mini" if closed else "card", closed=closed)
-    dropped = position.get("cliff_at")
-    if dropped is not None:
-        dropped = dropped if dropped.tzinfo else dropped.replace(tzinfo=timezone.utc)
-    if dropped is not None and opened < dropped <= sale:  # the stup account sold it there
-        position["stup"] = {"minutes": (dropped - opened).total_seconds() / 60,
-                            "result": pumpfun.net_return(position["price_t"], position["cliff_price"])}
     if not closed:
         position["held"] = min(max((now - opened) / pumpfun.PAPER_HOLD, 0.0), 1.0)
         position["left"] = _left(position["opened_at"] + pumpfun.PAPER_HOLD - now)
@@ -213,12 +208,15 @@ CSV_COLUMNS: tuple[tuple[str, Callable[[dict[str, Any]], Any], int | None], ...]
     ("Fiktivt resultat (%)", _percent(lambda r: r["paper_result"]), 2),
     ("Halvert (stup), tidspunkt", lambda r: r["cliff_at"], None),
     ("Kurs ved stup (SOL)", _sol("cliff_price"), 3),
-    ("Fiktiv handel med stup-regelen", lambda r: PAPER.get(r["paper_stup"], ""), None),
-    ("Fiktivt resultat med stup-regelen (%)", _percent(lambda r: r["paper_stup_result"]), 2),
     ("Verdt det dobbelte (+100 %), tidspunkt", lambda r: r["profit_at"], None),
     ("Kurs ved +100 % (SOL)", _sol("profit_price"), 3),
     ("Fiktiv handel, hovedkontoen (selger ved +100 %)", lambda r: PAPER.get(r["paper_take_profit"], ""), None),
     ("Fiktivt resultat, hovedkontoen (%)", _percent(lambda r: r["paper_take_profit_result"]), 2),
+    ("Høyeste kurs (SOL)", _sol("trail_peak"), 3),
+    ("Falt 25 % fra toppen, tidspunkt", lambda r: r["trail_at"], None),
+    ("Kurs da (SOL)", _sol("trail_price"), 3),
+    ("Fiktiv handel, følger toppen", lambda r: PAPER.get(r["paper_trailing"], ""), None),
+    ("Fiktivt resultat, følger toppen (%)", _percent(lambda r: r["paper_trailing_result"]), 2),
     ("Lenker ved lanseringen", lambda r: pumpfun._links(r["launch"]), 0),
     ("Betalt DexScreener-profil", _feature("dex_profile"), None),
     ("Betalte DexScreener-boost", _feature("boosts"), 0),
@@ -260,14 +258,28 @@ def export_analysis_json(store: Store, now: datetime | None = None) -> Iterator[
     fields, how many tokens there are of every other kind, the fake accounts' trades and the account value.
     About 1 MB a day; the full log is some 30 MB, nearly all of it launches that were never followed."""
     books = pumpfun.accounts(store)
-    meta = {**_meta(books["take_profit"], now), "kind": "analysis: measured tokens only, no price paths"}
+    meta = {**_meta(books["take_profit"], now),
+            "kind": "analysis: measured tokens only, and the price paths of this version's tokens that passed"}
     yield '{"meta": ' + exports.to_json(meta) + ',\n"funnel": ' + exports.to_json(pumpfun.funnel(store)) + ',\n"tokens": ['
     yield from exports.items(exports.to_json(_compact(row)) for row in pumpfun.log_rows(store, measured_only=True))
     yield '],\n"trades": ' + exports.to_json({name: _trades(a) for name, a in books.items()})
     e = store.table("pf_equity")
     yield ',\n"equity": ['
     yield from exports.items(exports.to_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
-    yield "]}\n"
+    yield '],\n"price_paths": ' + exports.to_json(_price_paths(store)) + "}\n"
+
+
+def _price_paths(store: Store) -> dict[str, list[list[float]]]:
+    """Every price seen for this version's tokens that passed, checks and quotes: [seconds after scoring, price].
+    Enough to try other exit rules on, at a few hundred kilobytes a day."""
+    t, p = store.table("pf_tokens"), store.table("pf_prices")
+    out: dict[str, list[list[float]]] = {}
+    for r in store.query(select(p.c.mint, p.c.at, p.c.price, t.c.scored_at).join(t, t.c.mint == p.c.mint)
+                         .where(t.c.passed.is_(True), t.c.screen_version == pumpfun.SCREEN_VERSION)
+                         .order_by(p.c.mint, p.c.at)):
+        seconds = (pumpfun._aware(r["at"]) - pumpfun._aware(r["scored_at"])).total_seconds()
+        out.setdefault(r["mint"], []).append([round(seconds), r["price"]])
+    return out
 
 
 def _compact(row: dict[str, Any]) -> dict[str, Any]:
@@ -281,7 +293,7 @@ def _trades(p: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"mint": t["mint"], "name": t["name"], "symbol": t["symbol"], "opened_at": t["opened_at"],
              "buy_price": t["price_t"], "stake_sol": p["stake"], "closed_at": t.get("closed_at"),
              "sell_price": t.get("exit_price"), "proceeds_sol": t.get("proceeds"), "lost": t.get("lost"),
-             "cliff": t.get("cliff"), "profit": t.get("profit"), "value_now_sol": t.get("value"),
+             "profit": t.get("profit"), "trail": t.get("trail"), "value_now_sol": t.get("value"),
              "result": t["result"]}
             for t in sorted((*p["open"], *p["closed"]), key=lambda t: t["opened_at"])]
 
@@ -295,7 +307,7 @@ def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
         "fee_per_trade": pumpfun.FEE,
         "collapse_level": pumpfun.COLLAPSE_LEVEL,
         "paper": {"start_sol": p["start"], "stake_sol": p["stake"], "hold_hours": p["hold_hours"],
-                  "take_profit": pumpfun.TAKE_PROFIT, "cliff": pumpfun.CLIFF},
+                  "take_profit": pumpfun.TAKE_PROFIT, "trail": pumpfun.TRAIL},
         "notes": {
             "tokens": "Every sampled launch, oldest first. Launches outside the sample are left out: they are "
                       "kept for a week only to spot creators who launch token after token.",
@@ -313,13 +325,20 @@ def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
                               "done) are followed, whether they passed or not; the rest stay 'scored'.",
             "paper": "The 24-hour account: open, sold, skipped (passed while the cash was used up) or null "
                      "(never bought).",
-            "paper_stup": "The same for the stup account: the same rules, but sold at the first price seen at or "
-                          "below half the buy price (cliff_at, cliff_price), with the cash used for new buys.",
             "paper_take_profit": "The same for the main account (from 4 October 2026): sold once a position is "
                                  "worth twice its cost after fees, credited at exactly that line even if the price "
                                  "seen (profit_at, profit_price) was higher, otherwise after 24 hours.",
+            "paper_trailing": "The same for the trailing account (from 4 October 2026): once a position is worth "
+                              "twice its cost after fees, sold at the first price seen at least 25 % below its "
+                              "highest since buying (trail_at, trail_price; trail_peak is the highest so far), "
+                              "otherwise after 24 hours. The stup account (cliff_at, cliff_price) left the page "
+                              "then: nothing pf3 buys can halve on the bonding curve, whose floor is the launch "
+                              "price.",
             "trades": "Each account's buys, oldest first: take_profit (the main account), hold (24 hours) and "
-                      "stup. sell_price is the price the sale was credited at.",
+                      "trailing. sell_price is the price the sale was credited at.",
+            "price_paths": "Analysis export: for this version's tokens that passed, every price seen as [seconds "
+                           "after scoring, price]: the checks, and the quotes of the open positions, fetched every "
+                           "minute and stored when the price changed. Kept for 7 days.",
             "equity": "The main account's value after every collector run. account is null for the 24-hour "
                       "account, the main account until 4 October 2026.",
             "hype": "features.links: social links added at launch; features.dex_profile and features.boosts: paid "

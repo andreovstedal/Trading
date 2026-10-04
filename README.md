@@ -118,16 +118,19 @@ A token counts as *collapsed* at 1, 6 or 24 hours after scoring if its price the
 
 The 1-hour figures come about an hour after collection starts. The decision on real money uses the 24-hour figures.
 
-The page also runs the filter with fake money, in three accounts that make the same buys:
+The page also runs the filter with fake money, in three accounts that buy by the same rule:
 - Each starts with 10 SOL. Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts.
 - Fees are charged on both trades, and a token that disappears from DexScreener counts as lost. Cash from sales goes into new buys.
 - **The main account** sells a position as soon as it is worth twice its cost after fees (+100 %), and otherwise after 24 hours.
   - The sale is credited at exactly +100 %, even when the price jumped past the line between two looks, so the account never gets a lucky price.
   - It has run since 4 October 2026. In `pf2`'s day, 20 of the 149 tokens that passed reached +100 % within 24 hours, and held instead they ended at a median of −2 %. On the full log's minute-by-minute prices, this rule would have left that account at 8.25 SOL instead of 7.03.
 - **The 24-hour account** holds every position for exactly 24 hours. It's the yardstick the other two are compared with.
-- **The stup account** sells as soon as a price at or below half the buy price is seen, at the price seen. Prices are seen a minute or more apart, so a token that falls straight through the halfway line is sold lower, as it would be in real trading.
+- **The trailing account** also waits until a position is worth twice its cost after fees, but then lets it run. It sells once the price has fallen 25 % below its highest since buying, at the price seen, and otherwise after 24 hours.
+  - It tests whether letting winners run beats taking +100 %. In `pf3`'s first day, 9 of the 10 positions sold at +100 % were below that line again the next afternoon, but one went on to 65 times its buy price.
+  - Prices are seen a minute or more apart, so a token that falls straight through the line is sold lower, as it would be in real trading.
+  - It has run since 4 October 2026, and replaced the stup account, which sold at half the buy price. On pump.fun's bonding curve a token's price can't fall below its launch price, so since `pf3` buys only below twice the launch price, nothing it buys can halve before it graduates. In its first 18 hours none of 84 did, against 198 of the 473 tokens it measured but stopped. The halving is still recorded per token, for the log.
 - The main account's value is recorded every 5 minutes for the chart. Between collector runs the open positions' prices are fetched every minute, so the accounts and the positions move while the page is open.
-- The page shows the three accounts side by side. It marks the positions the stup account sold, and the main account's sales at +100 %.
+- The page shows the three accounts side by side, and marks the main account's sales at +100 %.
 
 Slippage is not included, so real results would be worse.
 
@@ -143,6 +146,7 @@ To look for patterns as the data grows:
   X and Telegram can't be read without paid access or breaking their terms, and pump.fun no longer serves its comment threads.
 - **Last ned loggen** downloads everything measured:
   - `/pumpfun/export-analyse.json`, the small one, made to send on, about 1 MB a day. It has every measured token without pump.fun's launch fields, the counts of all the other tokens, the three fake accounts' trades and the main account's value.
+    - It also has the price paths of the current version's tokens that passed, as seconds after scoring and price, for the last 7 days. While a fake account holds a token, its price is fetched every minute and stored when it changed. That's enough to try other exit rules on, for a few hundred kB a day.
   - `/pumpfun/export.csv`: one row per token, for Excel with Norwegian settings.
   - `/pumpfun/export.json`: the same, plus every fake trade, the account value over time and the price paths. About 30 MB a day, because it lists every launch, including the ones never followed.
 

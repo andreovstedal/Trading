@@ -27,11 +27,13 @@ prices from DexScreener, so the page moves while it is open. Those quotes only f
 positions' current value and the exit rules; the measurement keeps to the checks above, so its numbers do
 not depend on how often anyone looks.
 
-The exit rules need the first price seen beyond their line within 24 hours of scoring: at or below half the
-scoring price for the stup rule (``cliff_at``, ``cliff_price``), at or above the take-profit line for the
-main account (``profit_at``, ``profit_price``). The follow step records them for every measured token and
-the quotes for the open positions. Tokens followed before a rule was recorded get it from their price
-history (``_backfill_exits``).
+The exit rules need the first price seen beyond their line within 24 hours of scoring: at or above the
+take-profit line for the main account (``profit_at``, ``profit_price``), and at or below half the scoring
+price, the stup line, for the log (``cliff_at``, ``cliff_price``). The follow step records them for every
+measured token and the quotes for the open positions. Tokens followed before a rule was recorded get it from
+their price history (``_backfill_exits``). The trailing account's sale depends on the highest price so far,
+so each run works it out from the price history of the tokens that passed (``_trail_exits``), checks and
+quotes alike.
 
 Hype at scoring: the social links the creator added at launch (pump.fun's own fields) and paid promotion on
 DexScreener (a token profile, boosts). X and Telegram cannot be read without paid access or breaking their
@@ -56,7 +58,7 @@ import random
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, or_, select, update
 
 from .. import pumpfun
 from ..http import FetchError
@@ -99,6 +101,7 @@ class PumpFunCollector(Collector):
         self._score(now)
         self._follow(now)
         self._backfill_exits(now)
+        self._trail_exits(now)
         self._prune(now)
         pumpfun.snapshot(self.store, now)  # the fake-money portfolio's value, for the chart
         return self.summary
@@ -306,6 +309,37 @@ class PumpFunCollector(Collector):
             for mint, r in first.items():
                 self._update(mint, **{f"{name}_at": r["at"], f"{name}_price": r["price"]})
 
+    def _trail_exits(self, now: datetime) -> None:
+        """The trailing account's sales: once the price has reached the take-profit line, the first price at
+        least ``pumpfun.TRAIL`` below the highest since scoring, within 24 hours.
+
+        From the price history, so the quotes between runs count. Tokens still in their 24 hours (and an hour
+        more, for the last prices) are worked out again each run; older ones once, when first seen here."""
+        t, p = self._table(), self.store.table("pf_prices")
+        rows = self.store.query(select(t.c.mint, t.c.scored_at, t.c.price_t, t.c.trail_peak).where(
+            t.c.passed.is_(True), t.c.trail_at.is_(None), t.c.scored_at >= now - PRICE_HISTORY,
+            or_(t.c.trail_peak.is_(None), t.c.scored_at >= now - HORIZON - timedelta(hours=1))))
+        if not rows:
+            return
+        paths: dict[str, list[tuple[datetime, float]]] = {}
+        for r in self.store.query(select(p.c.mint, p.c.at, p.c.price)
+                                  .where(p.c.mint.in_([r["mint"] for r in rows])).order_by(p.c.mint, p.c.at)):
+            paths.setdefault(r["mint"], []).append((_utc(r["at"]), r["price"]))
+        for r in rows:
+            scored, peak, sold = _utc(r["scored_at"]), r["price_t"], None
+            for at, price in paths.get(r["mint"], []):
+                if not scored < at <= scored + HORIZON:
+                    continue
+                peak = max(peak, price)
+                if peak >= pumpfun.PROFIT_LINE * r["price_t"] and price <= (1 - pumpfun.TRAIL) * peak:
+                    sold = (at, price)
+                    break
+            changes: dict[str, Any] = {"trail_peak": peak} if peak != r["trail_peak"] else {}
+            if sold:
+                changes.update(trail_at=sold[0], trail_price=sold[1])
+            if changes:
+                self._update(r["mint"], **changes)
+
     def _record_prices(self, rows: list[dict[str, Any]]) -> None:
         if rows:
             p = self.store.table("pf_prices")
@@ -374,9 +408,9 @@ class PumpFunCollector(Collector):
 
 
 def _exits(r: dict[str, Any], price: float, elapsed: timedelta, now: datetime) -> dict[str, Any]:
-    """The exit rules' lines this price crosses for the first time within 24 hours of scoring: at or below
-    half the scoring price, where the stup rule sells, and at or above the take-profit line, where the main
-    account sells."""
+    """The lines this price crosses for the first time within 24 hours of scoring: at or above the take-profit
+    line, where the main account sells, and at or below half the scoring price, the stup line, kept for the
+    log."""
     if not r["price_t"] or not timedelta(0) < elapsed <= HORIZON:
         return {}
     changes: dict[str, Any] = {}

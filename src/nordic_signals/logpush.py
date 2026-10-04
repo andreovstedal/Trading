@@ -33,8 +33,9 @@ FILE = "pumpfun-analyse.json.gz"
 README = """# pump.fun log
 
 Written by the Nordic signals web service every hour: `pumpfun-analyse.json.gz` is the small analysis log
-from the pump.fun page (every measured token, the counts of the rest, the three fake accounts and the main
-account's value). The branch is replaced each time, so it only ever holds the latest copy.
+from the pump.fun page (every measured token, the counts of the rest, the three fake accounts, the main
+account's value and the price paths of the tokens that passed). The branch is replaced each time, so it only
+ever holds the latest copy.
 
     git fetch origin pumpfun-logg
     git show origin/pumpfun-logg:pumpfun-analyse.json.gz | gunzip > pumpfun-analyse.json

@@ -25,7 +25,7 @@ catch well over 99 % of them before the tokens that pass are mostly honest.
 ``paper`` turns the same data into fake-money portfolios: 10 SOL, 0.1 SOL into every token that passes
 (while the cash lasts), sold after 24 hours, fees on both trades, and a token whose price disappears
 counted as lost. Open positions are valued at the latest price, including the live quotes. ``accounts``
-gives the three on the page, which make the same buys:
+gives the three on the page, which buy by the same rule:
 
 * the main account (from 4 October 2026) also sells a position as soon as it is worth twice its cost
   after fees (``TAKE_PROFIT``), at exactly that line. A price that jumped past the line between two looks is
@@ -33,8 +33,17 @@ gives the three on the page, which make the same buys:
   passed got there within 24 hours, and held instead they ended at a median of -2 %; on the full log's
   minute-by-minute prices, this rule would have left that account at 8.25 SOL instead of 7.03.
 * the 24-hour account holds every position for exactly 24 hours: the yardstick.
-* the stup account sells as soon as a price at or below half the buy price is seen (``CLIFF``), at that
-  price, which in a fall is lower.
+* the trailing account (from 4 October 2026) waits until a position is worth twice its cost too, but then
+  lets it run, and sells once the price has fallen ``TRAIL`` (25 %) below its highest since buying, at the
+  price seen: whether letting winners run beats taking +100 %. In version 3's first day, 9 of the 10
+  positions sold at +100 % were below that line again the next afternoon, but one went on to 65 times its
+  buy price.
+
+The stup account, which sold a position as soon as a price at or below half its buy price was seen, made
+way for it. On the bonding curve a token's price cannot fall below the launch price, where it is when every
+buyer has sold back, so since version 3 buys only below twice the launch price, nothing it buys can halve
+before it graduates: in its first 18 hours none of 84 did, against 198 of the 473 tokens it measured but
+stopped. Each measured token's first price at or below half (``CLIFF``) is still recorded, for the log.
 
 ``snapshot`` records the main account's value after every collector run, for the chart, and ``histories``
 gives each position's result over time.
@@ -83,9 +92,10 @@ HORIZONS = (("price_1h", "peak_1h", "1 time"), ("price_6h", "peak_6h", "6 timer"
 PAPER_START = 10.0  # SOL in the fake-money account
 PAPER_STAKE = 0.1  # SOL into every token that passes
 PAPER_HOLD = timedelta(hours=24)
-CLIFF = 0.5  # the stup rule: sold at the first price seen at or below half the buy price
+CLIFF = 0.5  # the stup line, recorded for the log: the first price seen at or below half the buy price
 TAKE_PROFIT = 1.0  # the main account: sold once a position is up 100 % after fees, worth twice its cost ...
 PROFIT_LINE = (1 + TAKE_PROFIT) / (1 - FEE) ** 2  # ... which is this multiple of the buy price
+TRAIL = 0.25  # the trailing account: once at PROFIT_LINE, sold at the first price this far below its highest
 MAIN_ACCOUNT = "take_profit_100"  # the main account's history in pf_equity: a new name when its rules change
 # Result bins for closed trades: (upper limit, label, polarity) with the last one open-ended.
 RESULT_BINS = ((-0.9, "≤ −90", -1), (-0.5, "−90…−50", -1), (-0.1, "−50…−10", -1), (0.1, "±10", 0),
@@ -230,29 +240,30 @@ def _warning(key: str, label: str, rows: list[dict[str, Any]], collapsed: set[st
 
 def accounts(store: Store) -> dict[str, dict[str, Any]]:
     """The fake accounts on the page, all making the same buys: the main one first."""
-    return {"take_profit": paper(store, take_profit=True), "hold": paper(store), "stup": paper(store, cliff=True)}
+    return {"take_profit": paper(store, take_profit=True), "hold": paper(store), "trailing": paper(store, trail=True)}
 
 
-def paper(store: Store, *, cliff: bool = False, take_profit: bool = False) -> dict[str, Any]:
+def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> dict[str, Any]:
     """Replay every token that passed, in order: buy 0.1 SOL while the cash lasts, sell after 24 hours.
 
     With ``take_profit``, the main account's rule: a position is sold as soon as a price at or above the
-    take-profit line is seen, at the line. With ``cliff``, the stup rule: a position is sold as soon as a
-    price at or below half its buy price is seen, at that price. Prices are seen a minute or more apart, so
-    a token that falls straight through the line is sold lower, as it would be in real trading, while one
-    that jumps past the take-profit line is sold at the line, as a limit order would be."""
+    take-profit line is seen, at the line. With ``trail``, the trailing account's: once that line is reached,
+    a position is sold as soon as a price at least TRAIL below the highest since buying is seen, at that price.
+    Prices are seen a minute or more apart, so a token that falls straight through the trailing line is sold
+    lower, as it would be in real trading, while one that jumps past the take-profit line is sold at the line,
+    as a limit order would be."""
     t = store.table("pf_tokens")
     rows = [dict(r) for r in store.query(
         select(t.c.mint, t.c.name, t.c.symbol, t.c.status, t.c.scored_at, t.c.price_t, t.c.price_1h, t.c.price_6h,
-               t.c.price_24h, t.c.last_price, t.c.last_checked_at, t.c.cliff_at, t.c.cliff_price, t.c.profit_at,
-               t.c.profit_price)
+               t.c.price_24h, t.c.last_price, t.c.last_checked_at, t.c.cliff_at, t.c.profit_at, t.c.trail_at,
+               t.c.trail_price)  # cliff_at and profit_at: the quotes record the lines a position crosses
         .where(t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.passed.is_(True)))]
     events = []
     for r in rows:
         opened = _aware(r["scored_at"])
         events.append((opened, 1, "buy", r))
         exits = [(at, kind) for at, kind, rule in ((_aware(r["profit_at"]), "profit", take_profit),
-                                                    (_aware(r["cliff_at"]), "cliff", cliff))
+                                                    (_aware(r["trail_at"]), "trail", trail))
                  if rule and at is not None and opened < at <= opened + PAPER_HOLD]
         if exits:
             sold, kind = min(exits)  # the first rule to fire sells it
@@ -272,7 +283,7 @@ def paper(store: Store, *, cliff: bool = False, take_profit: bool = False) -> di
             cash -= PAPER_STAKE
             holding[r["mint"]] = {**r, "opened_at": at, "qty": PAPER_STAKE * (1 - FEE) / r["price_t"]}
         elif (position := holding.pop(r["mint"], None)) is not None:
-            exit_price = {"profit": PROFIT_LINE * r["price_t"], "cliff": r["cliff_price"],
+            exit_price = {"profit": PROFIT_LINE * r["price_t"], "trail": r["trail_price"],
                           "lost": 0.0}.get(kind, r["price_24h"])
             # At the take-profit line a sale brings exactly the stake times 1 + TAKE_PROFIT; worked out from the
             # price, rounding can leave it a hair below.
@@ -280,8 +291,8 @@ def paper(store: Store, *, cliff: bool = False, take_profit: bool = False) -> di
                         else position["qty"] * exit_price * (1 - FEE))
             cash += proceeds
             closed.append({**position, "closed_at": at, "exit_price": exit_price, "proceeds": proceeds,
-                           "result": proceeds / PAPER_STAKE - 1, "lost": kind == "lost", "cliff": kind == "cliff",
-                           "profit": kind == "profit"})
+                           "result": proceeds / PAPER_STAKE - 1, "lost": kind == "lost", "profit": kind == "profit",
+                           "trail": kind == "trail"})
 
     latest = latest_prices(store, list(holding))
     open_positions = []
@@ -292,14 +303,14 @@ def paper(store: Store, *, cliff: bool = False, take_profit: bool = False) -> di
                                "result": value / PAPER_STAKE - 1})
     positions_value = sum(p["value"] for p in open_positions)
     equity = cash + positions_value
-    cliffs = [(c["closed_at"] - c["opened_at"]).total_seconds() / 60 for c in closed if c["cliff"]]
     profits = [(c["closed_at"] - c["opened_at"]).total_seconds() / 60 for c in closed if c["profit"]]
+    trails = [c for c in closed if c["trail"]]
     return {
         "start": PAPER_START, "stake": PAPER_STAKE, "hold_hours": PAPER_HOLD.total_seconds() / 3600,
-        "cliff_level": CLIFF if cliff else None,
-        "cliff_sales": len(cliffs), "cliff_minutes": median(cliffs) if cliffs else None,
         "profit_level": TAKE_PROFIT if take_profit else None,
         "profit_sales": len(profits), "profit_minutes": median(profits) if profits else None,
+        "trail_level": TRAIL if trail else None, "trail_sales": len(trails),
+        "trail_result": median(c["result"] for c in trails) if trails else None,
         "started_at": events[0][0] if events else None,
         "cash": cash, "positions_value": positions_value, "equity": equity, "result": equity / PAPER_START - 1,
         "open": sorted(open_positions, key=lambda p: p["opened_at"], reverse=True),
@@ -550,7 +561,7 @@ def log_rows(store: Store, *, measured_only: bool = False) -> Iterator[dict[str,
                                        if r[price] is not None and r[peak] else None)
                 r[f"quiet_{h}"] = quiet(r["price_t"], r[price], r[peak]) if r[price] is not None else None
             current = r["passed"] and r["screen_version"] == SCREEN_VERSION
-            for name, field in (("hold", "paper"), ("stup", "paper_stup"), ("take_profit", "paper_take_profit")):
+            for name, field in (("hold", "paper"), ("take_profit", "paper_take_profit"), ("trailing", "paper_trailing")):
                 trade = trades[name].get(r["mint"])
                 r[field] = ("open" if "closed_at" not in trade else "sold") if trade else ("skipped" if current else None)
                 r[f"{field}_result"] = trade["result"] if trade else None

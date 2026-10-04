@@ -356,7 +356,6 @@ body.degen {
 .badge { position: relative; flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--hairline); background: var(--surface-2);
   font-size: 0.78rem; color: var(--ink-2); white-space: nowrap; }
 .chip.new { flex: none; border-color: rgba(20, 241, 149, 0.45); background: rgba(20, 241, 149, 0.1); color: #8ff7c9; }
-.chip.stup { flex: none; cursor: help; }
 .chip.profit { border-color: rgba(20, 241, 149, 0.45); background: rgba(20, 241, 149, 0.1); color: #8ff7c9; }
 .compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 8px; }
 .compare > div { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--surface-2); }
