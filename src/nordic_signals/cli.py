@@ -142,9 +142,8 @@ def _parser() -> argparse.ArgumentParser:
 
     p = commands.add_parser("recommend", help="score the universe and suggest a split from stored data")
     p.add_argument("--account-value", type=float, required=True, help="account value in NOK")
-    p.add_argument("--long", type=float, default=85.0, help="percent in the long-term sleeve (default 85)")
+    p.add_argument("--long", type=float, default=90.0, help="percent in the long-term sleeve (default 90)")
     p.add_argument("--short", type=float, default=10.0, help="percent in the short-term sleeve (default 10)")
-    p.add_argument("--cash", type=float, default=5.0, help="percent kept in cash (default 5)")
     p.add_argument("--max-positions", type=int, default=12)
     p.add_argument("--min-position", type=float, default=20_000.0, help="smallest position in NOK")
     p.add_argument("--ask", action="store_true", help="Norwegian ASK: regulated markets only")
@@ -176,7 +175,7 @@ def _run(store: Store, client: PoliteClient, source: str, **options: Any) -> boo
 
 def _recommend(store: Store, args: argparse.Namespace) -> int:
     policy = Policy(account_value=args.account_value, long_pct=args.long, short_pct=args.short,
-                    cash_pct=args.cash, max_positions=args.max_positions, min_position=args.min_position,
+                    max_positions=args.max_positions, min_position=args.min_position,
                     ask_only=args.ask, short_paper_only=not args.trade_short)
     rec_id = recommend.create(store, policy)
 

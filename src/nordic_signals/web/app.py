@@ -38,7 +38,7 @@ from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
 from ..store import Store
-from . import pumpfun_page, queries
+from . import exports, paper_page, pumpfun_page, queries
 
 log = logging.getLogger("nordic_signals.web")
 
@@ -156,7 +156,10 @@ def create_app(db: str | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def dashboard(request: Request, error: str | None = None) -> HTMLResponse:
         statuses = queries.source_status(store)
-        return render(request, "dashboard.html", policy=queries.last_policy(store) or Policy(300_000).as_dict(),
+        policy = queries.last_policy(store) or Policy(300_000).as_dict()
+        # Earlier recommendations kept a cash share; the form no longer has one, so it goes to the long-term part.
+        policy = {**policy, "long_pct": policy["long_pct"] + policy.get("cash_pct", 0), "cash_pct": 0}
+        return render(request, "dashboard.html", policy=policy,
                       recommendations=queries.recent_recommendations(store), statuses=statuses,
                       stale=queries.stale_sources(statuses), error=error)
 
@@ -164,9 +167,8 @@ def create_app(db: str | None = None) -> FastAPI:
     def create_recommendation(
         request: Request,
         account_value: float = Form(...),
-        long_pct: float = Form(85.0),
+        long_pct: float = Form(90.0),
         short_pct: float = Form(10.0),
-        cash_pct: float = Form(5.0),
         max_positions: int = Form(12),
         min_position: float = Form(20_000.0),
         ask_only: bool = Form(False),
@@ -174,7 +176,7 @@ def create_app(db: str | None = None) -> FastAPI:
         refresh: bool = Form(False),
     ) -> Response:
         try:
-            policy = Policy(account_value=account_value, long_pct=long_pct, short_pct=short_pct, cash_pct=cash_pct,
+            policy = Policy(account_value=account_value, long_pct=long_pct, short_pct=short_pct,
                             max_positions=max_positions, min_position=min_position, ask_only=ask_only,
                             short_paper_only=paper_short)
         except ValueError as exc:
@@ -232,6 +234,22 @@ def create_app(db: str | None = None) -> FastAPI:
     def track_record(request: Request) -> HTMLResponse:
         return render(request, "track_record.html", record=evaluation.track_record(store))
 
+    @app.get("/lekepenger", response_class=HTMLResponse)
+    def paper_view(request: Request) -> HTMLResponse:
+        return render(request, "lekepenger.html", **paper_page.context(store))
+
+    @app.get("/lekepenger/export.csv")
+    def paper_csv() -> StreamingResponse:
+        name = exports.filename("csv", queries.utcnow(), "lekepenger")
+        return StreamingResponse(paper_page.export_csv(store), media_type="text/csv; charset=utf-8",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.get("/lekepenger/export.json")
+    def paper_json() -> StreamingResponse:
+        name = exports.filename("json", queries.utcnow(), "lekepenger")
+        return StreamingResponse(paper_page.export_json(store), media_type="application/json",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
     @app.get("/pumpfun", response_class=HTMLResponse)
     def pumpfun_view(request: Request, periode: str = pumpfun_page.DEFAULT_PERIOD) -> HTMLResponse:
         return render(request, "pumpfun.html", **pumpfun_page.context(store, periode, pf_cache))
@@ -245,19 +263,19 @@ def create_app(db: str | None = None) -> FastAPI:
 
     @app.get("/pumpfun/export.csv")
     def pumpfun_csv() -> StreamingResponse:
-        name = pumpfun_page.filename("csv", queries.utcnow())
+        name = exports.filename("csv", queries.utcnow())
         return StreamingResponse(pumpfun_page.export_csv(store), media_type="text/csv; charset=utf-8",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/pumpfun/export-analyse.json")
     def pumpfun_analysis_json() -> StreamingResponse:
-        name = pumpfun_page.filename("json", queries.utcnow(), "pumpfun-analyse")
+        name = exports.filename("json", queries.utcnow(), "pumpfun-analyse")
         return StreamingResponse(pumpfun_page.export_analysis_json(store), media_type="application/json",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/pumpfun/export.json")
     def pumpfun_json() -> StreamingResponse:
-        name = pumpfun_page.filename("json", queries.utcnow())
+        name = exports.filename("json", queries.utcnow())
         return StreamingResponse(pumpfun_page.export_json(store), media_type="application/json",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 

@@ -1,7 +1,9 @@
 """Turning scores into whole-share positions for a given account value.
 
 Rules from the research report: a fixed, user-set split between the
-long-term sleeve, the short-term sleeve and cash; equal weights inside the
+long-term sleeve and the short-term sleeve (the report's 5 % cash buffer was
+dropped in October 2026: whole-share residuals and a paper-only short-term
+sleeve still leave cash, which covers the courtage); equal weights inside the
 long sleeve; a minimum position size so Nordnet's minimum courtage stays a
 small share of each trade (NOK 29 on the Mini class stops binding at about
 NOK 19 300); and a short-term sleeve that stays on paper until its own track
@@ -24,9 +26,9 @@ MAX_SHORT_POSITIONS = 3
 @dataclass
 class Policy:
     account_value: float
-    long_pct: float = 85.0
+    long_pct: float = 90.0
     short_pct: float = 10.0
-    cash_pct: float = 5.0
+    cash_pct: float = 0.0  # no longer offered; kept so earlier recommendations' policies still load
     max_positions: int = 12
     min_position: float = 20_000.0
     short_paper_only: bool = True
@@ -40,7 +42,8 @@ class Policy:
         if min(self.long_pct, self.short_pct, self.cash_pct) < 0:
             raise ValueError("Prosentandelene kan ikke være negative")
         if abs(self.long_pct + self.short_pct + self.cash_pct - 100) > 0.01:
-            raise ValueError("Langsiktig, kortsiktig og kontanter må til sammen utgjøre 100 %")
+            raise ValueError("Langsiktig og kortsiktig del må til sammen utgjøre 100 %" if not self.cash_pct
+                             else "Langsiktig, kortsiktig og kontanter må til sammen utgjøre 100 %")
         if self.max_positions < 1 or self.min_position <= 0:
             raise ValueError("Antall posisjoner og minste posisjon må være større enn null")
 

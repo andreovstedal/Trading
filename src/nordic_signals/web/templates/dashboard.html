@@ -24,11 +24,10 @@
              value="{{ policy.account_value | int }}">
     </div>
     <div class="field">
-      <label>Fordeling: langsiktig / kortsiktig / kontanter (%)</label>
-      <div class="row3">
+      <label>Fordeling: langsiktig / kortsiktig (%)</label>
+      <div class="row2">
         <input name="long_pct" type="number" min="0" max="100" step="1" value="{{ policy.long_pct | int }}" aria-label="Langsiktig %">
         <input name="short_pct" type="number" min="0" max="100" step="1" value="{{ policy.short_pct | int }}" aria-label="Kortsiktig %">
-        <input name="cash_pct" type="number" min="0" max="100" step="1" value="{{ policy.cash_pct | int }}" aria-label="Kontanter %">
       </div>
     </div>
     <div class="field row2">

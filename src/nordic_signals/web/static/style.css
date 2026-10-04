@@ -204,6 +204,7 @@ dl.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
 .chart .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
 .chart .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
+.chart .dot.hover { fill: var(--ink); }  /* neutral: the line under it can be either colour */
 .chart .cross { stroke: var(--ink-2); stroke-width: 1; }
 .chart .hit { fill: transparent; }
 .chart .bar.pos { fill: var(--series-1); }
@@ -370,6 +371,10 @@ body.degen {
 .spark-cell { width: 130px; padding-top: 6px; padding-bottom: 4px; }
 .patterns td.num { vertical-align: top; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.markets { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.chip.market { display: inline-flex; align-items: center; gap: 6px; }
+.chip.market .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.chip.market.open .dot { background: var(--good); }
 .actions .button:hover { text-decoration: none; filter: brightness(1.08); }
 .degen .actions .button:not(.secondary) { background: linear-gradient(90deg, #c4a3ff, #14f195); color: #0b0820; }
 

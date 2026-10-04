@@ -23,17 +23,20 @@ SOURCES = {
     "mfn": "Svenske pressemeldinger (MFN)",
     "yahoo": "Kurshistorikk og kursen SEK/NOK (Yahoo)",
     "pumpfun": "pump.fun-lanseringer til målingen av pump-and-dump-filteret (DexScreener, Solana)",
+    "lekepenger": "Lekepengekontoens beslutninger etter børsslutt (henter ingenting selv)",
 }
 
 
 def recent_recommendations(store: Store, limit: int = 15) -> list[dict[str, Any]]:
+    """The ones asked for on this page or the CLI; the play-money account's are on its own page."""
     r = store.table("recommendations")
-    return [dict(row) for row in store.query(select(r).order_by(r.c.id.desc()).limit(limit))]
+    return [dict(row) for row in store.query(select(r).where(r.c.origin.is_(None)).order_by(r.c.id.desc())
+                                             .limit(limit))]
 
 
 def last_policy(store: Store) -> dict[str, Any] | None:
     r = store.table("recommendations")
-    row = store.scalar(select(r.c.policy).order_by(r.c.id.desc()).limit(1))
+    row = store.scalar(select(r.c.policy).where(r.c.origin.is_(None)).order_by(r.c.id.desc()).limit(1))
     return row or None
 
 

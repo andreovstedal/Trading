@@ -11,19 +11,18 @@ from __future__ import annotations
 import csv
 import hashlib
 import io
-import json
 import math
 import threading
 from collections.abc import Callable, Iterator
-from datetime import date, datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
 
-from .. import pumpfun, text
+from .. import pumpfun
 from ..collectors.pumpfun import PRICE_HISTORY
 from ..store import Store, utcnow
-from . import charts
+from . import charts, exports
 
 # Periods for the account chart: key in the address, label on the button, how far back.
 PERIODS: dict[str, tuple[str, timedelta | None]] = {
@@ -231,47 +230,28 @@ def export_csv(store: Store) -> Iterator[str]:
     out = io.StringIO()
     writer = csv.writer(out, delimiter=";")
     writer.writerow([header for header, _, _ in CSV_COLUMNS])
-    yield "﻿" + _drain(out)
+    yield "﻿" + exports.drain(out)
     for i, r in enumerate(pumpfun.log_rows(store), 1):
-        writer.writerow([_cell(get(r), digits) for _, get, digits in CSV_COLUMNS])
+        writer.writerow([exports.cell(get(r), digits) for _, get, digits in CSV_COLUMNS])
         if i % 500 == 0:
-            yield _drain(out)
-    yield _drain(out)
-
-
-def _cell(value: Any, digits: int | None) -> str:
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "ja" if value else "nei"
-    if isinstance(value, datetime):
-        return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(text.OSLO).strftime("%Y-%m-%d %H:%M:%S")
-    if digits is not None and isinstance(value, int | float):
-        return f"{value:.{digits}f}".replace(".", ",")
-    return str(value)
-
-
-def _drain(out: io.StringIO) -> str:
-    value = out.getvalue()
-    out.seek(0)
-    out.truncate()
-    return value
+            yield exports.drain(out)
+    yield exports.drain(out)
 
 
 def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
     """Everything, for analysis in code: the tokens, the fake trades, the account value and the price paths."""
     books = pumpfun.accounts(store)
-    yield '{"meta": ' + _json(_meta(books["take_profit"], now)) + ',\n"tokens": ['
-    yield from _items(_json(row) for row in pumpfun.log_rows(store))
-    yield '],\n"trades": ' + _json({name: _trades(a) for name, a in books.items()})
+    yield '{"meta": ' + exports.to_json(_meta(books["take_profit"], now)) + ',\n"tokens": ['
+    yield from exports.items(exports.to_json(row) for row in pumpfun.log_rows(store))
+    yield '],\n"trades": ' + exports.to_json({name: _trades(a) for name, a in books.items()})
     e = store.table("pf_equity")
     yield ',\n"equity": ['
-    yield from _items(_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
+    yield from exports.items(exports.to_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
     prices = store.table("pf_prices")
     yield '],\n"price_history": ['
     with store.engine.connect() as conn:
         rows = conn.execution_options(yield_per=2000).execute(select(prices).order_by(prices.c.mint, prices.c.at))
-        yield from _items(_json(dict(r)) for r in rows.mappings())
+        yield from exports.items(exports.to_json(dict(r)) for r in rows.mappings())
     yield "]}\n"
 
 
@@ -281,12 +261,12 @@ def export_analysis_json(store: Store, now: datetime | None = None) -> Iterator[
     About 1 MB a day; the full log is some 30 MB, nearly all of it launches that were never followed."""
     books = pumpfun.accounts(store)
     meta = {**_meta(books["take_profit"], now), "kind": "analysis: measured tokens only, no price paths"}
-    yield '{"meta": ' + _json(meta) + ',\n"funnel": ' + _json(pumpfun.funnel(store)) + ',\n"tokens": ['
-    yield from _items(_json(_compact(row)) for row in pumpfun.log_rows(store, measured_only=True))
-    yield '],\n"trades": ' + _json({name: _trades(a) for name, a in books.items()})
+    yield '{"meta": ' + exports.to_json(meta) + ',\n"funnel": ' + exports.to_json(pumpfun.funnel(store)) + ',\n"tokens": ['
+    yield from exports.items(exports.to_json(_compact(row)) for row in pumpfun.log_rows(store, measured_only=True))
+    yield '],\n"trades": ' + exports.to_json({name: _trades(a) for name, a in books.items()})
     e = store.table("pf_equity")
     yield ',\n"equity": ['
-    yield from _items(_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
+    yield from exports.items(exports.to_json(dict(r)) for r in store.query(select(e).order_by(e.c.at)))
     yield "]}\n"
 
 
@@ -350,33 +330,3 @@ def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
                       "ones are listed.",
         },
     }
-
-
-def _items(encoded: Iterator[str]) -> Iterator[str]:
-    """Comma-separated, a few hundred at a time."""
-    batch: list[str] = []
-    first = True
-    for item in encoded:
-        batch.append(item)
-        if len(batch) == 500:
-            yield ("" if first else ",") + "\n" + ",\n".join(batch)
-            batch, first = [], False
-    if batch:
-        yield ("" if first else ",") + "\n" + ",\n".join(batch)
-
-
-def _json(value: Any) -> str:
-    return json.dumps(value, default=_encode, ensure_ascii=False)
-
-
-def _encode(value: Any) -> str:
-    if isinstance(value, datetime):
-        return (value if value.tzinfo else value.replace(tzinfo=timezone.utc)).isoformat()
-    if isinstance(value, date):
-        return value.isoformat()
-    raise TypeError(f"not JSON serialisable: {type(value).__name__}")
-
-
-def filename(kind: str, now: datetime, name: str = "pumpfun-logg") -> str:
-    """With the time as well as the date (Oslo), so two downloads on one day are never mixed up."""
-    return f"{name}-{now.astimezone(text.OSLO):%Y-%m-%d-%H%M}.{kind}"

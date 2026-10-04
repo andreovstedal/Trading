@@ -20,13 +20,13 @@ log = logging.getLogger(__name__)
 FX_PAIRS = {"SEK": "SEKNOK=X"}
 
 
-def create(store: Store, policy: Policy) -> int:
+def create(store: Store, policy: Policy, *, origin: str | None = None) -> int:
     recs = store.table("recommendations")
     with store.engine.begin() as conn:
         return conn.execute(
             insert(recs).values(created_at=utcnow(), status="queued", model_version=MODEL_VERSION,
                                 account_value=policy.account_value, currency="NOK", policy=policy.as_dict(),
-                                params=_jsonable(PARAMS))
+                                params=_jsonable(PARAMS), origin=origin)
             .returning(recs.c.id)
         ).scalar_one()
 

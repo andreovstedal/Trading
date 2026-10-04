@@ -1,0 +1,188 @@
+{% extends "base.html" %}
+{% block title %}Lekepenger · Nordic signals{% endblock %}
+{% block content %}
+{% macro arrow(value) -%}
+  {%- if value is not none %}<span class="dir {{ 'up' if value >= 0 else 'down' }}" aria-hidden="true">{{ '▲' if value >= 0 else '▼' }}</span>{% endif -%}
+{%- endmacro %}
+<div class="page-head">
+  <div>
+    <h1>Lekepenger</h1>
+    <p class="muted">{{ a.start | nok }} i lekepenger handler etter rådgiverens egne regler, med Nordnets kurtasje og
+      børsenes åpningstider. Slik ser vi hvordan rådene ville gått i praksis, før ekte penger står på spill.</p>
+  </div>
+  <p class="markets" aria-label="Børsene nå">
+    {%- for m in markets %}
+    <span class="chip market {{ 'open' if m.open else 'closed' }}"><span class="dot" aria-hidden="true"></span>{{ m.name }}:
+      {% if m.open %}åpen til {{ m.closes | clock }}{% elif m.next_open %}stengt, åpner {{ m.next_open | when }}{% else %}stengt{% endif %}</span>
+    {%- endfor %}
+  </p>
+</div>
+
+{% if not a.orders %}
+<div class="card">
+  <h2>Kontoen er klar</h2>
+  <p>Første beslutning tas {% if first_evening %}{{ first_evening | when }}{% else %}neste handelsdag om kvelden{% endif %},
+    når kveldens innsamling er ferdig. Kontoen kjøper da de {{ policy.max_positions }} aksjene rådgiveren rangerer høyest,
+    og kortsiktige signaler hvis det er noen. Ordrene utføres til åpningskurs neste handelsdag.</p>
+</div>
+{% endif %}
+
+<div class="tiles">
+  <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ a.equity | nok }}</div>
+    <div class="sub">{% if a.valued_on %}til sluttkurs {{ a.valued_on | day }}{% else %}startbeløp{% endif %}</div></div>
+  <div class="tile"><div class="label">Avkastning</div><div class="value">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
+    <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter kurtasje og veksling</div></div>
+  <div class="tile"><div class="label">Beholdning</div><div class="value">{{ a.positions | length }}</div>
+    <div class="sub">aksjer verdt {{ a.positions_value | nok }} · {{ a.cash | nok }} i kontanter</div></div>
+  <div class="tile"><div class="label">Kostnader</div><div class="value">{{ (a.courtage + a.exchange) | nok }}</div>
+    <div class="sub">kurtasje {{ a.courtage | nok }}, veksling {{ a.exchange | nok }}{% if a.dividends_nok %} · utbytte {{ a.dividends_nok | nok }}{% endif %}</div></div>
+</div>
+
+<div class="card">
+  <h2>Kontoverdi</h2>
+  {% if chart %}
+  {{ chart }}
+  <details data-key="paper-table"><summary class="small">Vis tallene</summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Handelsdag</th><th class="num">Kontoverdi</th></tr></thead>
+      <tbody>{% for when, value in history[-15:] | reverse %}<tr><td>{{ when | day }}</td><td class="num">{{ value | nok }}</td></tr>{% endfor %}</tbody>
+    </table></div>
+  </details>
+  {% else %}
+  <p class="muted">Grafen kommer etter den første handelsdagen. Verdien regnes ut til sluttkurs hver dag børsene er
+    åpne.</p>
+  {% endif %}
+</div>
+
+{% if pending %}
+<div class="card">
+  <h2>Venter på åpningen</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Aksje</th><th>Ordre</th><th class="num">Antall</th><th class="num">Sluttkurs i går</th><th>Utføres</th><th>Begrunnelse</th></tr></thead>
+    <tbody>{% for o in pending %}
+      <tr><td>{{ o.name }}<div class="ticker">{{ o.symbol }} · {{ sleeves[o.sleeve] }}</div></td>
+        <td>{{ sides[o.side] }}</td>
+        <td class="num">{{ o.shares | num }}</td>
+        <td class="num">{{ o.ref_price | num(2) }}&nbsp;{{ o.currency }}</td>
+        <td>{% if o.opened %}ved åpningen {{ o.opening | when }}; kursen hentes etter børsslutt{% elif o.opening %}ved åpningen {{ o.opening | when }}{% else %}neste handelsdag{% endif %}</td>
+        <td class="small">{{ o.reason }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="small muted">Ordrene legges inn om kvelden, etter at børsene har stengt, og går inn i åpningsauksjonen
+    neste handelsdag klokka 09:00. Der får alle samme kurs, så det betales ingen spread. Et kjøp blir mindre hvis det
+    ikke er nok penger til hele.</p>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Beholdning</h2>
+  {% if a.positions %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Aksje</th><th>Del</th><th class="num">Antall</th><th>Kjøpt</th><th class="num">Kostpris</th>
+      <th class="num">Verdi nå</th><th class="num">Resultat</th></tr></thead>
+    <tbody>{% for p in a.positions %}
+      <tr><td><a href="/stocks/{{ p.instrument_id }}">{{ p.name }}</a><div class="ticker">{{ p.symbol }} · {{ p.currency }}</div></td>
+        <td>{{ sleeves[p.sleeve] }}{% if p.sleeve == "short" %}<div class="ticker">dag {{ p.held_days }} av {{ rules.short_hold }}</div>{% endif %}</td>
+        <td class="num">{{ p.shares | num }}</td>
+        <td class="nowrap">{{ p.opened_on | day }}</td>
+        <td class="num">{{ p.cost | nok }}</td>
+        <td class="num">{{ p.value | nok }}</td>
+        <td class="num">{{ arrow(p.result) }} {{ p.result | num(0, True) }}&nbsp;NOK<div class="ticker">{{ p.result_pct | pct(1, True) }}</div></td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="small muted">Kostpris er kjøpet med kurtasje og veksling. Verdien er til siste sluttkurs, slik Nordnet viser
+    kontoen; det salget vil koste, trekkes når det skjer.</p>
+  {% else %}
+  <p class="muted">Ingen aksjer ennå.</p>
+  {% endif %}
+</div>
+
+{% if trades %}
+<div class="card">
+  <h2>Handler</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Dag</th><th>Aksje</th><th>Ordre</th><th class="num">Antall</th><th class="num">Kurs</th>
+      <th class="num">Beløp</th><th class="num">Kurtasje</th><th class="num">Veksling</th><th class="num">Resultat</th></tr></thead>
+    <tbody>{% for t in trades %}
+      <tr><td class="nowrap">{{ t.day | day }}<div class="ticker">åpning {{ t.at | clock }}</div></td>
+        <td>{{ t.name }}<div class="ticker">{{ t.symbol }} · {{ sleeves[t.sleeve] }}</div></td>
+        <td>{{ sides[t.side] }}{% if t.at_close %} <span class="chip" title="Åpningskursen manglet, så sluttkursen er brukt">sluttkurs</span>{% endif %}</td>
+        <td class="num">{{ t.shares | num }}</td>
+        <td class="num">{{ t.price | num(2) }}&nbsp;{{ t.currency }}</td>
+        <td class="num">{{ t.cash | num(0, True) }}&nbsp;NOK</td>
+        <td class="num">{{ t.courtage | num(2) }}</td>
+        <td class="num">{{ t.exchange | num(2) }}</td>
+        <td class="num">{% if t.result is not none %}{{ arrow(t.result) }} {{ t.result_pct | pct(1, True) }}{% else %}–{% endif %}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+  <p class="small muted">Beløp er det handelen gjorde med kontantene, i NOK. Et salgs resultat er mot kjøpet, med
+    kurtasje og veksling begge veier.{% if a.trades | length > trades | length %} De {{ trades | length }} siste av
+    {{ a.trades | length }}; alle er i loggen nederst.{% endif %}</p>
+</div>
+{% endif %}
+
+{% if days %}
+<div class="card">
+  <h2>Kveldens beslutninger</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Kveld</th><th>Hva</th><th class="num">Ordre</th><th class="num">Kontoverdi</th><th>Merknader</th></tr></thead>
+    <tbody>{% for d in days %}
+      <tr><td class="nowrap">{{ d.decided_on | day }}</td>
+        <td>{% if d.rebalance %}Månedlig ombalansering{% if d.recommendation_id %} etter <a href="/recommendations/{{ d.recommendation_id }}">anbefaling {{ d.recommendation_id }}</a>{% endif %}{% else %}Kortsiktige signaler{% endif %}</td>
+        <td class="num">{{ d.orders }}</td>
+        <td class="num">{{ d.equity | nok }}</td>
+        <td class="small">{{ (d.notes or []) | join(" ") }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+{% if a.lapsed %}
+<div class="card">
+  <h2>Ordre som ikke ble utført</h2>
+  <div class="table-wrap"><table>
+    <thead><tr><th>Bestemt</th><th>Aksje</th><th>Ordre</th><th>Hvorfor</th></tr></thead>
+    <tbody>{% for o in a.lapsed %}
+      <tr><td class="nowrap">{{ o.decided_on | day }}</td><td>{{ o.name }}<div class="ticker">{{ o.symbol }}</div></td>
+        <td>{{ sides[o.side] }} {{ o.shares | num }}</td><td class="small">{{ o.status }}</td></tr>
+    {% endfor %}</tbody>
+  </table></div>
+</div>
+{% endif %}
+
+<details class="card">
+  <summary><strong>Slik handler kontoen</strong></summary>
+  <ul>
+    <li><strong>Fordeling.</strong> {{ policy.long_pct | int }}&nbsp;% langsiktig og {{ policy.short_pct | int }}&nbsp;%
+      kortsiktig, ingen kontantdel. Inntil {{ policy.max_positions }} langsiktige aksjer, hver på minst
+      {{ policy.min_position | nok }}, som i rådgiverens standardoppsett.</li>
+    <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag hver måned: aksjer som fortsatt er blant de
+      {{ rules.hold_rank }} beste, beholdes, resten selges, og de høyest rangerte den ikke eier, kjøpes til den har
+      {{ policy.max_positions }}. Strengere krav for å komme inn enn for å bli holder handelen og kurtasjen nede.</li>
+    <li><strong>Kortsiktig del.</strong> Kjøper rådgiverens hendelsessignaler (nytt tilbakekjøpsprogram, flere
+      innsidere som kjøper), høyst {{ rules.max_new_short }} nye om dagen og så mange samtidig som pengene rekker, og
+      selger hver etter {{ rules.short_hold }} handelsdager.</li>
+    <li><strong>Åpningstider.</strong> Oslo Børs handler 09:00–16:25 og Nasdaq Stockholm 09:00–17:30, med egne
+      helligdager. Beslutningene tas om kvelden og utføres til åpningskurs neste dag aksjen handles. En ordre som ikke
+      er utført etter {{ rules.order_days }} handelsdager, faller bort.</li>
+    <li><strong>Nordnets priser</strong> (Norge, kurtasjeklasse Mini, sjekket 4. oktober 2026):
+      {{ (fees.courtage * 100) | num(2) }}&nbsp;% kurtasje, minst {{ fees.minimum | num(0) }}&nbsp;NOK per handel i nordiske
+      aksjer. Svenske aksjer koster i tillegg {{ (fees.exchange * 100) | num(2) }}&nbsp;% i valutaveksling ved både kjøp
+      og salg.</li>
+    <li><strong>Utbytte</strong> godskrives på eksdagen; svensk utbytte etter {{ (fees.dividend_tax * 100) | int }}&nbsp;%
+      kildeskatt. Ingen norsk skatt, som på en aksjesparekonto.</li>
+    <li><strong>Ikke med:</strong> at en stor ordre kan flytte kursen, og forsinkelsen fra du ser et signal til du
+      handler. Ordrene er små i forhold til omsetningen, siden rådgiveren bare velger aksjer med god likviditet.</li>
+  </ul>
+</details>
+
+<div class="card">
+  <h2>Last ned loggen</h2>
+  <p>Alt kontoen har gjort: beslutningene hver kveld, ordrene og hva som ble av dem, handlene med kurtasje og
+    veksling, beholdningen, utbyttet og verdien dag for dag.</p>
+  <p class="actions"><a class="button" href="/lekepenger/export.json">Logg (JSON)</a>
+    <a class="button secondary" href="/lekepenger/export.csv">Handler (CSV)</a></p>
+  <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger.</p>
+</div>
+<script src="/static/charts.js" defer></script>
+{% endblock %}

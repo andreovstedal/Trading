@@ -215,6 +215,7 @@ def _build_metadata() -> MetaData:
         Column("error", Text),
     )
     _advice_tables(metadata)
+    _paper_tables(metadata)
     _pumpfun_tables(metadata)
     for name, spec in TABLES.items():
         columns = {**spec.columns, **_BOOKKEEPING}
@@ -246,6 +247,7 @@ def _advice_tables(metadata: MetaData) -> None:
         Column("refresh", json()),  # collector results if data was refreshed first
         Column("summary", json()),
         Column("error", Text),
+        Column("origin", Text),  # None when asked for on the page or the CLI; "lekepenger" from the play-money account
     )
     # One row per stock in the universe, chosen or not, so the ranking itself can be scored later.
     Table(
@@ -298,6 +300,47 @@ def _advice_tables(metadata: MetaData) -> None:
         Column("end_price", Float),
         Column("ret", Float),
         Column("computed_at", DateTime(timezone=True)),
+    )
+
+
+def _paper_tables(metadata: MetaData) -> None:
+    """The play-money account (``advisor.paper``): what it decided each evening, and the orders. Fills, fees and
+    the account's value are worked out from the prices, so they are not stored."""
+    json = _TYPES["json"]
+    Table(
+        "paper_days", metadata,
+        Column("account", Text, primary_key=True),
+        Column("decided_on", Date, primary_key=True),  # the trading day whose closing prices it saw
+        Column("decided_at", DateTime(timezone=True), nullable=False),
+        Column("rebalance", Boolean, nullable=False),  # the monthly long-term rebalance
+        Column("recommendation_id", BigInteger),  # the recommendation it followed, on rebalance evenings
+        Column("model_version", Text),
+        Column("equity", Float),  # NOK, at that day's close
+        Column("cash", Float),
+        Column("orders", Integer),
+        Column("notes", json()),
+    )
+    Table(
+        "paper_orders", metadata,
+        Column("id", _SERIAL, primary_key=True, autoincrement=True),
+        Column("account", Text, nullable=False, index=True),
+        Column("decided_on", Date, nullable=False),
+        Column("decided_at", DateTime(timezone=True), nullable=False),
+        Column("instrument_id", BigInteger, nullable=False),
+        Column("symbol", Text),
+        Column("name", Text),
+        Column("country", Text),
+        Column("currency", Text),
+        Column("side", Text, nullable=False),  # buy, sell
+        Column("shares", Integer, nullable=False),  # planned; a buy is cut to the cash there is at the opening
+        Column("sleeve", Text, nullable=False),  # long, short
+        Column("signal_type", Text),  # short-term trades: the event that triggered it
+        Column("reason", Text),
+        Column("rank", Integer),
+        Column("score", Float),
+        Column("ref_price", Float),  # the closing price it was decided on, in the stock's currency
+        Column("fx_rate", Float),  # NOK per unit of that currency
+        Column("recommendation_id", BigInteger),
     )
 
 

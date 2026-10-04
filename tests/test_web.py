@@ -108,7 +108,7 @@ def test_recommendation_flow(store, make_client):
     seed_universe(store)
     with make_client() as client:
         response = client.post("/recommendations", data={
-            "account_value": "200000", "long_pct": "85", "short_pct": "10", "cash_pct": "5",
+            "account_value": "200000", "long_pct": "90", "short_pct": "10",
             "max_positions": "4", "min_position": "20000", "paper_short": "on",
         }, follow_redirects=False)
         assert response.status_code == 303
@@ -133,7 +133,7 @@ def test_recommendation_flow(store, make_client):
 def test_invalid_input_comes_back_as_a_message(make_client):
     with make_client() as client:
         response = client.post("/recommendations", data={
-            "account_value": "100000", "long_pct": "90", "short_pct": "20", "cash_pct": "5",
+            "account_value": "100000", "long_pct": "90", "short_pct": "20",
         }, follow_redirects=False)
         assert response.status_code == 303 and response.headers["location"].startswith("/?error=")
         assert "til sammen utgjøre 100" in client.get(response.headers["location"]).text

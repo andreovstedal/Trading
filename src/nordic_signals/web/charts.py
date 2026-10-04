@@ -1,9 +1,10 @@
 """Small server-side SVG charts in the app's colour tokens.
 
-* ``account_chart``: the fake-money account's value over time. One series, so no legend (the card title
-  names it); the starting amount is a dashed reference line, the line and the area to it are green above and
-  pink below, and the latest value is labelled directly. A crosshair and tooltip follow the pointer
-  (``static/charts.js``).
+* ``account_chart``: a fake-money account's value over time, in SOL by default (pump.fun) or in any currency
+  (``money``), point by point or, for the stock account, day by day (``daily``). One series, so no legend
+  (the card title names it); the starting amount is a dashed reference line, the line and the area to it are
+  green above and pink below, and the latest value is labelled directly. A crosshair and tooltip follow the
+  pointer (``static/charts.js``).
 * ``sparkline``: one position's result after fees since it was bought, the same way around a dashed
   break-even line. A sold position's axis is its 24 hours; an open one's runs to now (at least an hour), so
   a new position's first minutes fill the chart.
@@ -20,6 +21,7 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from datetime import datetime
 from typing import Any
 
@@ -28,51 +30,60 @@ from markupsafe import Markup, escape
 from .. import text
 
 WIDTH, HEIGHT = 640, 240
-LEFT, RIGHT, TOP, BOTTOM = 52, 96, 14, 30
+LEFT, RIGHT, TOP, BOTTOM = 52, 96, 14, 30  # at least; the account chart widens them for long labels
+LABEL_WIDTH, VALUE_WIDTH = 7, 8  # about a character's width at the axis labels' and the value label's sizes
 MIN_SPAN = 0.02  # the account chart always shows at least ±2 % around the start, so small moves look small
 SPARK = {"card": (280, 84, 6), "mini": (120, 30, 3)}  # width, height, padding
 SPARK_MIN_SPAN = 0.10  # a position's chart shows at least −10 % to +10 %
 
 
-def account_chart(points: list[tuple[datetime, float]], start: float, *, live: bool = False) -> Markup:
-    """``live``: the last point is the value now, between two recorded ones."""
+def account_chart(points: list[tuple[datetime, float]], start: float, *, live: bool = False,
+                  money: Callable[[float], str] | None = None, daily: bool = False) -> Markup:
+    """``live``: the last point is the value now, between two recorded ones. ``daily``: one point a day, labelled
+    with the date only."""
     if len(points) < 2:
         return Markup("")
+    amount = money or _sol_amount
+    stamp = _day if daily else _date_time
     t0, t1 = points[0][0].timestamp(), points[-1][0].timestamp()
     values = [v for _, v in points]
     lo, hi = _padded(min(*values, start * (1 - MIN_SPAN)), max(*values, start * (1 + MIN_SPAN)))
     span = max(t1 - t0, 1.0)
+    ticks, digits = _ticks(lo, hi)
+    # Room for the longest axis label and the latest value: kroner need more than SOL.
+    left = max(LEFT, 14 + LABEL_WIDTH * max(len(text.number(v, digits)) for v in ticks))
+    right = max(RIGHT, 16 + VALUE_WIDTH * len(amount(points[-1][1])))
 
     def x(ts: float) -> float:
-        return round(LEFT + (ts - t0) / span * (WIDTH - LEFT - RIGHT), 1)
+        return round(left + (ts - t0) / span * (WIDTH - left - right), 1)
 
     def y(v: float) -> float:
         return round(TOP + (hi - v) / (hi - lo) * (HEIGHT - TOP - BOTTOM), 1)
 
     coords = [(x(t.timestamp()), y(v)) for t, v in points]
-    ticks, digits = _ticks(lo, hi)
-    parts = [_grid(ticks, digits, y), _split(coords, y(start), "acct", (LEFT, TOP, WIDTH - RIGHT, HEIGHT - BOTTOM))]
+    parts = [_grid(ticks, digits, y, left, WIDTH - right),
+             _split(coords, y(start), "acct", (left, TOP, WIDTH - right, HEIGHT - BOTTOM))]
     # The start label goes on the side of the reference line that the first part of the line keeps away from.
     early = [v for _, v in points[:max(2, len(points) // 6)]]
     label_at = y(start) + 16 if sum(early) / len(early) >= start else y(start) - 6
-    parts.append(f'<line class="ref" x1="{LEFT}" x2="{WIDTH - RIGHT}" y1="{y(start)}" y2="{y(start)}"/>'
-                 f'<text class="axis-label" x="{LEFT + 6}" y="{label_at}">start {_sol(start)}</text>')
+    parts.append(f'<line class="ref" x1="{left}" x2="{WIDTH - right}" y1="{y(start)}" y2="{y(start)}"/>'
+                 f'<text class="axis-label" x="{left + 6}" y="{label_at}">start {amount(start)}</text>')
     last_x, last_y = coords[-1]
     label_y = last_y - 10 if abs(last_y - y(start)) < 14 else last_y + 4
     side = "up" if points[-1][1] >= start else "down"
     parts.append(f'<circle class="dot {side}" cx="{last_x}" cy="{last_y}" r="4"/>'
-                 f'<text class="value-label" x="{last_x + 8}" y="{label_y}">{_sol(points[-1][1])}</text>')
-    for when, cx in ((points[0][0], LEFT), (points[-1][0], WIDTH - RIGHT)):
-        anchor = "start" if cx == LEFT else "end"
-        label = "nå" if live and cx != LEFT else _when(when)
+                 f'<text class="value-label" x="{last_x + 8}" y="{label_y}">{amount(points[-1][1])}</text>')
+    for when, cx in ((points[0][0], left), (points[-1][0], WIDTH - right)):
+        anchor = "start" if cx == left else "end"
+        label = "nå" if live and cx != left else stamp(when)
         parts.append(f'<text class="axis-label" x="{cx}" y="{HEIGHT - 8}" text-anchor="{anchor}">{label}</text>')
-    parts.append(_hover(TOP, HEIGHT - BOTTOM, LEFT, WIDTH - LEFT - RIGHT))
-    data = [{"x": cx, "y": cy, "t": f"{_when(when)} · {_sol(v)}"}
+    parts.append(_hover(TOP, HEIGHT - BOTTOM, left, WIDTH - left - right))
+    data = [{"x": cx, "y": cy, "t": f"{stamp(when)} · {amount(v)}"}
             for (when, v), (cx, cy) in zip(points, coords, strict=True)]
     if live:
-        data[-1]["t"] = f"nå · {_sol(points[-1][1])}"
-    label = (f"Kontoverdi fra {_sol(points[0][1])} til {_sol(points[-1][1])}, "
-             f"{_when(points[0][0])} til {'nå' if live else _when(points[-1][0])}. Start: {_sol(start)}.")
+        data[-1]["t"] = f"nå · {amount(points[-1][1])}"
+    label = (f"Kontoverdi fra {amount(points[0][1])} til {amount(points[-1][1])}, "
+             f"{stamp(points[0][0])} til {'nå' if live else stamp(points[-1][0])}. Start: {amount(start)}.")
     return _figure(parts, label, data, (WIDTH, HEIGHT))
 
 
@@ -176,11 +187,11 @@ def _figure(parts: list[str], label: str, data: list[dict[str, Any]] | None, siz
     return Markup(f'<div class="chart{" " + css if css else ""}"{attrs}>{svg}{tip}</div>')
 
 
-def _grid(ticks: list[float], digits: int, y: Any) -> str:
+def _grid(ticks: list[float], digits: int, y: Any, left: float = LEFT, right: float = WIDTH - RIGHT) -> str:
     out = []
     for v in ticks:
-        out.append(f'<line class="grid" x1="{LEFT}" x2="{WIDTH - RIGHT}" y1="{y(v)}" y2="{y(v)}"/>'
-                   f'<text class="axis-label" x="{LEFT - 8}" y="{y(v) + 4}" text-anchor="end">'
+        out.append(f'<line class="grid" x1="{left}" x2="{right}" y1="{y(v)}" y2="{y(v)}"/>'
+                   f'<text class="axis-label" x="{left - 8}" y="{y(v) + 4}" text-anchor="end">'
                    f'{text.number(v, digits)}</text>')
     return "".join(out)
 
@@ -207,13 +218,18 @@ def _padded(lo: float, hi: float) -> tuple[float, float]:
     return lo - pad, hi + pad
 
 
-def _sol(value: float) -> str:
+def _sol_amount(value: float) -> str:
     return f"{text.number(value, 3)}{text.NBSP}SOL"
 
 
-def _when(value: datetime) -> str:
+def _date_time(value: datetime) -> str:
     local = value.astimezone(text.OSLO)
     return f"{local.day}. {text.MONTHS[local.month - 1]} {local:%H:%M}"
+
+
+def _day(value: datetime) -> str:
+    local = value.astimezone(text.OSLO)
+    return f"{local.day}. {text.MONTHS[local.month - 1]}"
 
 
 def _clock(value: datetime) -> str:

@@ -48,8 +48,8 @@ PUMPFUN = ["pumpfun", "pumpfun-quotes"]
 def test_jobs_due_through_a_weekday(store):
     assert due(store, at(MONDAY, 3)) == PUMPFUN
     assert due(store, at(MONDAY, 12)) == [*PUMPFUN, "intraday"]
-    assert due(store, at(MONDAY, 20, 31)) == [*PUMPFUN, "nightly"]
-    assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "mfn", "prices"]
+    assert due(store, at(MONDAY, 20, 31)) == [*PUMPFUN, "nightly", "lekepenger"]
+    assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "lekepenger", "mfn", "prices"]
     assert due(store, at(MONDAY + timedelta(days=5), 21, 31)) == PUMPFUN  # Saturday
 
 
@@ -58,6 +58,7 @@ def test_what_already_ran_is_not_repeated(store, monkeypatch):
     now = at(MONDAY, 21, 40)
     add_run(store, "pumpfun", now - timedelta(minutes=2))
     add_run(store, "no-short", at(MONDAY, 20, 30))  # the nightly set, from a cron service
+    add_run(store, "lekepenger", at(MONDAY, 20, 35))
     add_run(store, "mfn", at(MONDAY, 21, 0))
     add_run(store, "yahoo", at(MONDAY, 21, 35), minutes=0.1)  # the quick SEK/NOK refresh is not the price job
     assert due(store, now) == ["prices"]
@@ -84,6 +85,13 @@ def test_a_failed_daily_job_is_retried_after_an_hour(store, monkeypatch):
     assert schedule.run_due("nordic") == []
     (attempt,) = store.query(select(store.table("schedule")))
     assert attempt["ok"] is True and attempt["job"] == "nightly"
+
+
+def test_the_play_money_account_is_logged_like_a_collector(store, monkeypatch):
+    monkeypatch.setattr(scheduler.paper, "decide", lambda _store: {"ok": False, "note": "Mangler sluttkurser fra i dag"})
+    assert scheduler._paper(store, NoNetwork()) is False  # so the schedule tries again in an hour
+    (run,) = store.query(select(store.table("runs")))
+    assert (run["source"], run["ok"], run["error"]) == ("lekepenger", False, "Mangler sluttkurser fra i dag")
 
 
 def test_nordic_jobs_wait_while_the_web_page_runs_a_job(store, monkeypatch):

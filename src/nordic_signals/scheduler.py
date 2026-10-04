@@ -9,7 +9,8 @@ needed. Two background threads:
 * **Nordic:** the share collectors on weekdays (times in UTC):
 
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
-  * nightly from 20:30: the daily set, then outcomes for past recommendations
+  * nightly from 20:30: the daily set, then outcomes for past recommendations, then the play-money account's
+    orders for the next opening (``advisor.paper``; tried again an hour later if the closing prices are missing)
   * MFN from 21:00: Swedish press releases
   * prices from 21:30: Yahoo end-of-day prices for every share, about 90 minutes
 
@@ -37,6 +38,7 @@ from sqlalchemy import func, select, update
 
 from . import jobs, logpush
 from .advisor import evaluate as evaluation
+from .advisor import paper
 from .collectors.pumpfun import PumpFunCollector
 from .http import PoliteClient
 from .store import Store, utcnow
@@ -227,6 +229,19 @@ def _push_log(store: Store, client: PoliteClient) -> bool:
     return True
 
 
+def _paper(store: Store, client: PoliteClient) -> bool:
+    """The play-money account's evening, logged in ``runs`` like a collector; it fetches nothing itself."""
+    run_id = store.start_run("lekepenger")
+    try:
+        summary = paper.decide(store)
+    except Exception as exc:  # logged; the schedule tries again in an hour
+        store.finish_run(run_id, ok=False, summary={}, error=f"{type(exc).__name__}: {exc}")
+        log.exception("the play-money account failed")
+        return False
+    store.finish_run(run_id, ok=summary["ok"], summary=summary, error=None if summary["ok"] else summary["note"])
+    return summary["ok"]
+
+
 def when_set_up(is_due: IsDue) -> IsDue:
     """The log push only runs once GITHUB_TOKEN and LOG_REPO are set."""
     def check(store: Store, job: str, now: datetime) -> bool:
@@ -251,6 +266,8 @@ JOBS = [
     Job("intraday", "nordic", every(timedelta(minutes=15), source="newsweb", weekdays=True, hours=(5, 19)),
         _set("intraday")),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),
+    # Right after the nightly set, in the same lane: it needs that evening's closing prices.
+    Job("lekepenger", "nordic", daily(time(20, 30), done=ran("lekepenger")), _paper),
     Job("mfn", "nordic", daily(time(21, 0), done=ran("mfn")),
         _source("mfn", universe=["SE"], days=3, max_pages=1)),
     Job("prices", "nordic", daily(time(21, 30), done=universe_prices),

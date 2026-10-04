@@ -25,7 +25,7 @@
 
 <div class="tiles">
   <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ account | nok }}</div>
-    <div class="sub">fordeling {{ rec.policy.long_pct | int }} / {{ rec.policy.short_pct | int }} / {{ rec.policy.cash_pct | int }}</div></div>
+    <div class="sub">fordeling {{ rec.policy.long_pct | int }} / {{ rec.policy.short_pct | int }}{% if rec.policy.cash_pct %} / {{ rec.policy.cash_pct | int }}{% endif %}</div></div>
   <div class="tile"><div class="label">Langsiktig del</div><div class="value">{{ s.long_invested | nok }}</div>
     <div class="sub">{{ s.positions }} posisjoner · {{ (s.long_invested / account) | pct }}</div></div>
   <div class="tile"><div class="label">Kortsiktig del</div><div class="value">{{ s.short_invested | nok }}</div>

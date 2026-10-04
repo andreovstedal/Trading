@@ -31,9 +31,10 @@ nordic-signals web                     # http://127.0.0.1:8000, or --host/--port
 
 | Page | What it does |
 |---|---|
-| **Råd** (`/`) | Enter the account value and the split between the long-term sleeve, the short-term sleeve and cash, then press **Hent data og foreslå fordeling**. With **Oppdater data først** ticked it refreshes prices, announcements and insider trades first (about 30 seconds). The result lists whole-share positions, runners-up, short-term signals, an avoid list and the reasons behind each pick, and can be downloaded as CSV (semicolons and decimal commas, for Excel with Norwegian settings). |
+| **Råd** (`/`) | Enter the account value and the split between the long-term sleeve and the short-term sleeve (90 / 10 by default), then press **Hent data og foreslå fordeling**. With **Oppdater data først** ticked it refreshes prices, announcements and insider trades first (about 30 seconds). The result lists whole-share positions, runners-up, short-term signals, an avoid list and the reasons behind each pick, and can be downloaded as CSV (semicolons and decimal commas, for Excel with Norwegian settings). |
 | **Signaler** | Fresh events from the last four days: Swedish insider purchases, Norwegian insider notices, new buyback programmes and rising short interest. |
 | **Resultater** | The track record: excess return, hit rate and rank IC per model version and horizon, and per short-term signal type. |
+| **Lekepenger** | A play-money Nordnet account that trades on the advice by itself, with Nordnet's fees and the exchanges' opening hours: its value day by day, holdings, orders waiting for the opening, trades and each evening's decisions, with the whole log to download. See [Lekepenger](#lekepenger-a-play-money-account). |
 | **Data** | When each source last ran, row counts, and buttons for a manual refresh and the one-off history load (**Hent historikk**). |
 
 Each stock links to a page with its score, themes, key figures, announcements, insider trades and open short positions.
@@ -45,10 +46,42 @@ Set `APP_PASSWORD` to require a login, and `SECRET_KEY` so sessions survive rest
 The same advice is available from the command line:
 
 ```sh
-nordic-signals recommend --account-value 300000 [--long 85 --short 10 --cash 5] [--max-positions 12]
+nordic-signals recommend --account-value 300000 [--long 90 --short 10] [--max-positions 12]
                          [--min-position 20000] [--ask] [--trade-short] [--refresh]
 nordic-signals evaluate                        # score past recommendations against later closing prices
 ```
+
+## Lekepenger: a play-money account
+
+The **Lekepenger** page runs the advice the way a Nordnet customer in Norway would trade it, with 500,000 NOK of play money, so the model can be calibrated on realistic results before any real money is involved. Nothing is traded. Code: `src/nordic_signals/advisor/paper.py`.
+
+What it follows: the advisor's own default policy, 90 % in the long-term part and 10 % in the short-term part (no cash part), at most 12 positions of at least 20,000 NOK. Both parts trade, since it is all play money.
+- **Long-term part.** Rebalanced on the first trading evening of each month, from that evening's recommendation, which is logged like any other so the track record measures it too:
+  - Holdings the advisor still ranks among the best 24 eligible stocks stay.
+  - The rest are sold.
+  - The best-ranked stocks it doesn't hold are bought until it holds 12.
+
+  This is the research report's buy/hold spread: stricter to enter than to stay, which keeps turnover and courtage down.
+- **Short-term part.** Every evening it buys the advisor's event signals (a new buyback programme, several insiders buying):
+  - at most 2 new ones an evening
+  - as many at once as its 50,000 NOK allows (two slots of 25,000)
+  - each sold after 5 trading days, the signals' horizon
+
+How it trades:
+- **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
+  - An order waits while its stock doesn't trade, and lapses after 5 of its market's trading days.
+  - Oslo Børs trades 09:00–16:25 and Nasdaq Stockholm 09:00–17:30, Norwegian time.
+  - Holidays come from Euronext's and Nasdaq's calendars (2026–2027; add each new year's dates to `MARKETS`).
+- **Fees.** Nordnet's Norwegian price list, class Mini, checked 4 October 2026: 0.15 % of each trade in Nordic shares, at least 29 NOK. Swedish shares bought from a NOK account also pay 0.25 % on each automatic currency exchange. A buy is cut to the cash there is at the opening, and sales come before the day's buys, so their money can pay for them.
+- **Dividends** are credited on the ex-date, from Yahoo's dividend events. Swedish dividends are paid after 15 % withholding tax. As on an ASK, there is no Norwegian tax.
+- **Value.** The account is valued at each day's closing price, as Nordnet shows an account; the cost of selling is paid when a position is sold.
+- **Not modelled:** a large order moving the price, and the delay between seeing a signal and trading. The orders are small next to the stocks' turnover, since the advisor only picks liquid stocks.
+
+The account is a replay: only the orders are stored (`paper_orders`, and each evening's decision in `paper_days`). Fills, fees, dividends and the daily value are worked out from the prices every time, so late data corrects the history. Change `ACCOUNT` when the rules change, and a new account starts from scratch.
+
+The page has two downloads:
+- `/lekepenger/export.json`: everything, for analysis. It has each evening's decisions, the orders and what became of them, the trades, holdings, dividends and the daily value.
+- `/lekepenger/export.csv`: the trades, for Excel with Norwegian settings.
 
 ## pump.fun measurement
 
@@ -190,6 +223,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | pump.fun log | none; `logpush.push` | every hour, once `GITHUB_TOKEN` and `LOG_REPO` are set: the small log to the `pumpfun-logg` branch |
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
+| lekepenger | none; `advisor.paper.decide` | right after the nightly set on weekdays: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
 | prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
 
