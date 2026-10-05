@@ -35,8 +35,8 @@ nordic-signals web                     # http://127.0.0.1:8000, or --host/--port
 | **Signaler** | Fresh events from the last four days: Swedish insider purchases, Norwegian insider notices, new buyback programmes and rising short interest. |
 | **Resultater** | The track record: excess return, hit rate and rank IC per model version and horizon, and per short-term signal type. |
 | **Lekepenger** | A play-money Nordnet account that trades on the advice by itself, with Nordnet's fees and the exchanges' opening hours: its value day by day, holdings, orders waiting for the opening, trades and each evening's decisions, with the whole log to download. See [Lekepenger](#lekepenger-a-play-money-account). |
-| **Krypto** | A play-money crypto account on Firi: 50 % in Bitcoin and Ether, 30 % in XRP, Cardano and Solana, 20 % on pump.fun, trading on a trend rule beside a buy-and-hold yardstick. See [Krypto](#krypto-a-play-money-crypto-account). |
-| **pump.fun** | The pump-and-dump filter's measurement, and the fake accounts that trade it. See [pump.fun measurement](#pumpfun-measurement). |
+| **Krypto** | A play-money crypto account on Firi: 50 % in Bitcoin and Ether, 30 % in XRP, Cardano and Solana, 20 % on pump.fun, trading on a trend rule beside a buy-and-hold yardstick. It has the pump.fun page's neon look and updates itself. See [Krypto](#krypto-a-play-money-crypto-account). |
+| pump.fun (`/pumpfun`) | The pump-and-dump filter's measurement, and the fake accounts that trade it: the detail page of Krypto's pump.fun part, reached from there (it has no tab of its own). See [pump.fun measurement](#pumpfun-measurement). |
 | **Data** | When each source last ran, row counts, and buttons for a manual refresh and the one-off history load (**Hent historikk**). |
 
 Each stock links to a page with its score, themes, key figures, announcements, insider trades and open short positions.
@@ -120,13 +120,15 @@ The slow rules earned a little less than buy and hold, 2 to 6 points a year, and
 
 The account is a replay: only the prices are stored. Firi's best bid and ask are kept every 15 minutes (`crypto_quotes`, thinned to the first complete run of each hour after a week), and the coins' daily closes are in `price_bars`. Trades, fees and value are worked out from them every time, so late prices correct the history. Change `ACCOUNT` and `STARTED_AT` when the rules change, and the account starts again. It starts on 6 October 2026 at 00:00 UTC.
 
+The page has the pump.fun page's look: the hero, a ticker tape with each coin's move over the last 24 hours, and a card per coin with its result after costs, its value, a chart of its price since the account started, its share of the account against the target and its distance to the 200-day average. The pump.fun part's card and the comparison link to the pump.fun page, which no longer has a tab of its own. Like that page, it updates itself while open: it checks `/krypto/version` every 15 seconds and swaps in the parts that changed, so new prices from Firi (every 15 minutes) and the pump.fun account's value (every 5 minutes) show up without a reload.
+
 The page has two downloads:
 - `/krypto/export.json`: everything, for analysis. It has both accounts' trades, every check with the trend rule's view of each coin, the holdings, and the value at every price collection.
 - `/krypto/export.csv`: both accounts' trades, for Excel with Norwegian settings.
 
 ## pump.fun measurement
 
-A separate experiment, on the **pump.fun** page: can a filter tell pump.fun's pump-and-dump launches apart from the rest, well enough that the tokens it lets through mostly don't collapse? Nothing is traded. It only measures, so the answer exists before any money is involved.
+An experiment on the **pump.fun** page (`/pumpfun`, reached from Krypto, whose pump.fun part follows its main account): can a filter tell pump.fun's pump-and-dump launches apart from the rest, well enough that the tokens it lets through mostly don't collapse? Nothing is traded. It only measures, so the answer exists before any money is involved.
 
 Every 5 minutes the web service's schedule (see [Scheduling](#scheduling)):
 

@@ -594,6 +594,7 @@ def test_the_live_page(server, store, db_url, monkeypatch):
         assets = [client.get(path) for path in ("/static/live.js", "/static/pumpfun-hero.webp")]
 
     assert 'class="degen"' in page and 'data-live-page data-version="' in page and "/static/live.js" in page
+    assert '<nav class="crumbs"' in page and 'href="/krypto" class="active"' in page  # under Krypto, no tab of its own
     assert page.count('class="chart spark spark-card"') == 1 and "$HELD" in page and 'id="pf-tape"' in page
     assert page.count("data-live") >= 8 and "Mønstre i galskapen" in page and "/pumpfun/export.json" in page
     assert moved != stamp

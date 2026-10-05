@@ -1,42 +1,100 @@
-"""The Krypto page: the play-money crypto account (``crypto``) beside its buy-and-hold yardstick, and its log."""
+"""The Krypto page: the play-money crypto account (``crypto``) beside its buy-and-hold yardstick, and its log.
+
+It has the pump.fun page's look, and like it updates itself (``static/live.js``): it polls ``crypto.freshness``
+and, when the stamp changes, fetches the page again and swaps the parts marked ``data-live``.
+"""
 
 from __future__ import annotations
 
+import bisect
 import csv
 import io
 import math
 from collections.abc import Callable, Iterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .. import crypto, pumpfun, text
 from ..store import Store, utcnow
 from . import charts, exports
 
+# Periods for the account chart: key in the address, label on the button, how far back.
+PERIODS: dict[str, tuple[str, timedelta | None]] = {
+    "24t": ("24 t", timedelta(hours=24)), "7d": ("7 d", timedelta(days=7)), "30d": ("30 d", timedelta(days=30)),
+    "alt": ("Alt", None),
+}
+DEFAULT_PERIOD = "alt"
+FRESH = timedelta(minutes=20)  # Firi's prices come every 15 minutes, the pump.fun account's value every 5
+DAY = timedelta(hours=24)
 TRADE_ROWS = 30
 CHECK_ROWS = 10
 CHART_POINTS = 400
+SPARK_POINTS = 60  # per coin card
+TAPE_FILL = 12  # the tape repeats its items to at least this many, so it fills the width
 ACCOUNTS = {"trend": "Trendregelen", "hold": "Kjøp og hold"}
 KINDS = {"start": "Start", "week": "Ukesjekk", "month": "Månedsskifte"}
 SIDES = {"buy": "Kjøp", "sell": "Salg"}
+# The coin cards' avatars: a sign and a gradient, decoration only.
+AVATARS = {"BTC": ("₿", "#f7931a", "#ffd166"), "ETH": ("Ξ", "#8c8cff", "#c4a3ff"),
+           "XRP": ("X", "#22d3ee", "#9fb4c7"), "ADA": ("A", "#2f8fe0", "#22d3ee"),
+           "SOL": ("S", "#9945ff", "#14f195"), "pump.fun": ("P", "#14f195", "#ff4fd8")}
 
 
-def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
+def context(store: Store, periode: str = DEFAULT_PERIOD, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
-    books = crypto.accounts(store, now)
-    a = books["trend"]
-    points = thin(a["history"], CHART_POINTS)
+    version, updated = crypto.freshness(store)
+    prices = crypto.load(store)
+    a = crypto.account(store, now, trend=True, prices=prices)
+    hold = crypto.account(store, now, trend=False, prices=prices)
+    periode = periode if periode in PERIODS else DEFAULT_PERIOD
+    back = PERIODS[periode][1]
+    points = thin([p for p in a["history"] if back is None or p[0] >= now - back], CHART_POINTS)
+    runs = [run for run in prices.runs if run[0] <= now]
+    cards = _cards(a, prices, runs, now)
+    tape = [{"symbol": c["symbol"], "price": c["price"], "day": c["day"]} for c in cards]
     return {
-        "a": a, "hold": books["hold"], "now": now,
-        "chart": charts.account_chart(points, crypto.START, money=text.nok), "history": points,
+        "version": version, "updated": updated, "fresh": updated is not None and now - updated < FRESH,
+        "live_for": int(FRESH.total_seconds()), "now": now, "a": a, "hold": hold, "cards": cards,
+        "tape": tape * math.ceil(TAPE_FILL / len(tape)) if runs else [],
+        "periode": periode, "periods": PERIODS, "history": points,
+        "chart": charts.account_chart(points, crypto.START, money=text.nok),
         "trades": a["trades"][::-1][:TRADE_ROWS], "checks": a["checks"][::-1][:CHECK_ROWS],
-        "parts": crypto.PARTS, "kinds": KINDS, "sides": SIDES,
+        "held": sum(1 for c in a["coins"] if c["units"]), "parts": crypto.PARTS, "kinds": KINDS, "sides": SIDES,
         "rules": {"trend_days": crypto.TREND_DAYS, "tolerance": crypto.TOLERANCE, "pumpfun": crypto.PUMPFUN},
         "fees": {"trade": crypto.FEE, "sol_withdrawal": crypto.SOL_WITHDRAWAL},
     }
 
 
-def thin(points: list[tuple[datetime, float]], most: int) -> list[tuple[datetime, float]]:
+def _cards(a: dict[str, Any], prices: crypto.Prices, runs: list, now: datetime) -> list[dict[str, Any]]:
+    """A card per coin and one for the pump.fun part: what the account holds, its price over the last day, and a
+    chart of its price since the account started."""
+    since = a["started_at"] or (runs[0][0] if runs else now)
+    shown = thin([run for run in runs if run[0] >= since], SPARK_POINTS)
+
+    def pump_value(run: tuple[datetime, dict]) -> float:  # SOL in the wallet per SOL at the start, in NOK
+        return prices.pump(run[0]) * crypto.mid_price(run[1][crypto.SOL])
+
+    cards = []
+    for c in [*a["coins"], {**a["pumpfun"], "symbol": "pump.fun", "name": "pump.fun", "part": "pumpfun",
+                            "units": a["pumpfun"]["sol"], "price": a["pumpfun"]["sol_price"]}]:
+        value_of = pump_value if c["part"] == "pumpfun" else (lambda run, m=c["market"]: crypto.mid_price(run[1][m]))
+        series = [(at, value_of((at, books)) / value_of(shown[0]) - 1) for at, books in shown] if shown else []
+        sign, *colors = AVATARS[c["symbol"]]
+        what = "Verdien per SOL siden start" if c["part"] == "pumpfun" else "Kursen siden start"
+        cards.append({**c, "initial": sign, "colors": colors, "day": _change(runs, value_of, now),
+                      "chart": charts.sparkline(series, opened=since, until=max(now, since + timedelta(hours=1)),
+                                                key=c["symbol"].replace(".", ""), what=what, stamp=charts._date_time),
+                      "since_start": series[-1][1] if series else None})
+    return cards
+
+
+def _change(runs: list, value_of: Callable[[tuple], float], now: datetime) -> float | None:
+    """The change over the last 24 hours, once there are prices from then."""
+    k = bisect.bisect_right([at for at, _ in runs], now - DAY)
+    return value_of(runs[-1]) / value_of(runs[k - 1]) - 1 if k and runs else None
+
+
+def thin(points: list[tuple], most: int) -> list[tuple]:
     """At most ``most`` points, evenly spaced, keeping the latest."""
     if len(points) <= most:
         return points

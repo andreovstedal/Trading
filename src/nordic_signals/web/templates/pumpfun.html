@@ -14,7 +14,9 @@
   {%- if unit == "percent" %}{{ value | pct(0) }}{% elif unit == "decimal" %}{{ value | num(1) }}{% else %}{{ value | num(0) }}{% endif -%}
 {%- endmacro %}
 {% set p = paper %}
-<div class="pf" data-live-page data-version="{{ version }}">
+<div class="pf" data-live-page data-version="{{ version }}" data-version-url="/pumpfun/version">
+
+<nav class="crumbs" aria-label="Du er her"><a href="/krypto">Krypto</a> <span aria-hidden="true">›</span> pump.fun-delen</nav>
 
 <section class="hero">
   <img class="hero-art" src="/static/pumpfun-hero.webp" alt="" width="1600" height="914" decoding="async">

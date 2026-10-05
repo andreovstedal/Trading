@@ -1,113 +1,195 @@
 {% extends "base.html" %}
 {% block title %}Krypto · Nordic signals{% endblock %}
+{% block body_class %}degen{% endblock %}
+{% block head %}<link rel="preload" as="image" href="/static/pumpfun-hero.webp">{% endblock %}
 {% block content %}
+{#- ▲/▼ beside every signed number, so gains and losses never rely on colour alone. -#}
 {% macro arrow(value) -%}
   {%- if value is not none %}<span class="dir {{ 'up' if value >= 0 else 'down' }}" aria-hidden="true">{{ '▲' if value >= 0 else '▼' }}</span>{% endif -%}
 {%- endmacro %}
 {% macro kroner(value) -%}
-  {%- if value is none %}–{% else %}{{ value | num(0 if value >= 100 else (2 if value >= 1 else 4)) }}&nbsp;NOK{% endif -%}
+  {%- if value is none %}–{% else %}{{ value | num(0 if value >= 100 else (2 if value >= 1 else 4)) }}&nbsp;kr{% endif -%}
 {%- endmacro %}
 {% macro gap(view) -%}
   {%- if view %}{{ arrow(view.gap) }}{{ view.gap | pct(1, True) }}{% else %}–{% endif -%}
 {%- endmacro %}
-{% macro result(value, share) -%}
-  {%- if value is none %}–{% else %}{{ arrow(value) }} {{ value | num(0, True) }}&nbsp;NOK<div class="ticker">{{ share | pct(1, True) }}</div>{% endif -%}
-{%- endmacro %}
-<div class="page-head">
-  <div>
+<div class="pf" data-live-page data-version="{{ version }}" data-version-url="/krypto/version" data-live-for="{{ live_for }}">
+
+<section class="hero">
+  <img class="hero-art" src="/static/pumpfun-hero.webp" alt="" width="1600" height="914" decoding="async">
+  <div class="hero-text">
+    <p class="kicker">gm, hodler 👋</p>
     <h1>Krypto</h1>
-    <p class="muted">{{ a.start | nok }} i lekepenger: halvparten i de store myntene, 30&nbsp;% i mindre mynter og
-      20&nbsp;% på pump.fun, handlet på Firi med Firis gebyr og spread. Slik ser vi hvordan strategien ville gått, før
-      ekte penger står på spill.</p>
+    <p class="lede">Lekepenger, ekte kurser. {{ a.start | nok }} fordelt på store mynter (50&nbsp;%), mindre mynter
+      (30&nbsp;%) og pump.fun (20&nbsp;%), handlet på Firi med Firis gebyr og spread, så vi ser hvordan det ville gått uten
+      å sette en eneste ekte krone på spill.</p>
+    <p id="pf-status" class="live-status {{ 'is-live' if fresh else 'is-stale' }}" data-live
+       {%- if updated %} data-updated="{{ updated.isoformat() }}"{% endif %}>
+      <span class="dot" aria-hidden="true"></span><span class="state">{{ "Live" if fresh else "Ikke live" }}</span>
+      <span class="age">{% if updated %}· oppdatert {{ updated | ago }}{% else %}· ingen kurser ennå{% endif %}</span>
+    </p>
+    {% if not scheduler_on %}<p class="hint">Nye kurser hentes bare når innsamlingsplanen er på. På Railway er den
+      på av seg selv.</p>{% endif %}
   </div>
-  <p class="markets"><span class="chip market open"><span class="dot" aria-hidden="true"></span>Åpent hele døgnet{% if a.valued_at %}
-    · kurser fra Firi {{ a.valued_at | clock }}{% endif %}</span></p>
+</section>
+
+<div id="pf-tape" class="tape" data-live aria-hidden="true"{% if not tape %} hidden{% endif %}>
+  <div class="tape-track" style="--n: {{ tape | length }}">
+    {%- for _ in range(2) %}
+    <ul>{% for t in tape %}<li><b>{{ t.symbol }}</b>{% if t.symbol != "pump.fun" %}<span>{{ kroner(t.price) }}</span>{% endif %}
+      {%- if t.day is not none %} {{ arrow(t.day) }}<span>{{ t.day | pct(1, True) }}</span>{% endif %}</li>{% endfor %}</ul>
+    {%- endfor %}
+  </div>
 </div>
 
-{% if not a.started_at %}
-<div class="card">
-  <h2>Kontoen er klar</h2>
-  <p>{% if a.upcoming.start %}Den kjøper {{ a.upcoming.start | when }}, til de første kursene fra Firi etter det.
-    {%- else %}Den kjøper så snart kursene fra Firi er hentet; det skjer hvert kvarter.{% endif %}
-    Trendregelen kjøper bare myntene som da er over snittet for de siste {{ rules.trend_days }} dagene.</p>
-</div>
-{% endif %}
-
-<div class="tiles">
-  <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ a.equity | nok }}</div>
-    <div class="sub">{% if a.valued_at %}til Firis kurser {{ a.valued_at | when }}{% else %}startbeløp{% endif %}</div></div>
-  <div class="tile"><div class="label">Avkastning</div><div class="value">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
+<div id="pf-tiles" class="tiles" data-live>
+  <div class="tile"><div class="label">Kontoverdi</div>
+    <div class="value mono" data-tick="equity" data-value="{{ a.equity }}">{{ a.equity | nok }}</div>
+    <div class="sub">startet med {{ a.start | nok }}{% if a.started_at %} · {{ a.started_at | when }}{% endif %}</div></div>
+  <div class="tile"><div class="label">PnL</div>
+    <div class="value mono" data-tick="result" data-value="{{ a.result }}">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
     <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter gebyr og spread</div></div>
-  <div class="tile"><div class="label">Mot kjøp og hold</div><div class="value">{{ arrow(a.equity - hold.equity) }}{{ (a.equity - hold.equity) | num(0, True) }}&nbsp;NOK</div>
-    <div class="sub">kjøp og hold står i {{ hold.equity | nok }} ({{ hold.result | pct(1, True) }})</div></div>
-  <div class="tile"><div class="label">Kostnader</div><div class="value">{{ a.costs | nok }}</div>
+  <div class="tile"><div class="label">Mot kjøp og hold</div>
+    <div class="value mono" data-tick="versus" data-value="{{ a.equity - hold.equity }}">{{ arrow(a.equity - hold.equity) }}{{ (a.equity - hold.equity) | num(0, True) }}&nbsp;NOK</div>
+    <div class="sub">kjøp og hold står i {{ hold.equity | nok }}</div></div>
+  <div class="tile"><div class="label">Kostnader</div>
+    <div class="value mono" data-tick="costs" data-value="{{ a.costs }}">{{ a.costs | nok }}</div>
     <div class="sub">gebyr {{ a.fees | nok }}, spread {{ a.spread | nok }}{% if a.withdrawals %}, SOL-uttak {{ a.withdrawals | nok }}{% endif %}</div></div>
 </div>
 
-<div class="card">
-  <h2>Kontoverdi</h2>
+<div id="pf-account" class="card" data-live>
+  <div class="card-head">
+    <h2><span aria-hidden="true">📈</span> Kontoverdi</h2>
+    <nav class="seg" aria-label="Periode">
+      {%- for key, (label, _) in periods.items() %}<a href="?periode={{ key }}" data-periode="{{ key }}"{% if key == periode %} class="on" aria-current="page"{% endif %}>{{ label }}</a>{% endfor -%}
+    </nav>
+  </div>
   {% if chart %}
   {{ chart }}
-  <details data-key="crypto-table"><summary class="small">Vis tallene</summary>
+  <details data-key="account-table"><summary class="small">Vis tallene</summary>
     <div class="table-wrap"><table>
       <thead><tr><th>Tidspunkt</th><th class="num">Kontoverdi</th></tr></thead>
-      <tbody>{% for when, value in history[-15:] | reverse %}<tr><td>{{ when | when }}</td><td class="num">{{ value | nok }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for when, value in history[-12:] | reverse %}<tr><td>{{ when | when }}</td><td class="num">{{ value | nok }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </details>
+  {% elif not a.started_at %}
+  <div class="empty-note">
+    <p>Kontoen starter {% if a.upcoming.start %}{{ a.upcoming.start | when }}{% else %}ved de neste kursene fra Firi{% endif %} <span aria-hidden="true">🚀</span></p>
+    <p class="muted small">Da kjøper den til de første kursene fra Firi etter det. Trendregelen kjøper bare myntene som
+      er over snittet for de siste {{ rules.trend_days }} dagene; resten venter i kroner.</p>
+  </div>
   {% else %}
-  <p class="muted">Grafen kommer når kontoen har kjøpt og kursene er hentet et par ganger. Firis kurser hentes hvert
-    kvarter.</p>
+  <p class="muted">Grafen kommer når det finnes minst to målinger i perioden. Firis kurser hentes hvert kvarter.</p>
   {% endif %}
-  <div class="compare two">
+  {% if a.started_at %}
+  <div class="compare">
     <div class="main"><div class="label">📈 Trendregelen</div>
       <div class="mono"><b>{{ a.equity | nok }}</b> {{ arrow(a.result) }}{{ a.result | pct(1, True) }}</div>
-      <div class="sub">kontoen over · eier {{ a.coins | selectattr("units") | list | length }} av {{ a.coins | length }} mynter nå</div></div>
+      <div class="sub">kontoen over · eier {{ held }} av {{ a.coins | length }} mynter nå</div></div>
     <div><div class="label">💎 Kjøp og hold</div>
-      <div class="mono"><b>{{ hold.equity | nok }}</b> {{ arrow(hold.result) }}{{ hold.result | pct(1, True) }}</div>
+      <div class="mono"><b data-tick="hold" data-value="{{ hold.equity }}">{{ hold.equity | nok }}</b> {{ arrow(hold.result) }}{{ hold.result | pct(1, True) }}</div>
       <div class="sub">målestokken: alle myntene hele tiden</div></div>
+    <div><div class="label">🎰 pump.fun-delen</div>
+      <div class="mono"><b>{{ a.pumpfun.value | nok }}</b> {{ arrow(a.pumpfun.result_pct) }}{{ a.pumpfun.result_pct | pct(1, True) }}</div>
+      <div class="sub"><a href="/pumpfun">følger hovedkontoen på pump.fun-siden →</a></div></div>
   </div>
   <p class="small muted">Begge kontoene har samme fordeling og samme pump.fun-del, og rebalanseres likt. Forskjellen er
     trendregelen: hovedkontoen selger en mynt som faller under snittet for de siste {{ rules.trend_days }} dagene, og
     venter i kroner til den er over igjen.</p>
+  {% endif %}
+  {% if a.pending %}<p class="small muted">Venter på kurser fra Firi for {{ a.pending | length }}
+    beslutning{{ 'er' if a.pending | length > 1 }}; de utføres til de første kursene som hentes.</p>{% endif %}
 </div>
 
-<div class="card">
-  <h2>Fordeling</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Del</th><th class="num">Mål</th><th class="num">Nå</th><th class="num">Verdi</th><th class="num">Kurs</th>
-      <th class="num">Mot {{ rules.trend_days }}-dagerssnittet</th><th>Trendregelen</th><th class="num">Resultat</th></tr></thead>
-    <tbody>
-    {% for part in a.parts %}
-      <tr class="group"><td><strong>{{ part.name }}</strong></td><td class="num">{{ part.weight | pct(0) }}</td>
-        <td class="num">{{ part.share | pct(1) }}</td><td class="num">{{ part.value | nok }}</td><td colspan="4"></td></tr>
-      {% if part.key == "pumpfun" %}
-      <tr><td><a href="/pumpfun">pump.fun-delen</a><div class="ticker">{{ a.pumpfun.sol | num(3) }} SOL i lommeboken</div></td>
-        <td class="num"></td><td class="num"></td><td class="num">{{ a.pumpfun.value | nok }}</td>
-        <td class="num">{{ kroner(a.pumpfun.sol_price) }}<div class="ticker">per SOL</div></td>
-        <td class="num">–</td><td class="small">følger hovedkontoen på pump.fun-siden</td>
-        <td class="num">{{ result(a.pumpfun.result, a.pumpfun.result_pct) }}</td></tr>
-      {% else %}
-      {% for c in a.coins if c.part == part.key %}
-      <tr><td>{{ c.name }}<div class="ticker">{{ c.symbol }}{% if c.units %} · {{ c.units | num(4 if c.price and c.price >= 1000 else 2) }}{% endif %}</div></td>
-        <td class="num">{{ c.weight | pct(0) }}</td><td class="num">{{ c.share | pct(1) }}</td><td class="num">{{ c.value | nok }}</td>
-        <td class="num">{{ kroner(c.price) }}</td>
-        <td class="num">{{ gap(c.trend) }}{% if c.trend %}<div class="ticker">sluttkurs {{ c.trend.day | day }}</div>{% else %}<div class="ticker">for kort historikk</div>{% endif %}</td>
-        <td>{% if c.wanted is none %}–{% elif c.wanted %}eies{% else %}<strong>i kroner</strong>{% endif %}</td>
-        <td class="num">{{ result(c.result, c.result_pct) }}</td></tr>
-      {% endfor %}
-      {% endif %}
+<section id="pf-positions" class="positions" data-live>
+  <div class="section-head">
+    <h2><span aria-hidden="true">💰</span> Myntene</h2>
+    <p class="muted small">Tallet øverst er resultatet etter gebyr og spread siden kjøpet, ved siden av verdien nå.
+      Grafen viser kursen siden kontoen startet, med null som stiplet linje. Streken under viser andelen av kontoen mot
+      målet, og nederst står avstanden til snittet for de siste {{ rules.trend_days }} dagene.</p>
+  </div>
+  <div class="pos-grid all">
+    {% for o in cards %}
+    <article class="pos {{ 'up' if (o.result_pct or 0) >= 0 else 'down' }}" data-mint="{{ o.symbol }}">
+      <header>
+        <span class="avatar" style="--a: {{ o.colors[0] }}; --b: {{ o.colors[1] }}" aria-hidden="true">{{ o.initial }}</span>
+        <div class="who">
+          {% if o.part == "pumpfun" %}<a href="/pumpfun">{{ o.name }}</a>{% else %}<span class="name">{{ o.name }}</span>{% endif %}
+          <span class="sym">{% if o.part == "pumpfun" %}SOL i lommebok{% else %}${{ o.symbol }} · {{ parts[o.part] }}{% endif %}</span>
+        </div>
+        {% if o.part == "pumpfun" %}<span class="badge">{{ o.sol | num(2) }} SOL</span>
+        {%- elif o.wanted is not none %}<span class="chip {{ 'owned' if o.wanted else 'out' }}">{{ 'eies' if o.wanted else 'i kroner' }}</span>{% endif %}
+      </header>
+      <div class="pnl-row">
+        <p class="pnl">{% if o.units %}{{ arrow(o.result_pct) }}<span class="mono" data-tick="pos-{{ o.symbol }}" data-value="{{ o.result_pct }}">{{ o.result_pct | pct(1, True) }}</span>
+          {%- else %}<span class="muted">{{ 'i kroner' if a.started_at else 'ikke kjøpt ennå' }}</span>{% endif %}</p>
+        <span class="worth mono">{{ o.value | nok }}</span>
+      </div>
+      {{ o.chart }}
+      <div class="held" role="img" aria-label="{{ o.share | pct(1) }} av kontoen, mål {{ o.weight | pct(0) }}"><span style="width: {{ [o.share / o.weight * 100, 100] | min | round(1) }}%"></span></div>
+      <footer>
+        <span>{% if o.part == "pumpfun" %}SOL {% endif %}{{ kroner(o.price) }}</span>
+        <span>{% if o.day is not none %}24 t {{ arrow(o.day) }}{{ o.day | pct(1, True) }}{% endif %}</span>
+      </footer>
+      <footer>
+        <span>{{ o.share | pct(1) }} av {{ o.weight | pct(0) }}</span>
+        <span>{% if o.part == "pumpfun" %}<a href="/pumpfun">til pump.fun →</a>{% elif o.trend %}{{ rules.trend_days }} d {{ gap(o.trend) }}{% else %}for kort historikk{% endif %}</span>
+      </footer>
+    </article>
     {% endfor %}
-      <tr class="group"><td><strong>Kroner</strong></td><td class="num">–</td>
-        <td class="num">{{ (a.cash / a.equity if a.equity else 0) | pct(1) }}</td><td class="num">{{ a.cash | nok }}</td><td colspan="4"></td></tr>
-    </tbody>
+  </div>
+  <details data-key="coins-table"><summary class="small">Vis som tabell</summary>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Del</th><th class="num">Mål</th><th class="num">Nå</th><th class="num">Verdi</th><th class="num">Kurs</th>
+        <th class="num">Mot {{ rules.trend_days }}-dagerssnittet</th><th>Trendregelen</th><th class="num">Resultat</th></tr></thead>
+      <tbody>
+      {% for part in a.parts %}
+        <tr class="group"><td><strong>{{ part.name }}</strong></td><td class="num">{{ part.weight | pct(0) }}</td>
+          <td class="num">{{ part.share | pct(1) }}</td><td class="num">{{ part.value | nok }}</td><td colspan="4"></td></tr>
+        {% for o in cards if o.part == part.key %}
+        <tr><td>{{ o.name }}<div class="ticker">{% if o.part == "pumpfun" %}{{ o.sol | num(3) }} SOL i lommeboken{% else %}{{ o.symbol }}{% if o.units %} · {{ o.units | num(4 if o.price and o.price >= 1000 else 2) }}{% endif %}{% endif %}</div></td>
+          <td class="num">{{ o.weight | pct(0) }}</td><td class="num">{{ o.share | pct(1) }}</td><td class="num">{{ o.value | nok }}</td>
+          <td class="num">{{ kroner(o.price) }}{% if o.part == "pumpfun" %}<div class="ticker">per SOL</div>{% endif %}</td>
+          <td class="num">{% if o.part == "pumpfun" %}–{% else %}{{ gap(o.trend) }}{% if o.trend %}<div class="ticker">sluttkurs {{ o.trend.day | day }}</div>{% endif %}{% endif %}</td>
+          <td>{% if o.part == "pumpfun" %}<span class="small">følger pump.fun-kontoen</span>{% elif o.wanted is none %}–{% elif o.wanted %}eies{% else %}<strong>i kroner</strong>{% endif %}</td>
+          <td class="num">{% if o.result is not none %}{{ arrow(o.result) }} {{ o.result | num(0, True) }}&nbsp;NOK<div class="ticker">{{ o.result_pct | pct(1, True) }}</div>{% else %}–{% endif %}</td></tr>
+        {% endfor %}
+      {% endfor %}
+        <tr class="group"><td><strong>Kroner</strong></td><td class="num">–</td>
+          <td class="num">{{ (a.cash / a.equity if a.equity else 0) | pct(1) }}</td><td class="num">{{ a.cash | nok }}</td><td colspan="4"></td></tr>
+      </tbody>
+    </table></div>
+    <p class="small muted">Myntene er verdsatt midt mellom Firis beste kjøps- og salgskurs, pump.fun-delen til SOL-kursen;
+      det et salg vil koste, trekkes når det skjer. Avstanden til snittet er regnet på sluttkurser i USD.</p>
+  </details>
+</section>
+
+<div id="pf-closed" data-live>
+{% if trades %}
+<div class="card">
+  <h2><span aria-hidden="true">🧾</span> Siste handler</h2>
+  <div class="table-wrap"><table class="trades">
+    <thead><tr><th>Mynt</th><th>Tid</th><th>Ordre</th><th class="num">Antall</th><th class="num">Kurs</th>
+      <th class="num">Beløp</th><th class="num">Gebyr og spread</th><th class="num">Resultat</th></tr></thead>
+    <tbody>{% for t in trades %}
+      <tr><td>{{ t.name }}<div class="ticker">{{ t.reason }}</div></td>
+        <td class="nowrap">{{ t.at | when }}<div class="ticker">{{ kinds[t.kind] }}</div></td>
+        <td><span class="chip {{ 'owned' if t.side == 'buy' else 'out' }}">{{ sides[t.side] }}</span></td>
+        <td class="num nowrap">{{ t.qty | num(4 if t.price >= 1000 else 2) }}{% if t.part == "pumpfun" %}&nbsp;SOL{% endif %}</td>
+        <td class="num nowrap">{{ kroner(t.price) }}</td>
+        <td class="num nowrap">{{ t.cash | num(0, True) }}&nbsp;NOK</td>
+        <td class="num nowrap">{{ (t.fee + t.spread + t.withdrawal) | num(0) }}&nbsp;NOK</td>
+        <td class="num nowrap">{% if t.result is not none %}{{ arrow(t.result) }} {{ t.result_pct | pct(1, True) }}{% else %}–{% endif %}</td></tr>
+    {% endfor %}</tbody>
   </table></div>
-  <p class="small muted">Myntene er verdsatt midt mellom Firis beste kjøps- og salgskurs, pump.fun-delen til SOL-kursen;
-    det et salg vil koste, trekkes når det skjer. Avstanden til snittet er regnet på sluttkurser i USD. Resultatet er
-    mot det som ble betalt, med gebyr og spread.</p>
+  <p class="small muted">Beløp er det handelen gjorde med kronene. Et kjøp til pump.fun-delen koster også
+    {{ fees.sol_withdrawal | num(2) }}&nbsp;SOL for å sende SOL til lommeboken.{% if a.trades | length > trades | length %}
+    De {{ trades | length }} siste av {{ a.trades | length }}; alle er i loggen nederst.{% endif %}</p>
 </div>
+{% endif %}
 
 <div class="card">
-  <h2>Neste beslutninger</h2>
+  <h2><span aria-hidden="true">🗓️</span> Sjekkene</h2>
   {% if a.upcoming.start %}
   <p>Start {{ a.upcoming.start | when }}.</p>
   {% else %}
@@ -118,52 +200,21 @@
       pump.fun-delen går tilbake til sin andel hvis de er mer enn {{ (rules.tolerance * 100) | int }}&nbsp;% unna den.</li>
   </ul>
   {% endif %}
-  {% if a.pending %}
-  <p class="small">Venter på kurser fra Firi for {{ a.pending | length }} beslutning{{ 'er' if a.pending | length > 1 }};
-    de utføres til de første kursene som hentes.</p>
-  {% endif %}
-</div>
-
-{% if trades %}
-<div class="card">
-  <h2>Handler</h2>
-  <div class="table-wrap"><table>
-    <thead><tr><th>Tid</th><th>Mynt</th><th>Ordre</th><th class="num">Antall</th><th class="num">Kurs</th>
-      <th class="num">Beløp</th><th class="num">Gebyr</th><th class="num">Spread</th><th class="num">Resultat</th></tr></thead>
-    <tbody>{% for t in trades %}
-      <tr><td class="nowrap">{{ t.at | when }}<div class="ticker">{{ kinds[t.kind] }}</div></td>
-        <td>{{ t.name }}<div class="ticker">{{ t.reason }}</div></td>
-        <td>{{ sides[t.side] }}</td>
-        <td class="num">{{ t.qty | num(4 if t.price >= 1000 else 2) }}{% if t.part == "pumpfun" %}&nbsp;SOL{% endif %}</td>
-        <td class="num">{{ kroner(t.price) }}</td>
-        <td class="num">{{ t.cash | num(0, True) }}&nbsp;NOK</td>
-        <td class="num">{{ t.fee | num(0) }}</td>
-        <td class="num">{{ t.spread | num(0) }}</td>
-        <td class="num">{% if t.result is not none %}{{ arrow(t.result) }} {{ t.result_pct | pct(1, True) }}{% else %}–{% endif %}</td></tr>
-    {% endfor %}</tbody>
-  </table></div>
-  <p class="small muted">Beløp er det handelen gjorde med kronene. Gebyr og spread er i NOK; et kjøp til pump.fun-delen
-    koster også {{ fees.sol_withdrawal | num(2) }}&nbsp;SOL for å sende SOL til lommeboken.{% if a.trades | length > trades | length %}
-    De {{ trades | length }} siste av {{ a.trades | length }}; alle er i loggen nederst.{% endif %}</p>
-</div>
-{% endif %}
-
-{% if checks %}
-<div class="card">
-  <h2>Sjekkene</h2>
+  {% if checks %}
   <div class="table-wrap"><table>
     <thead><tr><th>Tid</th><th>Hva</th><th>Mot {{ rules.trend_days }}-dagerssnittet</th><th class="num">Handler</th><th class="num">Kontoverdi</th></tr></thead>
     <tbody>{% for c in checks %}
       <tr><td class="nowrap">{{ c.at | when }}</td><td>{{ kinds[c.kind] }}</td>
-        <td class="small">{% for symbol, view in c.views.items() %}<span class="nowrap">{{ symbol }} {{ gap(view) }}</span>{{ ", " if not loop.last }}{% endfor %}</td>
+        <td class="small views">{% for symbol, view in c.views.items() %}<span class="nowrap">{{ symbol }} {{ gap(view) }}</span>{{ ", " if not loop.last }}{% endfor %}</td>
         <td class="num">{{ c.trades }}</td><td class="num">{{ c.value | nok }}</td></tr>
     {% endfor %}</tbody>
   </table></div>
+  {% endif %}
 </div>
-{% endif %}
+</div>
 
 <details class="card">
-  <summary><strong>Slik handler kontoen</strong></summary>
+  <summary><strong><span aria-hidden="true">📜</span> Slik handler kontoen</strong></summary>
   <ul>
     <li><strong>Fordeling.</strong> Bitcoin og Ether 25&nbsp;% hver (store mynter), XRP, Cardano og Solana 10&nbsp;% hver
       (mindre mynter), og {{ (rules.pumpfun * 100) | int }}&nbsp;% på pump.fun.</li>
@@ -181,7 +232,7 @@
       Handlene er markedsordre: kjøp til laveste salgskurs og salg til høyeste kjøpskurs i Firis ordrebok i kroner, så
       spreaden betales også. Den var fra 0,2&nbsp;% (XRP) til 1&nbsp;% (Ether) hver vei den dagen.</li>
     <li><strong>Hvorfor så sjelden?</strong> På daglige kurser fra 2018 til 2026 ga regelen, med Firis gebyr og spread,
-      omtrent like mye som kjøp og hold (34&nbsp;% mot 36&nbsp;% i året for Bitcoin, Ether, XRP og Cardano), men det verste
+      litt mindre enn kjøp og hold (34&nbsp;% mot 36&nbsp;% i året for Bitcoin, Ether, XRP og Cardano), men det verste
       fallet var −55&nbsp;% mot −77&nbsp;%. Regler som handler oftere, tapte det de vant på kostnadene. Myntene er dagens
       overlevere og historien er kort, så tallene er en pekepinn, ikke en lovnad.</li>
     <li><strong>Ikke med:</strong> skatt (22&nbsp;% på gevinst), og at en stor ordre kan flytte kursen i Firis tynne
@@ -190,12 +241,15 @@
 </details>
 
 <div class="card">
-  <h2>Last ned loggen</h2>
+  <h2><span aria-hidden="true">📥</span> Last ned loggen</h2>
   <p>Alt begge kontoene har gjort: handlene med gebyr og spread, sjekkene med trendregelens syn på hver mynt,
     beholdningen og verdien hvert kvarter.</p>
   <p class="actions"><a class="button" href="/krypto/export.json">Logg (JSON)</a>
     <a class="button secondary" href="/krypto/export.csv">Handler (CSV)</a></p>
   <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger.</p>
 </div>
+
+</div>
 <script src="/static/charts.js" defer></script>
+<script src="/static/live.js" defer></script>
 {% endblock %}

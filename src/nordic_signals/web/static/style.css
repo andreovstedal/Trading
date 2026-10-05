@@ -338,6 +338,7 @@ body.degen {
 .who { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.25; }
 .who a { overflow: hidden; color: var(--ink); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .who .sym { overflow: hidden; font-family: var(--mono); font-size: 0.78rem; color: var(--muted); text-overflow: ellipsis; white-space: nowrap; }
+.who .name { overflow: hidden; color: var(--ink); font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
 .degen td .ticker { font-family: var(--mono); }
 .pnl { margin: 4px 0 0; font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
 .pos footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 2px 8px; font-size: 0.78rem; color: var(--muted); }
@@ -356,7 +357,15 @@ body.degen {
 .badge { position: relative; flex: none; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--hairline); background: var(--surface-2);
   font-size: 0.78rem; color: var(--ink-2); white-space: nowrap; }
 .chip.new { flex: none; border-color: rgba(20, 241, 149, 0.45); background: rgba(20, 241, 149, 0.1); color: #8ff7c9; }
-.chip.profit { border-color: rgba(20, 241, 149, 0.45); background: rgba(20, 241, 149, 0.1); color: #8ff7c9; }
+.chip.profit, .chip.owned { border-color: rgba(20, 241, 149, 0.45); background: rgba(20, 241, 149, 0.1); color: #8ff7c9; }
+.chip.out { border-color: rgba(217, 71, 158, 0.5); background: rgba(217, 71, 158, 0.12); color: #f7a8d6; }
+.chip.owned, .chip.out { flex: none; }
+.pnl-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.pnl-row .worth { font-size: 0.85rem; color: var(--ink-2); white-space: nowrap; }
+.empty-note { padding: 18px 10px 8px; text-align: center; }
+.crumbs { margin: -4px 0 12px; font-size: 0.85rem; color: var(--muted); }
+td.views { min-width: 280px; }
+.empty-note p:first-child { font-size: 1.1rem; font-weight: 650; }
 .compare { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0 8px; }
 .compare > div { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--hairline); background: var(--surface-2); }
 .compare .label { font-size: 0.8rem; color: var(--ink-2); }

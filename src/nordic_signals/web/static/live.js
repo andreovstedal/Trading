@@ -1,12 +1,13 @@
-// Keeps the pump.fun page live. Every 15 seconds while the tab is visible it asks /pumpfun/version whether the
-// data has changed; if it has, it fetches the page again and swaps every part marked data-live. Open tables
-// stay open, the chosen tab and "Vis alle" stay chosen, new positions slide in, changed numbers flash, and the
-// ticker tape takes its new items when it comes round, so it never jumps.
+// Keeps the crypto pages live (Krypto and pump.fun). Every 15 seconds while the tab is visible it asks the page's
+// data-version-url whether the data has changed; if it has, it fetches the page again and swaps every part marked
+// data-live. Open tables stay open, the chosen tab and "Vis alle" stay chosen, new cards slide in, changed numbers
+// flash, and the ticker tape takes its new items when it comes round, so it never jumps.
 (() => {
   const page = document.querySelector("[data-live-page]");
   if (!page) return;
   const POLL_MS = 15000;
-  const LIVE_FOR_S = 600;  // the newest data must be younger than this for the page to say "Live"
+  const VERSION_URL = page.dataset.versionUrl || "/pumpfun/version";
+  const LIVE_FOR_S = Number(page.dataset.liveFor) || 600;  // the newest data must be younger than this to be "Live"
   const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
   const state = { version: page.dataset.version, busy: false, stopped: false, offline: false, showAll: false,
                   population: "all", tape: null };
@@ -41,7 +42,7 @@
     if (state.busy || state.stopped || document.hidden) return;
     state.busy = true;
     try {
-      const r = await fetch("/pumpfun/version", { cache: "no-store", headers: { Accept: "application/json" } });
+      const r = await fetch(VERSION_URL, { cache: "no-store", headers: { Accept: "application/json" } });
       if (r.redirected || !(r.headers.get("content-type") || "").includes("json")) {
         stop("Logget ut: last inn siden på nytt");
         return;

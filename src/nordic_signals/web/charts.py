@@ -88,9 +88,11 @@ def account_chart(points: list[tuple[datetime, float]], start: float, *, live: b
 
 
 def sparkline(series: list[tuple[datetime, float]], *, opened: datetime, until: datetime, key: str,
-              size: str = "card", closed: bool = False) -> Markup:
+              size: str = "card", closed: bool = False, what: str = "Resultat etter gebyrer siden kjøpet",
+              stamp: Callable[[datetime], str] | None = None) -> Markup:
     """``series``: (time, result after fees) from the purchase on, drawn from ``opened`` to ``until``.
-    ``key`` makes the clip paths unique on the page."""
+    ``key`` makes the clip paths unique on the page; ``what`` names the line for screen readers, and ``stamp``
+    writes the times in the tooltips (the time of day by default)."""
     if not series:
         return Markup("")
     width, height, pad = SPARK[size]
@@ -114,10 +116,10 @@ def sparkline(series: list[tuple[datetime, float]], *, opened: datetime, until: 
     data = None
     if size == "card":
         parts.append(_hover(pad, height - pad, pad, width - 2 * pad))
-        data = [{"x": cx, "y": cy, "t": f"{_clock(when)} · {text.percent(v, 1, True)}"}
+        data = [{"x": cx, "y": cy, "t": f"{(stamp or _clock)(when)} · {text.percent(v, 1, True)}"}
                 for (when, v), (cx, cy) in zip(series, coords, strict=True)]
     how = "endte på" if closed else "nå"
-    label = (f"Resultat etter gebyrer siden kjøpet: {how} {text.percent(values[-1], 0, True)}, høyeste "
+    label = (f"{what}: {how} {text.percent(values[-1], 0, True)}, høyeste "
              f"{text.percent(max(values), 0, True)}, laveste {text.percent(min(values), 0, True)}.")
     return _figure(parts, label, data, (width, height), css=f"spark spark-{size}")
 

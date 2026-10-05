@@ -33,7 +33,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
-from .. import jobs, pumpfun, scheduler, text
+from .. import crypto, jobs, pumpfun, scheduler, text
 from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
@@ -251,8 +251,15 @@ def create_app(db: str | None = None) -> FastAPI:
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/krypto", response_class=HTMLResponse)
-    def crypto_view(request: Request) -> HTMLResponse:
-        return render(request, "krypto.html", **crypto_page.context(store))
+    def crypto_view(request: Request, periode: str = crypto_page.DEFAULT_PERIOD) -> HTMLResponse:
+        return render(request, "krypto.html", **crypto_page.context(store, periode))
+
+    @app.get("/krypto/version")
+    def crypto_version() -> JSONResponse:
+        """Polled by the page: it reloads its live parts when this changes."""
+        version, updated = crypto.freshness(store)
+        return JSONResponse({"v": version, "updated": updated.isoformat() if updated else None},
+                            headers={"Cache-Control": "no-store"})
 
     @app.get("/krypto/export.csv")
     def crypto_csv() -> StreamingResponse:

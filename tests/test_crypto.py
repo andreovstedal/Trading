@@ -280,7 +280,10 @@ def page_client(db_url, monkeypatch, now):
 def test_the_page_before_the_start(store, db_url, monkeypatch):
     with page_client(db_url, monkeypatch, T0 - timedelta(hours=1)) as client:
         page = client.get("/krypto").text
-    assert "Kontoen er klar" in page and "Den kjøper" in page and 'href="/krypto" class="active"' in page
+        version = client.get("/krypto/version").json()
+    assert "Kontoen starter" in page and "ikke kjøpt ennå" in page and 'href="/krypto" class="active"' in page
+    assert 'id="pf-tape" class="tape" data-live aria-hidden="true" hidden' in page  # no prices yet
+    assert version == {"v": "0.0", "updated": None}
 
 
 def test_the_page_and_its_log(store, db_url, monkeypatch):
@@ -288,14 +291,18 @@ def test_the_page_and_its_log(store, db_url, monkeypatch):
     pump(store, (T0 - timedelta(minutes=10), 10.0))
     quotes(store, T0 + timedelta(minutes=5), mids())
     quotes(store, T0 + timedelta(hours=1), mids(BTC=820_000.0))
-    with page_client(db_url, monkeypatch, T0 + timedelta(hours=2)) as client:
+    with page_client(db_url, monkeypatch, T0 + timedelta(minutes=70)) as client:  # the last prices are 10 minutes old
         page = client.get("/krypto").text
         spreadsheet = client.get("/krypto/export.csv")
         everything = client.get("/krypto/export.json")
 
-    assert "📈 Trendregelen" in page and "💎 Kjøp og hold" in page and "Store mynter" in page
-    assert "Bitcoin" in page and "pump.fun-delen" in page and "Start: 25 % av kontoen" in page
+    assert '<body class="degen">' in page and 'data-version-url="/krypto/version"' in page
+    assert '<span class="state">Live</span>' in page and 'id="pf-tape" class="tape" data-live aria-hidden="true">' in page
+    assert "📈 Trendregelen" in page and "💎 Kjøp og hold" in page and "🎰 pump.fun-delen" in page
+    assert page.count('<article class="pos ') == 6 and "$BTC · Store mynter" in page and "SOL i lommebok" in page
+    assert '<span class="chip owned">eies</span>' in page and "Start: 25 % av kontoen" in page
     assert 'class="chart' in page and "Ukesjekk" in page and "/krypto/export.json" in page
+    assert 'data-periode="alt" class="on"' in page and 'href="/pumpfun" class=' not in page  # no pump.fun tab
     assert re.fullmatch(r'attachment; filename="krypto-\d{4}-\d\d-\d\d-\d{4}\.csv"',
                         spreadsheet.headers["content-disposition"])
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
@@ -307,3 +314,30 @@ def test_the_page_and_its_log(store, db_url, monkeypatch):
     assert list(data) == ["meta", "trend", "hold"] and list(data["trend"]) == ["summary", "trades", "checks", "equity"]
     assert len(data["trend"]["trades"]) == 6 and len(data["trend"]["equity"]) == 2
     assert data["meta"]["fees"]["trade"] == crypto.FEE and data["trend"]["checks"][0]["views"]["BTC"]["above"] is True
+
+
+def test_the_version_changes_with_new_prices(store):
+    assert crypto.freshness(store) == ("0.0", None)
+    quotes(store, T0, mids())
+    first, updated = crypto.freshness(store)
+    pump(store, (T0 + timedelta(minutes=5), 10.0))
+    second, later = crypto.freshness(store)
+    assert first != second and updated == T0 and later == T0 + timedelta(minutes=5)
+
+
+def test_the_cards_show_each_coin_over_the_last_day(store):
+    rising(store, date(2026, 10, 6))
+    pump(store, (T0 - timedelta(minutes=10), 10.0), (T0 + timedelta(hours=20), 15.0))
+    quotes(store, T0 + timedelta(minutes=5), mids())
+    quotes(store, T0 + timedelta(hours=25), mids(BTC=880_000.0, SOL=900.0))
+
+    ctx = crypto_page.context(store, "alt", T0 + timedelta(hours=25, minutes=5))
+
+    cards = {c["symbol"]: c for c in ctx["cards"]}
+    assert list(cards) == ["BTC", "ETH", "XRP", "ADA", "SOL", "pump.fun"]
+    assert cards["BTC"]["day"] == pytest.approx(0.10) and cards["ETH"]["day"] == pytest.approx(0)
+    assert cards["pump.fun"]["day"] == pytest.approx(1.5 * 0.9 - 1)  # the pump.fun account and SOL's price
+    assert cards["BTC"]["since_start"] == pytest.approx(0.10) and 'class="chart spark spark-card"' in cards["BTC"]["chart"]
+    assert [t["symbol"] for t in ctx["tape"][:6]] == list(cards) and ctx["held"] == 5
+    assert crypto_page.context(store, "24t", T0 + timedelta(hours=25, minutes=5))["history"] == [
+        (T0 + timedelta(hours=25), ctx["a"]["equity"])]  # one point in the last 24 hours: no chart

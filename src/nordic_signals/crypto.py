@@ -39,7 +39,7 @@ from datetime import date, datetime, time, timedelta, timezone
 from statistics import fmean
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from . import text
 from .store import Store, utcnow
@@ -117,6 +117,15 @@ def load(store: Store) -> Prices:
         values.append(r["close"])
     times, index = _pump_index(store, STARTED_AT - timedelta(days=1))
     return Prices([(at, books) for at, books in runs.items() if markets <= books.keys()], closes, times, index)
+
+
+def freshness(store: Store) -> tuple[str, datetime | None]:
+    """A stamp that changes whenever the account's data does (new prices from Firi, a new value of the pump.fun
+    account), and when it last changed: what the page polls to stay live."""
+    quoted = _aware(store.scalar(select(func.max(store.table("crypto_quotes").c.at))))
+    pumped = _aware(store.scalar(select(func.max(store.table("pf_equity").c.at))))
+    stamp = ".".join(str(int(t.timestamp() * 1000)) if t else "0" for t in (quoted, pumped))
+    return stamp, max((t for t in (quoted, pumped) if t), default=None)
 
 
 def _pump_index(store: Store, since: datetime) -> tuple[list[datetime], list[float]]:
@@ -207,8 +216,8 @@ class _Book:
         self.fees = self.spread = self.withdrawals = 0.0
 
     def value(self, books: dict[str, tuple[float, float]], index: float) -> float:
-        return (self.cash + sum(self.coins[c.symbol].units * _mid(books[c.market]) for c in COINS)
-                + self.pump.units * index * _mid(books[SOL]))
+        return (self.cash + sum(self.coins[c.symbol].units * mid_price(books[c.market]) for c in COINS)
+                + self.pump.units * index * mid_price(books[SOL]))
 
     def decide(self, decided: datetime, kind: str, at: datetime, books: dict[str, tuple[float, float]],
                prices: Prices) -> None:
@@ -218,7 +227,7 @@ class _Book:
         value = self.value(books, index)
         plans: list[tuple[Coin, float, str]] = []
         for c in COINS:
-            held = self.coins[c.symbol].units * _mid(books[c.market])
+            held = self.coins[c.symbol].units * mid_price(books[c.market])
             target = c.weight * value if wanted[c.symbol] else 0.0
             switched = kind != "start" and wanted[c.symbol] != self.wanted.get(c.symbol)
             if kind == "week" and not switched:
@@ -237,7 +246,7 @@ class _Book:
             plans.append((c, target, reason))
         pump_target = None
         if kind != "week":
-            held = self.pump.units * index * _mid(books[SOL])
+            held = self.pump.units * index * mid_price(books[SOL])
             if kind == "start" or abs(held - PUMPFUN * value) > TOLERANCE * PUMPFUN * value:
                 pump_target = PUMPFUN * value
         before = len(self.trades)
@@ -258,7 +267,7 @@ class _Book:
     def _sell_down(self, c: Coin, target: float, book: tuple[float, float], at: datetime, decided: datetime,
                    kind: str, reason: str) -> None:
         h = self.coins[c.symbol]
-        mid = _mid(book)
+        mid = mid_price(book)
         held = h.units * mid
         if held <= target or held - target < MIN_TRADE:
             return
@@ -268,13 +277,13 @@ class _Book:
     def _buy_up(self, c: Coin, target: float, book: tuple[float, float], at: datetime, decided: datetime,
                 kind: str, reason: str) -> None:
         h = self.coins[c.symbol]
-        spend = min(target - h.units * _mid(book), self.cash)  # fees and spread included
+        spend = min(target - h.units * mid_price(book), self.cash)  # fees and spread included
         if spend >= MIN_TRADE:
             self._buy(c.symbol, c.name, c.part, h, spend / (book[1] * (1 + FEE)), book, at, decided, kind, reason)
 
     def _pump_out(self, target: float, book: tuple[float, float], index: float, at: datetime, decided: datetime,
                   kind: str, value: float) -> None:
-        mid = _mid(book)
+        mid = mid_price(book)
         held = self.pump.units * index * mid
         if held - target < MIN_TRADE:
             return
@@ -286,7 +295,7 @@ class _Book:
 
     def _pump_in(self, target: float, book: tuple[float, float], index: float, at: datetime, decided: datetime,
                  kind: str, value: float) -> None:
-        mid = _mid(book)
+        mid = mid_price(book)
         held = self.pump.units * index * mid
         spend = min(target - held, self.cash)  # fees and spread included; the withdrawal fee comes off the SOL
         sol = spend / (book[1] * (1 + FEE))
@@ -303,7 +312,7 @@ class _Book:
              at: datetime, decided: datetime, kind: str, reason: str, *, per_unit: float = 1.0,
              units: float | None = None) -> dict[str, Any]:
         """Buy ``qty`` (coins, or SOL for the pump.fun part) at the best ask; ``units`` is what the holding gets."""
-        ask, mid = book[1], _mid(book)
+        ask, mid = book[1], mid_price(book)
         paid = qty * ask * (1 + FEE)
         self.cash -= paid
         h.units += qty / per_unit if units is None else units
@@ -314,7 +323,7 @@ class _Book:
     def _sell(self, asset: str, name: str, part: str, h: Holding, units: float, book: tuple[float, float],
               at: datetime, decided: datetime, kind: str, reason: str, *, per_unit: float = 1.0) -> dict[str, Any]:
         """Sell ``units`` of the holding at the best bid: coins, or for the pump.fun part SOL at an index of 1."""
-        bid, mid = book[0], _mid(book)
+        bid, mid = book[0], mid_price(book)
         share = min(units / h.units, 1.0)
         qty = units * per_unit
         received = qty * bid * (1 - FEE)
@@ -375,7 +384,7 @@ def _summary(book: _Book, prices: Prices, now: datetime, pending: list[tuple[dat
     for c in COINS:
         h = book.coins[c.symbol]
         bid, ask = books[c.market] if books else (None, None)
-        price = _mid(books[c.market]) if books else None
+        price = mid_price(books[c.market]) if books else None
         value = h.units * price if price else 0.0
         coins.append({"symbol": c.symbol, "name": c.name, "part": c.part, "weight": c.weight, "market": c.market,
                       "units": h.units, "bid": bid, "ask": ask, "price": price, "value": value,
@@ -384,7 +393,7 @@ def _summary(book: _Book, prices: Prices, now: datetime, pending: list[tuple[dat
                       "result_pct": value / h.cost - 1 if h.units and h.cost else None,
                       "wanted": book.wanted.get(c.symbol),
                       "trend": trend(prices.closes.get(c.symbol), (now + timedelta(days=1)).date())})
-    sol_price = _mid(books[SOL]) if books else None
+    sol_price = mid_price(books[SOL]) if books else None
     pump_sol = book.pump.units * index
     pump_value = pump_sol * sol_price if sol_price else 0.0
     pump = {"sol": pump_sol, "value": pump_value, "share": pump_value / equity if equity else 0.0,
@@ -408,7 +417,8 @@ def _summary(book: _Book, prices: Prices, now: datetime, pending: list[tuple[dat
     }
 
 
-def _mid(book: tuple[float, float]) -> float:
+def mid_price(book: tuple[float, float]) -> float:
+    """The middle of the best bid and ask."""
     return (book[0] + book[1]) / 2
 
 
