@@ -217,6 +217,7 @@ def _build_metadata() -> MetaData:
     _advice_tables(metadata)
     _paper_tables(metadata)
     _pumpfun_tables(metadata)
+    _crypto_tables(metadata)
     for name, spec in TABLES.items():
         columns = {**spec.columns, **_BOOKKEEPING}
         Table(
@@ -415,6 +416,19 @@ def _pumpfun_tables(metadata: MetaData) -> None:
         Column("mint", Text, primary_key=True),
         Column("at", DateTime(timezone=True), primary_key=True, index=True),
         Column("price", Float, nullable=False),
+    )
+
+
+def _crypto_tables(metadata: MetaData) -> None:
+    """The play-money crypto account (``crypto``): Firi's best prices for its coins at each collector run, in NOK.
+    The coins' daily closes are in ``price_bars``; trades, fees and the account's value are worked out from these,
+    so they are not stored."""
+    Table(
+        "crypto_quotes", metadata,
+        Column("market", Text, primary_key=True),  # Firi's market, e.g. BTCNOK
+        Column("at", DateTime(timezone=True), primary_key=True, index=True),  # the run: the same for every market
+        Column("bid", Float, nullable=False),
+        Column("ask", Float, nullable=False),
     )
 
 

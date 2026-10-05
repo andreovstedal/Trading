@@ -362,7 +362,9 @@ body.degen {
 .compare .label { font-size: 0.8rem; color: var(--ink-2); }
 .compare .sub { font-size: 0.78rem; color: var(--muted); }
 .compare > .main { border-color: rgba(20, 241, 149, 0.45); }
-@media (max-width: 640px) { .compare { grid-template-columns: minmax(0, 1fr); } }
+.compare.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (max-width: 640px) { .compare, .compare.two { grid-template-columns: minmax(0, 1fr); } }
+tr.group td { background: var(--surface-2); }
 .more { margin: 12px 0 0; }
 .positions details { margin-top: 12px; }
 .card.empty { text-align: center; padding: 28px 20px; }

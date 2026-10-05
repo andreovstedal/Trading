@@ -35,6 +35,8 @@ nordic-signals web                     # http://127.0.0.1:8000, or --host/--port
 | **Signaler** | Fresh events from the last four days: Swedish insider purchases, Norwegian insider notices, new buyback programmes and rising short interest. |
 | **Resultater** | The track record: excess return, hit rate and rank IC per model version and horizon, and per short-term signal type. |
 | **Lekepenger** | A play-money Nordnet account that trades on the advice by itself, with Nordnet's fees and the exchanges' opening hours: its value day by day, holdings, orders waiting for the opening, trades and each evening's decisions, with the whole log to download. See [Lekepenger](#lekepenger-a-play-money-account). |
+| **Krypto** | A play-money crypto account on Firi: 50 % in Bitcoin and Ether, 30 % in XRP, Cardano and Solana, 20 % on pump.fun, trading on a trend rule beside a buy-and-hold yardstick. See [Krypto](#krypto-a-play-money-crypto-account). |
+| **pump.fun** | The pump-and-dump filter's measurement, and the fake accounts that trade it. See [pump.fun measurement](#pumpfun-measurement). |
 | **Data** | When each source last ran, row counts, and buttons for a manual refresh and the one-off history load (**Hent historikk**). |
 
 Each stock links to a page with its score, themes, key figures, announcements, insider trades and open short positions.
@@ -82,6 +84,45 @@ The account is a replay: only the orders are stored (`paper_orders`, and each ev
 The page has two downloads:
 - `/lekepenger/export.json`: everything, for analysis. It has each evening's decisions, the orders and what became of them, the trades, holdings, dividends and the daily value.
 - `/lekepenger/export.csv`: the trades, for Excel with Norwegian settings.
+
+## Krypto: a play-money crypto account
+
+The **Krypto** page runs a crypto strategy with 100,000 NOK of play money on Firi, the Norwegian exchange that trades crypto against NOK, with Firi's fees and spreads. Nothing is traded. Code: `src/nordic_signals/crypto.py`, prices from `src/nordic_signals/collectors/crypto.py`.
+
+The parts:
+- **Big coins, 50 %:** Bitcoin and Ether, 25 % each.
+- **Smaller coins, 30 %:** XRP, Cardano and Solana, 10 % each. Firi also trades Polkadot, Litecoin and BNB against NOK, but with wider spreads (Polkadot's was almost 5 %).
+- **pump.fun, 20 %:** SOL in a wallet that follows the [pump.fun page's](#pumpfun-measurement) main fake account up and down, as a share of it would, and the price of SOL. SOL is bought on Firi and sent to the wallet for 0.05 SOL (Firi's fee from 1 December 2026; 0.045 before); sending it back is free. A new filter version, whose account starts again at 10 SOL, carries on from where the last one ended.
+
+Two accounts make the same start:
+- **The main account follows a trend rule.** Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its price is above its average over the last 200 days. Below it, the coin is sold and its share waits in NOK until a later Monday finds it above again. A coin with less than 200 days of closes is held.
+- **The yardstick holds every coin all the time:** what the trend rule is up against.
+
+Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. That night's check also applies the trend rule.
+
+How it trades:
+- **Fees.** Firi's price list, checked 5 October 2026: 0.7 % of each trade.
+- **Prices.** A trade is a market order at the first prices collected after the decision: it buys at the best ask and sells at the best bid of Firi's NOK order book, so the spread is paid too. That day it ranged from 0.2 % (XRP) to 1 % (Ether) each way, and 25,000 NOK filled at the best price in all five books. A purchase spends the money set for it, fees and spread included, so each part pays its own costs. Starting the account cost about 1.6 %.
+- **Value.** Coins are valued at the middle of Firi's best bid and ask, and the pump.fun part at its SOL's value. The cost of selling is paid when something is sold.
+- **Not modelled:** tax (22 % on gains), and a large order moving the price in Firi's thin order books.
+
+Why the 200-day average, checked weekly? Each rule was tested on daily closes (USD, from Yahoo) with Firi's fee and the spreads above, against buy and hold with the same monthly rebalancing. From July 2018 the test holds Bitcoin, Ether, XRP and Cardano; from November 2020 Solana too. Returns are a year, compounded:
+
+| Rule | From 2018 | Worst fall | From 2020 | Worst fall |
+|---|---|---|---|---|
+| Buy and hold | 36.0 % | −77 % | 61.0 % | −80 % |
+| **200-day average, weekly** | 34.2 % | −55 % | 55.1 % | −47 % |
+| 20-week average, weekly | 37.4 % | −59 % | 52.3 % | −58 % |
+| 4-week momentum, weekly | 33.1 % | −56 % | 59.8 % | −46 % |
+| 50-day average, daily | 21.1 % | −73 % | 40.0 % | −67 % |
+
+The slow rules earned a little less than buy and hold, 2 to 6 points a year, and cut the worst fall from about −80 % to about −50 %. They trade about four times a year per coin, costing some 5–6 % of the account a year, against 1.6–1.8 % for buy and hold. The fast rules would have won before costs: the 50-day average checked daily made 84 % a year from 2020 with no costs. Firi's fees and spreads took more than that edge, about 27 % a year. The 200-day average is the most widely used trend line, and the steadiest here across both periods, though not the best in every column; it was chosen after this test, so the test does not prove it. The coins are today's survivors and the history is short, so the table is a pointer, not a promise; the two accounts test it going forward.
+
+The account is a replay: only the prices are stored. Firi's best bid and ask are kept every 15 minutes (`crypto_quotes`, thinned to the first complete run of each hour after a week), and the coins' daily closes are in `price_bars`. Trades, fees and value are worked out from them every time, so late prices correct the history. Change `ACCOUNT` and `STARTED_AT` when the rules change, and the account starts again. It starts on 6 October 2026 at 00:00 UTC.
+
+The page has two downloads:
+- `/krypto/export.json`: everything, for analysis. It has both accounts' trades, every check with the trend rule's view of each coin, the holdings, and the value at every price collection.
+- `/krypto/export.csv`: both accounts' trades, for Excel with Norwegian settings.
 
 ## pump.fun measurement
 
@@ -198,6 +239,7 @@ nordic-signals collect intraday                # today's NewsWeb announcements a
 nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate
 nordic-signals collect backfill                # one-off history load for a new database (1-2 hours)
 nordic-signals collect pumpfun                 # pump.fun launches for the pump-and-dump measurement
+nordic-signals collect krypto                  # Firi order books and daily closes for the play-money crypto account
 nordic-signals nightly                         # the daily set, then evaluate past recommendations
 nordic-signals status                          # row counts and the latest run per source
 ```
@@ -213,6 +255,7 @@ The database is `--db` if given, else the `DATABASE_URL` environment variable (P
 | MFN press releases | `mfn` | `feed.mfn.se/v1/feed/{entity}` (entity IDs read from `mfn.se/all/a/{slug}`) | `mfn_items`, `mfn_entities` |
 | Yahoo Finance | `yahoo` | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` | `price_bars`, `dividends`, `splits` |
 | Nordnet stock list | `nordnet` | `www.nordnet.no/api/2/instrument_search/query/stocklist` | `instruments`, `nordnet_observations` |
+| Firi order books, and Yahoo daily closes for the coins | `krypto` | `api.firi.com/v2/markets/{market}/depth`, Yahoo's chart API | `crypto_quotes`, `price_bars` |
 
 All endpoints were checked against the live sites on 2026-10-02; each collector's module docstring records the details.
 
@@ -225,6 +268,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | pump.fun | `nordic-signals collect pumpfun` | every 5 minutes, around the clock |
 | pump.fun quotes | none; `PumpFunCollector.quote` | every minute, around the clock: the open fake-money positions' prices, for the live page. Not logged in `runs`. |
 | pump.fun log | none; `logpush.push` | every hour, once `GITHUB_TOKEN` and `LOG_REPO` are set: the small log to the `pumpfun-logg` branch |
+| krypto | `nordic-signals collect krypto` | every 15 minutes, around the clock: Firi's order books, and each coin's daily close once the day is over (midnight UTC) |
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
 | lekepenger | none; `advisor.paper.decide` | right after the nightly set on weekdays: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
@@ -235,7 +279,7 @@ How it behaves:
 - **Nothing runs twice.** A job is due when the `runs` log shows it hasn't run recently. Whatever already ran, from the schedule, a button on the Data page or a separate cron service, is not repeated.
 - **Missed jobs catch up.** A job missed while the service was down runs once it is back, the same evening for the daily jobs.
 - **Failures retry.** A daily job that failed is retried after an hour.
-- **Web-page jobs come first.** The Nordic jobs wait while a job started from the web page runs. pump.fun doesn't wait.
+- **Web-page jobs come first.** The Nordic jobs wait while a job started from the web page runs. The crypto jobs (pump.fun and krypto) don't wait.
 - **Restarts are cleaned up.** Runs cut off by a restart are marked as interrupted.
 
 The scheduler is on by default on Railway and off elsewhere. Set `SCHEDULER=off` or `SCHEDULER=on` to override. The commands still work on their own, for example as Railway cron services; the schedule skips what they have already done. The times are in UTC and hold in both summer (UTC+2) and winter (UTC+1) Nordic time.
@@ -293,6 +337,7 @@ This is for personal, non-commercial use, and the collectors poll slowly and ide
   - pump.fun's list API is unofficial and rate-limits bursts, so the job reads it once per run.
   - DexScreener's API is documented, with a limit of 300 requests a minute; the job stays well under it.
   - These responses (pump.fun, DexScreener and Solana RPC) are not stored in the raw layer; at this frequency they would add gigabytes a year.
+- **Firi:** the public market-data API needs no key. Its order books are read every 15 minutes and kept only as best bid and ask, not in the raw layer.
 
 ## Tests
 

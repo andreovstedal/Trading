@@ -86,6 +86,8 @@ def options_for(store: Store, source: str, raw: dict[str, Any]) -> dict[str, Any
         return {"symbols": symbols, "range_": raw.get("range_", "5d"), "interval": raw.get("interval", "1d")}
     if source == "pumpfun":
         return {"sample": raw.get("sample", 50)}
+    if source == "krypto":
+        return {}
     raise ValueError(f"unknown source {source}")
 
 

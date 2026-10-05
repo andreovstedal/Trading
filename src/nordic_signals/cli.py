@@ -137,6 +137,8 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--sample", type=int, default=50,
                    help="new launches to score per run (default 50: every launch in pump.fun's list)")
 
+    sources.add_parser("krypto", help="Firi order books and daily closes for the play-money crypto account")
+
     for set_name, runs in SETS.items():
         sources.add_parser(set_name, help=f"{set_name} set: " + ", ".join(name for name, _ in runs))
 

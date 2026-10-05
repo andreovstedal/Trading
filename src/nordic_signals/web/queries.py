@@ -23,6 +23,7 @@ SOURCES = {
     "mfn": "Svenske pressemeldinger (MFN)",
     "yahoo": "Kurshistorikk og kursen SEK/NOK (Yahoo)",
     "pumpfun": "pump.fun-lanseringer til målingen av pump-and-dump-filteret (DexScreener, Solana)",
+    "krypto": "Kryptokontoens kurser: Firis ordrebøker hvert kvarter og daglige sluttkurser (Yahoo)",
     "lekepenger": "Lekepengekontoens beslutninger etter børsslutt (henter ingenting selv)",
 }
 

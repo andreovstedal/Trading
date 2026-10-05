@@ -38,7 +38,7 @@ from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
 from ..http import PoliteClient
 from ..store import Store
-from . import exports, paper_page, pumpfun_page, queries
+from . import crypto_page, exports, paper_page, pumpfun_page, queries
 
 log = logging.getLogger("nordic_signals.web")
 
@@ -248,6 +248,22 @@ def create_app(db: str | None = None) -> FastAPI:
     def paper_json() -> StreamingResponse:
         name = exports.filename("json", queries.utcnow(), "lekepenger")
         return StreamingResponse(paper_page.export_json(store), media_type="application/json",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.get("/krypto", response_class=HTMLResponse)
+    def crypto_view(request: Request) -> HTMLResponse:
+        return render(request, "krypto.html", **crypto_page.context(store))
+
+    @app.get("/krypto/export.csv")
+    def crypto_csv() -> StreamingResponse:
+        name = exports.filename("csv", queries.utcnow(), "krypto")
+        return StreamingResponse(crypto_page.export_csv(store), media_type="text/csv; charset=utf-8",
+                                 headers={"Content-Disposition": f'attachment; filename="{name}"'})
+
+    @app.get("/krypto/export.json")
+    def crypto_json() -> StreamingResponse:
+        name = exports.filename("json", queries.utcnow(), "krypto")
+        return StreamingResponse(crypto_page.export_json(store), media_type="application/json",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/pumpfun", response_class=HTMLResponse)

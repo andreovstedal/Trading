@@ -42,7 +42,7 @@ def due(store, now):
     return [job.name for job in scheduler.JOBS if job.is_due(store, job.name, now)]
 
 
-PUMPFUN = ["pumpfun", "pumpfun-quotes"]
+PUMPFUN = ["pumpfun", "pumpfun-quotes", "krypto"]  # the crypto lane, around the clock
 
 
 def test_jobs_due_through_a_weekday(store):
@@ -57,6 +57,7 @@ def test_what_already_ran_is_not_repeated(store, monkeypatch):
     monkeypatch.setattr(scheduler, "JOBS", [job for job in scheduler.JOBS if job.name != "pumpfun-quotes"])
     now = at(MONDAY, 21, 40)
     add_run(store, "pumpfun", now - timedelta(minutes=2))
+    add_run(store, "krypto", now - timedelta(minutes=2))
     add_run(store, "no-short", at(MONDAY, 20, 30))  # the nightly set, from a cron service
     add_run(store, "lekepenger", at(MONDAY, 20, 35))
     add_run(store, "mfn", at(MONDAY, 21, 0))

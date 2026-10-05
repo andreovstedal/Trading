@@ -3,9 +3,10 @@
 The web service on Railway is always on, so it runs the collectors itself; no separate cron service is
 needed. Two background threads:
 
-* **pump.fun:** the pump.fun measurement every 5 minutes, around the clock, and between runs the open
-  fake-money positions' prices every minute, for the live page. When GITHUB_TOKEN and LOG_REPO are set, the
-  small analysis log is pushed to GitHub every hour (``logpush``).
+* **Crypto** (the "pumpfun" lane): the pump.fun measurement every 5 minutes, around the clock, and between runs
+  the open fake-money positions' prices every minute, for the live page. When GITHUB_TOKEN and LOG_REPO are set,
+  the small analysis log is pushed to GitHub every hour (``logpush``). The play-money crypto account's prices
+  every 15 minutes: Firi's order books, and the day's closes once it is over (``collectors.crypto``).
 * **Nordic:** the share collectors on weekdays (times in UTC):
 
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
@@ -263,6 +264,7 @@ JOBS = [
     Job("pumpfun-quotes", "pumpfun", every(timedelta(minutes=1), source="pumpfun-quotes",
                                            slack=timedelta(seconds=5)), _quotes),
     Job("pumpfun-log", "pumpfun", when_set_up(every(timedelta(hours=1), source="pumpfun-log")), _push_log),
+    Job("krypto", "pumpfun", every(timedelta(minutes=15), source="krypto"), _source("krypto")),
     Job("intraday", "nordic", every(timedelta(minutes=15), source="newsweb", weekdays=True, hours=(5, 19)),
         _set("intraday")),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),

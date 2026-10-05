@@ -1,6 +1,7 @@
 """One collector per source; each module's docstring documents its endpoints and terms."""
 
 from .base import Collector, RunSummary
+from .crypto import CryptoCollector
 from .fi_insider import FiInsiderCollector
 from .fi_short import FiShortCollector
 from .mfn import MfnCollector
@@ -21,6 +22,7 @@ COLLECTORS: dict[str, type[Collector]] = {
         YahooCollector,
         NordnetCollector,
         PumpFunCollector,
+        CryptoCollector,
     )
 }
 
