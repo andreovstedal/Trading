@@ -32,8 +32,10 @@ def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
     for o in account["pending"]:
         opening = paper.next_opening(o["country"], o["decided_on"])
         pending.append({**o, "opening": opening, "opened": opening is not None and opening <= now})
+    markets = [paper.market_status(c, now) for c in paper.MARKETS]
     return {
-        "a": account, "now": now, "markets": [paper.market_status(c, now) for c in paper.MARKETS],
+        "a": account, "now": now, "markets": markets,
+        "today": now.astimezone(NORDIC_TZ).date(), "open_now": any(m["open"] for m in markets),
         "chart": charts.account_chart(points, account["start"], money=text.nok, daily=True),
         "history": points, "pending": pending, "trades": account["trades"][::-1][:TRADE_ROWS],
         "days": paper.days(store, DAY_ROWS), "sleeves": SLEEVES, "sides": SIDES, "policy": paper.POLICY,

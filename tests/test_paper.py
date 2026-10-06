@@ -10,6 +10,8 @@ import pytest
 
 from nordic_signals.advisor import paper
 from nordic_signals.collectors.base import NORDIC_TZ
+from nordic_signals.web import paper_page
+from nordic_signals.web.app import fmt_day
 
 MON, TUE, WED, THU, FRI = (date(2026, 10, d) for d in (5, 6, 7, 8, 9))
 NEXT_MON = date(2026, 10, 12)
@@ -101,6 +103,39 @@ def test_sales_pay_for_the_days_buys_and_a_buy_is_cut_to_the_cash(store, monkeyp
     assert sold["result"] == pytest.approx(15_000 - 29 - 15_029)
     cash = 20_000 - 15_029 + 15_000 - 29
     assert cut["shares"] == 398 and 398 * 50 + 29.85 <= cash < 399 * 50  # as many as the cash pays for, fees in
+
+
+def yahoo_bar(store, symbol, day, opening, closing):
+    """Yahoo's daily bar, stamped at the opening as Yahoo stamps Oslo and Stockholm; during the day, the close is
+    the latest price."""
+    with store.engine.begin() as conn:
+        conn.execute(store.table("price_bars").insert().values(
+            symbol=symbol, interval="1d", ts=int(oslo(day, 9).timestamp()), open=opening, close=closing))
+
+
+def test_an_order_fills_at_the_opening_during_the_day(store):
+    snapshot(store, 1, MON, 99, 100)
+    order(store, MON, 1, "buy", 100)
+    assert paper.account(store)["pending"] != []  # nothing from Tuesday yet
+
+    yahoo_bar(store, "S1.OL", TUE, 102, 103.5)  # fetched at 11:00, while Oslo is open
+    during = paper.account(store)
+    (bought,) = during["trades"]
+    assert (bought["day"], bought["price"], bought["at_close"]) == (TUE, 102, False) and during["pending"] == []
+    assert during["valued_on"] == TUE and during["positions"][0]["price"] == 103.5  # the latest price
+
+    snapshot(store, 1, TUE, 102, 104)  # the evening's snapshot after the close takes over
+    assert paper.account(store)["positions"][0]["price"] == 104
+
+
+def test_the_stocks_are_watched_while_a_market_is_open(store):
+    for day in (MON, TUE):
+        snapshot(store, 1, day, 100, 100)
+    order(store, MON, 1, "buy", 10)
+    order(store, TUE, 2, "buy", 10, country="SE", currency="SEK")  # for Wednesday's opening
+    assert paper.watched_symbols(store, oslo(WED, 10)) == ["S1.OL", "S2.ST", "SEKNOK=X"]
+    assert paper.watched_symbols(store, oslo(WED, 17)) == ["S1.OL", "S2.ST", "SEKNOK=X"]  # Stockholm until 17:30
+    assert paper.watched_symbols(store, oslo(WED, 18)) == [] and paper.watched_symbols(store, oslo(NEXT_MON - timedelta(days=2), 12)) == []
 
 
 def test_an_order_waits_for_its_stock_to_trade_and_lapses_after_five_trading_days(store):
@@ -250,7 +285,7 @@ def test_the_monthly_rebalance_keeps_holdings_still_near_the_top(store):
     assert [o["instrument_id"] for o in placed if o["side"] == "buy"] == [300, 301]  # back to 12 positions
 
 
-def test_the_page_and_the_logs(store, make_client):
+def test_the_page_and_the_logs(store, make_client, monkeypatch):
     for day in (MON, TUE, WED):
         snapshot(store, 1, day, 100, 101)
         snapshot(store, 2, day, 50, 52)
@@ -264,13 +299,19 @@ def test_the_page_and_the_logs(store, make_client):
             recommendation_id=None, model_version="v2", equity=paper.START, cash=paper.START, orders=2,
             notes=["Første kveld"]))
 
+    monkeypatch.setattr(paper_page, "utcnow", lambda: oslo(WED, 23))
     with make_client() as client:
         page = client.get("/lekepenger").text
         spreadsheet = client.get("/lekepenger/export.csv")
         log = client.get("/lekepenger/export.json")
+        monkeypatch.setattr(paper_page, "utcnow", lambda: oslo(THU, 11))  # Oslo is open, Thursday's price not in
+        opened = client.get("/lekepenger").text
 
     assert "Lekepenger" in page and "Stock 1" in page and "Første kveld" in page and "Oslo Børs" in page
     assert "Venter på åpningen" in page and "Kortsiktig" in page and page.count("<svg") == 1
+    assert f"til sluttkurs {fmt_day(WED)}" in page
+    assert "Utført ved åpningen, venter på kursen" in opened and "Venter på åpningen" not in opened
+    assert "utført ved åpningen" in opened and "til sluttkurs" in opened  # Thursday is not priced yet
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
     assert len(rows) == 2 and "Kurtasje (NOK)" in header
     assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="lekepenger-')

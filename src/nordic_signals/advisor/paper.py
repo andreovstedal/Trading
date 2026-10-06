@@ -17,7 +17,9 @@ the way a customer of Nordnet in Norway would trade them:
 * **Dividends** are credited on the ex-date, from Yahoo's dividend events; Swedish ones after 15 % withholding
   tax (the tax treaty's rate for a Norwegian resident). An ASK pays no Norwegian tax on them.
 * **Value.** Positions are valued at each day's closing price, as Nordnet's account overview does: the cost of
-  selling is paid when a position is sold.
+  selling is paid when a position is sold. While a market is open, the stocks the account holds or has orders for
+  are fetched from Yahoo every half hour (``watched_symbols``): the morning's orders fill at the opening price soon
+  after 09:00, and the account is valued at the latest prices, until the evening's closing prices replace them.
 
 The long-term part is rebalanced once a month, on the first trading evening: holdings the advisor still ranks
 among the best 2 × 12 eligible stocks stay, the rest are sold, and the best-ranked stocks it does not hold are
@@ -72,6 +74,7 @@ MAX_NEW_SHORT = 2  # new short-term trades an evening
 ORDER_DAYS = 5  # an order lapses if its stock has not traded within this many of its market's trading days
 AFTER_CLOSE = time(18, 0)  # Norwegian time: a snapshot from then on has the day's closing prices
 EVENING = time(20, 45)  # UTC: the account decides after the nightly collection, which starts at 20:30 UTC
+INTRADAY = timedelta(minutes=30)  # how often the account's stocks are fetched while a market is open
 
 
 @dataclass(frozen=True)
@@ -138,6 +141,20 @@ def market_days(country: str, after: date, until: date) -> list[date]:
         if trading_hours(country, day):
             out.append(day)
     return out
+
+
+def watched_symbols(store: Store, now: datetime | None = None) -> list[str]:
+    """Yahoo symbols for the stocks the account holds or has orders waiting for, and SEK/NOK, while a market is open
+    (none otherwise): fetched during the day, so an order fills soon after the opening and the account is valued at
+    the latest prices instead of yesterday's closes."""
+    now = now or utcnow()
+    if not any(market_status(country, now)["open"] for country in MARKETS):
+        return []
+    state = account(store, now)
+    stocks = {(s["symbol"], s["country"]) for s in (*state["positions"], *state["pending"])}
+    symbols = sorted(yahoo_symbol(symbol, country) for symbol, country in stocks
+                     if symbol and country in EXCHANGE_SUFFIX)
+    return [*symbols, *FX_PAIRS.values()] if symbols else []
 
 
 def next_evening(now: datetime) -> datetime | None:

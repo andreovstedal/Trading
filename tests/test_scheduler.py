@@ -47,7 +47,7 @@ PUMPFUN = ["pumpfun", "pumpfun-quotes", "krypto"]  # the crypto lane, around the
 
 def test_jobs_due_through_a_weekday(store):
     assert due(store, at(MONDAY, 3)) == PUMPFUN
-    assert due(store, at(MONDAY, 12)) == [*PUMPFUN, "intraday"]
+    assert due(store, at(MONDAY, 12)) == [*PUMPFUN, "intraday", "lekepenger-kurser"]
     assert due(store, at(MONDAY, 20, 31)) == [*PUMPFUN, "nightly", "lekepenger"]
     assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "lekepenger", "mfn", "prices"]
     assert due(store, at(MONDAY + timedelta(days=5), 21, 31)) == PUMPFUN  # Saturday
@@ -142,6 +142,18 @@ def test_the_pumpfun_job_runs_the_collector(server, store, monkeypatch):
 
     (run,) = store.last_runs()
     assert run["source"] == "pumpfun" and run["ok"] is True
+
+
+def test_the_play_money_stocks_are_fetched_while_a_market_is_open(store, monkeypatch):
+    calls = []
+    monkeypatch.setattr(scheduler.jobs, "run_source", lambda *args, **kwargs: calls.append((args[2], kwargs)) or object())
+    monkeypatch.setattr(scheduler.paper, "watched_symbols", lambda _store: [])
+    assert scheduler._paper_prices(store, NoNetwork()) is True and calls == []  # nothing to fetch: no run logged
+    monkeypatch.setattr(scheduler.paper, "watched_symbols", lambda _store: ["EQNR.OL", "SEKNOK=X"])
+    assert scheduler._paper_prices(store, NoNetwork()) is True
+    assert calls == [("yahoo", {"symbols": ["EQNR.OL", "SEKNOK=X"], "range_": "5d"})]
+    (job,) = [j for j in scheduler.JOBS if j.name == "lekepenger-kurser"]
+    assert job.is_due(store, job.name, at(MONDAY, 7, 5)) and not job.is_due(store, job.name, at(MONDAY, 17, 5))
 
 
 def test_quotes_run_every_minute_without_logging_runs(store, monkeypatch):

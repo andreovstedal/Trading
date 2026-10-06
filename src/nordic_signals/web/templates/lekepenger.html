@@ -29,7 +29,7 @@
 
 <div class="tiles">
   <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ a.equity | nok }}</div>
-    <div class="sub">{% if a.valued_on %}til sluttkurs {{ a.valued_on | day }}{% else %}startbeløp{% endif %}</div></div>
+    <div class="sub">{% if a.valued_on == today and open_now %}til siste kurs i dag, mens børsen er åpen{% elif a.valued_on %}til sluttkurs {{ a.valued_on | day }}{% else %}startbeløp{% endif %}</div></div>
   <div class="tile"><div class="label">Avkastning</div><div class="value">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
     <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter kurtasje og veksling</div></div>
   <div class="tile"><div class="label">Beholdning</div><div class="value">{{ a.positions | length }}</div>
@@ -56,7 +56,7 @@
 
 {% if pending %}
 <div class="card">
-  <h2>Venter på åpningen</h2>
+  <h2>{% if pending | selectattr("opened") | list %}Utført ved åpningen, venter på kursen{% else %}Venter på åpningen{% endif %}</h2>
   <div class="table-wrap"><table>
     <thead><tr><th>Aksje</th><th>Ordre</th><th class="num">Antall</th><th class="num">Sluttkurs i går</th><th>Utføres</th><th>Begrunnelse</th></tr></thead>
     <tbody>{% for o in pending %}
@@ -64,13 +64,14 @@
         <td>{{ sides[o.side] }}</td>
         <td class="num">{{ o.shares | num }}</td>
         <td class="num">{{ o.ref_price | num(2) }}&nbsp;{{ o.currency }}</td>
-        <td>{% if o.opened %}ved åpningen {{ o.opening | when }}; kursen hentes etter børsslutt{% elif o.opening %}ved åpningen {{ o.opening | when }}{% else %}neste handelsdag{% endif %}</td>
+        <td>{% if o.opened %}utført ved åpningen {{ o.opening | when }}; kursen hentes{% elif o.opening %}ved åpningen {{ o.opening | when }}{% else %}neste handelsdag{% endif %}</td>
         <td class="small">{{ o.reason }}</td></tr>
     {% endfor %}</tbody>
   </table></div>
   <p class="small muted">Ordrene legges inn om kvelden, etter at børsene har stengt, og går inn i åpningsauksjonen
     neste handelsdag klokka 09:00. Der får alle samme kurs, så det betales ingen spread. Et kjøp blir mindre hvis det
-    ikke er nok penger til hele.</p>
+    ikke er nok penger til hele. Mens børsene er åpne, hentes kursene hver halvtime, så handelen vises her kort etter
+    åpningen.</p>
 </div>
 {% endif %}
 
@@ -90,8 +91,8 @@
         <td class="num">{{ arrow(p.result) }} {{ p.result | num(0, True) }}&nbsp;NOK<div class="ticker">{{ p.result_pct | pct(1, True) }}</div></td></tr>
     {% endfor %}</tbody>
   </table></div>
-  <p class="small muted">Kostpris er kjøpet med kurtasje og veksling. Verdien er til siste sluttkurs, slik Nordnet viser
-    kontoen; det salget vil koste, trekkes når det skjer.</p>
+  <p class="small muted">Kostpris er kjøpet med kurtasje og veksling. Verdien er til siste kurs, slik Nordnet viser
+    kontoen: hver halvtime mens børsen er åpen, ellers sluttkursen. Det salget vil koste, trekkes når det skjer.</p>
   {% else %}
   <p class="muted">Ingen aksjer ennå.</p>
   {% endif %}
