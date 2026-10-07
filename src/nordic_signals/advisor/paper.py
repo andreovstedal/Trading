@@ -252,8 +252,7 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                                  "symbol": lot.order["symbol"], "shares": lot.shares, "per_share": amount,
                                  "currency": currency, "nok": gross - tax, "tax": tax})
         paid_through = day
-        # Sales first, so their money is there for the day's purchases (Nordnet lends against unsettled sales).
-        for o in sorted(by_day.get(day, []), key=lambda o: (o["side"] != "sell", o["decided_at"], o["id"])):
+        for o in sorted(by_day.get(day, []), key=_turn):
             opening, closing = prices[o["instrument_id"]][day]
             price = opening or closing
             rate = _rate(fx, o["currency"], day)
@@ -291,6 +290,13 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                     for i, lot in holdings.items())
         history.append((day, cash + worth, cash))
     return _summary(cash, holdings, trades, received, history, pending, lapsed, orders, close, fx)
+
+
+def _turn(o: dict[str, Any]) -> tuple:
+    """The order a day's orders fill in. Sales first, so their money is there for the day's purchases (Nordnet
+    lends against unsettled sales). Then the short-term buys, near the smallest position, so if higher opening
+    prices leave too little for all, a long-term buy, about twice their size, is the one cut."""
+    return o["side"] != "sell", o["sleeve"] != "short", o["decided_at"], o["id"]
 
 
 def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list, history: list, pending: list,

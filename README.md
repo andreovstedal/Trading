@@ -75,7 +75,7 @@ How it trades:
   - An order waits while its stock doesn't trade, and lapses after 5 of its market's trading days.
   - Oslo Børs trades 09:00–16:25 and Nasdaq Stockholm 09:00–17:30, Norwegian time.
   - Holidays come from Euronext's and Nasdaq's calendars (2026–2027; add each new year's dates to `MARKETS`).
-- **Fees.** Nordnet's Norwegian price list, class Mini, checked 4 October 2026: 0.15 % of each trade in Nordic shares, at least 29 NOK. Swedish shares bought from a NOK account also pay 0.25 % on each automatic currency exchange. A buy is cut to the cash there is at the opening, and sales come before the day's buys, so their money can pay for them.
+- **Fees.** Nordnet's Norwegian price list, class Mini, checked 4 October 2026: 0.15 % of each trade in Nordic shares, at least 29 NOK. Swedish shares bought from a NOK account also pay 0.25 % on each automatic currency exchange. A buy is cut to the cash there is at the opening, and sales come before the day's buys, so their money can pay for them. Short-term buys come before long-term ones: a long-term position is about twice the size, so if higher opening prices leave too little for all, a long-term buy takes the cut and stays above the smallest position.
   - The evening orders no buy smaller than the smallest position (20,000 NOK) for want of cash.
   - A buy cut to the cash at the opening shows as `delvis utført` in the log. If the cut leaves less than 90 % of its shares and less than the smallest position, the buy lapses instead; a smaller cut, from a higher opening price, is kept.
 - **Dividends** are credited on the ex-date, from Yahoo's dividend events. Swedish dividends are paid after 15 % withholding tax. As on an ASK, there is no Norwegian tax.

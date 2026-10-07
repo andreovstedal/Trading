@@ -303,6 +303,21 @@ def test_a_small_cut_from_a_higher_opening_is_kept(store, monkeypatch):
     assert bought["shares"] == 198 and bought["value"] < paper.POLICY["min_position"]  # 2 shares short: kept
 
 
+def test_short_term_buys_fill_first_so_a_long_term_buy_takes_a_higher_opening(store, monkeypatch):
+    monkeypatch.setattr(paper, "START", 62_500.0)
+    snapshot(store, 1, MON, 100, 100)
+    snapshot(store, 2, MON, 100, 100)
+    snapshot(store, 1, TUE, 106, 106)  # opens 6 % higher
+    snapshot(store, 2, TUE, 100, 100)
+    order(store, MON, 1, "buy", 374)  # 37 400 NOK at Monday's close, planned first
+    order(store, MON, 2, "buy", 249, sleeve="short", signal_type="buyback_start")  # 24 900 NOK
+
+    short, long = paper.account(store)["trades"]
+
+    assert (short["instrument_id"], short["shares"]) == (2, 249)  # all of it
+    assert long["instrument_id"] == 1 and 0.9 * 374 < long["shares"] < 374  # cut, and still well above 20 000 NOK
+
+
 def test_the_evening_orders_no_position_below_the_smallest(store):
     policy = paper.Policy(account_value=paper.START, **paper.POLICY)
     signals = [pick(300 + i, 50 + i, signal="buyback_start") for i in range(2)]
