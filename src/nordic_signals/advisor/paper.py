@@ -17,9 +17,10 @@ the way a customer of Nordnet in Norway would trade them:
 * **Dividends** are credited on the ex-date, from Yahoo's dividend events; Swedish ones after 15 % withholding
   tax (the tax treaty's rate for a Norwegian resident). An ASK pays no Norwegian tax on them.
 * **Value.** Positions are valued at each day's closing price, as Nordnet's account overview does: the cost of
-  selling is paid when a position is sold. While a market is open, the stocks the account holds or has orders for
-  are fetched from Yahoo every half hour (``watched_symbols``): the morning's orders fill at the opening price soon
-  after 09:00, and the account is valued at the latest prices, until the evening's closing prices replace them.
+  selling is paid when a position is sold. While a market is open, and for an hour after, the stocks the account
+  holds or has orders for are fetched from Yahoo every half hour (``watched_symbols``): the morning's orders fill at
+  the opening price soon after 09:00, and the account is valued at the latest prices, then the closing auction's,
+  until Nordnet's evening snapshot replaces them.
 
 The long-term part is rebalanced once a month, on the first trading evening: holdings the advisor still ranks
 among the best 2 × 12 eligible stocks stay, the rest are sold, and the best-ranked stocks it does not hold are

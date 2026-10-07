@@ -39,6 +39,7 @@ def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
         "chart": charts.account_chart(points, account["start"], money=text.nok, daily=True),
         "history": points, "pending": pending, "trades": account["trades"][::-1][:TRADE_ROWS],
         "days": paper.days(store, DAY_ROWS), "sleeves": SLEEVES, "sides": SIDES, "policy": paper.POLICY,
+        "cut_keeps": paper.CUT_KEEPS,
         "fees": {"courtage": paper.COURTAGE, "minimum": paper.COURTAGE_MIN, "exchange": paper.FX_SPREAD,
                  "dividend_tax": paper.SE_DIVIDEND_TAX},
         "rules": {"hold_rank": paper.HOLD_RANK * paper.POLICY["max_positions"], "short_hold": paper.SHORT_HOLD,

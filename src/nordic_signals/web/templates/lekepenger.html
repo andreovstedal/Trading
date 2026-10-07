@@ -70,7 +70,8 @@
   </table></div>
   <p class="small muted">Ordrene legges inn om kvelden, etter at børsene har stengt, og går inn i åpningsauksjonen
     neste handelsdag klokka 09:00. Der får alle samme kurs, så det betales ingen spread. Et kjøp blir mindre hvis det
-    ikke er nok penger til hele. Mens børsene er åpne, hentes kursene hver halvtime, så handelen vises her kort etter
+    ikke er nok penger til hele; blir det under {{ policy.min_position | nok }} og under {{ (cut_keeps * 100) | num(0) }}&nbsp;% av aksjene, faller
+    kjøpet bort. Mens børsene er åpne, og en time etter, hentes kursene hver halvtime, så handelen vises her kort etter
     åpningen.</p>
 </div>
 {% endif %}

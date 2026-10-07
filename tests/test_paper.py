@@ -429,7 +429,7 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     assert "utført ved åpningen" in opened and "til sluttkurs" in opened  # Thursday is not priced yet
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
     assert len(rows) == 3 and "Kurtasje (NOK)" in header
-    assert "planlagt" in page
+    assert "planlagt" in page and "90&nbsp;% av aksjene, faller" in page
     assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="lekepenger-')
     data = log.json()
     assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity"]
