@@ -72,6 +72,9 @@ HOLD_RANK = 2  # long-term holdings stay while ranked among the best HOLD_RANK �
 SHORT_HOLD = SHORT_HORIZON_DAYS  # trading days a short-term position is held
 MAX_NEW_SHORT = 2  # new short-term trades an evening
 ORDER_DAYS = 5  # an order lapses if its stock has not traded within this many of its market's trading days
+# A buy the cash at the opening cuts to less than this share of its shares, and below the smallest position,
+# lapses; a small cut, from a higher opening price, leaves a position about the size the evening planned.
+CUT_KEEPS = 0.9
 AFTER_CLOSE = time(18, 0)  # Norwegian time: a snapshot from then on has the day's closing prices
 EVENING = time(20, 45)  # UTC: the account decides after the nightly collection, which starts at 20:30 UTC
 EVENING_ENDS = time(6, 0)  # Norwegian time: until then, a decision belongs to the evening before
@@ -273,9 +276,10 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                 if shares == 0:
                     lapsed.append({**o, "status": "Ikke kjøpt: ikke nok penger"})
                     continue
-                if shares < o["shares"] and shares * price * rate < POLICY["min_position"]:
+                if shares < CUT_KEEPS * o["shares"] and shares * price * rate < POLICY["min_position"]:
+                    smallest = f"{POLICY['min_position']:,.0f}".replace(",", " ")
                     lapsed.append({**o, "status": f"Ikke kjøpt: pengene som var igjen ved åpningen, ga en posisjon "
-                                                  f"under {POLICY['min_position']:,.0f} NOK".replace(",", " ")})
+                                                  f"under {smallest} NOK"})
                     continue
                 value = shares * price * rate
                 courtage, exchange = costs(value, o["currency"])
@@ -512,11 +516,17 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
     taken = set(held) | {o["instrument_id"] for o in state["pending"]}
     orders: list[dict[str, Any]] = []
     notes: list[str] = []
-    cash = state["cash"]
+    cash, pending_short, pending_long, short_spoken_for = state["cash"], 0, 0, 0.0
     for o in state["pending"]:
         value = o["shares"] * (o["ref_price"] or 0) * (o["fx_rate"] or 0)
-        cash += value - sum(costs(value, o["currency"])) if o["side"] == "sell" else -value * buy_room(o["currency"])
-    pending_short = sum(1 for o in state["pending"] if o["side"] == "buy" and o["sleeve"] == "short")
+        if o["side"] == "sell":
+            cash += value - sum(costs(value, o["currency"]))
+            continue
+        cash -= value * buy_room(o["currency"])
+        if o["sleeve"] == "short":
+            pending_short, short_spoken_for = pending_short + 1, short_spoken_for + value * buy_room(o["currency"])
+        else:
+            pending_long += 1
 
     def sell(position: dict[str, Any], reason: str, pick: Pick | None = None) -> None:
         nonlocal cash
@@ -531,6 +541,8 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
     def buy(pick: Pick, sleeve: str, amount: float, reason: str) -> bool:
         nonlocal cash
         unit, room = (pick.price or 0) * (pick.fx or 0), buy_room(pick.currency)
+        if cash < min(amount, policy.min_position):  # too little left for a position of the smallest size
+            return False
         shares = math.floor(min(amount, cash) / (unit * room)) if unit > 0 else 0
         if shares == 0:
             return False
@@ -553,7 +565,7 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
         n = policy.position_count
         ranked = {p.instrument_id: p for p in tonight.picks}
         eligible = sorted((p for p in tonight.picks if p.eligible and p.rank), key=lambda p: p.rank)
-        kept = 0
+        kept = pending_long
         for p in (p for p in held.values() if p["sleeve"] == "long"):
             pick = ranked.get(p["instrument_id"])
             if pick and pick.eligible and pick.rank and pick.rank <= HOLD_RANK * n:
@@ -563,8 +575,8 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
             else:
                 sell(p, f"Ikke lenger kvalifisert: {pick.exclusion}" if pick and pick.exclusion
                      else "Ikke med i rådgiverens univers", pick)
-        # The short-term part's money stays free for its own trades.
-        reserve = max(0.0, policy.short_capital - sum(p["value"] for p in short_kept))
+        # The short-term part's money stays free for its own trades (its waiting buys' is already taken out).
+        reserve = max(0.0, policy.short_capital - sum(p["value"] for p in short_kept) - short_spoken_for)
         cash -= reserve
         for pick in eligible:
             if kept >= n:

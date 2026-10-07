@@ -207,10 +207,67 @@ def test_the_trend_rules_cash_waits_for_its_coin_at_the_month(store):
 
     a = crypto.account(store, month + timedelta(hours=1))
 
-    # Bitcoin was sold on 12 October; its share waits in kroner, so the pump.fun part is paid for by the others.
+    # Bitcoin was sold on 12 October and its kroner wait for it: 28 % of the account now that the pump.fun part has
+    # halved, within a fifth of its quarter. They pay for the pump.fun part with the coins above their share, down
+    # to their quarter exactly; the sales' costs come out of the purchase, not out of Bitcoin's kroner.
     assert ("sell", "BTC") in trades(a, since=datetime(2026, 10, 12, tzinfo=timezone.utc))
-    assert ("sell", "BTC") not in trades(a, since=month) and ("buy", "BTC") not in trades(a, since=month)
-    assert a["cash"] / a["equity"] == pytest.approx(0.25, abs=0.004) and a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.004)
+    assert trades(a, since=month) == [("sell", "ETH"), ("sell", "XRP"), ("sell", "ADA"), ("sell", "SOL"),
+                                      ("buy", "pump.fun")]
+    assert a["cash"] == pytest.approx(0.25 * a["checks"][-1]["value"], abs=0.01)
+    assert a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.004)
+
+
+def btc_out_since_october_12(store):
+    """Bitcoin under its average from 11 October, and sold on the 12th; the pump.fun account flat."""
+    btc = [100.0 + i for i in range(240)]
+    btc[-21:] = [50.0] * 21
+    closes(store, "BTC-USD", date(2026, 10, 31), btc)
+    rising(store, date(2026, 10, 31), coins=crypto.COINS[1:])
+    pump(store, (T0 - timedelta(hours=1), 10.0))
+    quotes(store, T0 + timedelta(minutes=5), mids())
+    quotes(store, datetime(2026, 10, 12, 0, 5, tzinfo=timezone.utc), mids())
+
+
+@pytest.mark.parametrize("change", [1.0, 0.95])
+def test_the_month_leaves_parts_and_cash_within_their_band_alone(store, change):
+    btc_out_since_october_12(store)
+    month = datetime(2026, 11, 1, 0, 5, tzinfo=timezone.utc)
+    quotes(store, month, {m: p * change for m, p in mids().items()})
+
+    a = crypto.account(store, month + timedelta(hours=1))
+
+    # Bitcoin's sale cost its spread and fee, and the coins may have drifted, so its kroner are not exactly a
+    # quarter of the account: but within a fifth of it, so nothing is traded.
+    assert a["checks"][-1]["kind"] == "month" and a["checks"][-1]["trades"] == 0
+
+
+def test_money_left_over_goes_to_the_coins_then_the_pump_fun_part(store):
+    btc_out_since_october_12(store)
+    month = datetime(2026, 11, 1, 0, 5, tzinfo=timezone.utc)
+    quotes(store, month, mids(ETH=15_000.0, XRP=8.4, ADA=1.5, SOL=600.0))  # all but Bitcoin down 40 %
+
+    a = crypto.account(store, month + timedelta(hours=1))
+
+    # Bitcoin's kroner are now 35 % of the account, more than a fifth over its quarter: what is over goes to the
+    # coins below their share, all within their band, and what they could not take to the pump.fun part.
+    assert trades(a, since=month) == [("buy", "ETH"), ("buy", "XRP"), ("buy", "ADA"), ("buy", "SOL"),
+                                      ("buy", "pump.fun")]
+    assert all("med pengene som ble til overs" in t["reason"] for t in a["trades"][-5:])
+    shares = {c["symbol"]: c["share"] for c in a["coins"]}
+    assert shares["ETH"] == pytest.approx(0.25, abs=0.003) and shares["SOL"] == pytest.approx(0.10, abs=0.002)
+    assert a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.002)
+    assert a["cash"] / a["equity"] == pytest.approx(0.25, abs=0.002)
+
+
+@pytest.mark.parametrize("nok", [500.0, 2_000.0])
+def test_sol_is_sent_to_the_wallet_only_if_sending_it_is_a_small_share(nok):
+    book = crypto._Book(trend=False)
+    books = {m: (p * (1 - SPREAD / 2), p * (1 + SPREAD / 2)) for m, p in mids().items()}
+
+    book._buy_part(None, nok, books, 1.0, T0, T0, "month", "Påfyll")
+
+    # 0.05 SOL at 1 000 NOK is 50 NOK: a tenth of 500 NOK, too much, but a 25th of 2 000 NOK.
+    assert len(book.trades) == (nok > 1_000)
 
 
 def test_the_pump_fun_index_carries_on_across_versions(store):

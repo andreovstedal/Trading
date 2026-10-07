@@ -76,11 +76,12 @@ How it trades:
   - Oslo Børs trades 09:00–16:25 and Nasdaq Stockholm 09:00–17:30, Norwegian time.
   - Holidays come from Euronext's and Nasdaq's calendars (2026–2027; add each new year's dates to `MARKETS`).
 - **Fees.** Nordnet's Norwegian price list, class Mini, checked 4 October 2026: 0.15 % of each trade in Nordic shares, at least 29 NOK. Swedish shares bought from a NOK account also pay 0.25 % on each automatic currency exchange. A buy is cut to the cash there is at the opening, and sales come before the day's buys, so their money can pay for them.
-  - A buy cut to the cash at the opening shows as `delvis utført` in the log. If what is left would buy less than the smallest position (20,000 NOK), the buy lapses instead.
+  - The evening orders no buy smaller than the smallest position (20,000 NOK) for want of cash.
+  - A buy cut to the cash at the opening shows as `delvis utført` in the log. If the cut leaves less than 90 % of its shares and less than the smallest position, the buy lapses instead; a smaller cut, from a higher opening price, is kept.
 - **Dividends** are credited on the ex-date, from Yahoo's dividend events. Swedish dividends are paid after 15 % withholding tax. As on an ASK, there is no Norwegian tax.
 - **Value.** The account is valued at each day's closing price, as Nordnet shows an account; the cost of selling is paid when a position is sold.
 - **During the day.** While Oslo or Stockholm is open, and for an hour after, the stocks the account holds or has orders for, and SEK/NOK, are fetched from Yahoo every 30 minutes. The morning's orders then show as filled at the opening price soon after 09:00, and the account is valued at the latest prices, then at the closing auction's, until Nordnet's evening snapshot replaces them. Swedish trades use that day's evening SEK/NOK rate, not the rate at the opening (about 0.1 % apart on the first day).
-- **Orders still waiting** for their opening, after a holiday on one exchange or a day the stock did not trade, are counted as done the next evening: a sale is not ordered again, their money is spoken for, and a short-term buy takes its slot.
+- **Orders still waiting** for their opening, after a holiday on one exchange or a day the stock did not trade, are counted as done the next evening: a sale is not ordered again, their money is spoken for, and a buy takes its place among the 12 long-term or the short-term slots.
 - **Not modelled:** a large order moving the price, and the delay between seeing a signal and trading. The orders are small next to the stocks' turnover, since the advisor only picks liquid stocks.
 
 The account is a replay: only the orders are stored (`paper_orders`, and each evening's decision in `paper_days`). Fills, fees, dividends and the daily value are worked out from the prices every time, so late data corrects the history. Change `ACCOUNT` when the rules change, and a new account starts from scratch.
@@ -102,7 +103,7 @@ Two accounts make the same start:
 - **The main account follows a trend rule.** Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its price is above its average over the last 200 days. Below it, the coin is sold and its share waits in NOK until a later Monday finds it above again. A coin with less than 200 days of closes is held.
 - **The yardstick holds every coin all the time:** what the trend rule is up against.
 
-Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. When those trades need more money than is spare, the parts above their share pay for it; money left over goes to the parts below theirs, so none sits idle. The kroner of a coin the trend rule has sold stay put, waiting for it. That night's check also applies the trend rule.
+Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. When those trades need more money than is spare, the parts above their share pay for it; money left over goes to the coins below theirs, then to the pump.fun part, so none sits idle (but SOL is only sent to the wallet when the 0.05 SOL fee is at most 5 % of it). The kroner of the coins the trend rule has sold count as a part of their own, with those coins' share as its target, and pay their own selling costs. That night's check also applies the trend rule.
 
 How it trades:
 - **Fees.** Firi's price list, checked 5 October 2026: 0.7 % of each trade.

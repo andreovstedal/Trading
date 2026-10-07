@@ -288,7 +288,59 @@ def test_a_buy_cut_below_the_smallest_position_lapses(store, monkeypatch):
     account = paper.account(store)
 
     assert [t["instrument_id"] for t in account["trades"]] == [1]
-    assert account["lapsed"][0]["status"].startswith("Ikke kjøpt: pengene som var igjen ved åpningen")
+    assert account["lapsed"][0]["status"] == ("Ikke kjøpt: pengene som var igjen ved åpningen, ga en posisjon "
+                                              "under 20 000 NOK")
+
+
+def test_a_small_cut_from_a_higher_opening_is_kept(store, monkeypatch):
+    monkeypatch.setattr(paper, "START", 20_100.0)
+    snapshot(store, 1, MON, 100, 100)
+    snapshot(store, 1, TUE, 101, 101)
+    order(store, MON, 1, "buy", 200)  # 20 000 NOK at Monday's close
+
+    (bought,) = paper.account(store)["trades"]
+
+    assert bought["shares"] == 198 and bought["value"] < paper.POLICY["min_position"]  # 2 shares short: kept
+
+
+def test_the_evening_orders_no_position_below_the_smallest(store):
+    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    signals = [pick(300 + i, 50 + i, signal="buyback_start") for i in range(2)]
+
+    placed, notes = paper._plan({"cash": 35_000.0, "positions": [], "pending": []}, policy,
+                                paper.Scan(None, [], signals), False)
+
+    # The first signal gets its 25 000 NOK slot; the 10 000 NOK left would be half the smallest position.
+    assert [(o["instrument_id"], o["shares"]) for o in placed] == [(300, 249)]
+    assert notes == ["1 kortsiktige signaler ble ikke kjøpt: ingen ledig plass eller for lite penger."]
+
+
+def waiting_buy(instrument_id, sleeve, shares):
+    return {"instrument_id": instrument_id, "side": "buy", "sleeve": sleeve, "shares": shares, "ref_price": 100.0,
+            "fx_rate": 1.0, "currency": "NOK"}
+
+
+def test_a_waiting_long_buy_counts_toward_the_twelve(store):
+    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    state = {"cash": 374 * 100.15 + 50_000 + 40_000,  # the waiting buy, the short-term part, and 40 000 more
+             "positions": [{"instrument_id": 100 + i, "sleeve": "long", "value": 37_500.0} for i in range(11)],
+             "pending": [waiting_buy(111, "long", 374)]}
+
+    placed, notes = paper._plan(state, policy, paper.Scan(7, [pick(100 + i, i + 1) for i in range(14)], []), True)
+
+    assert placed == [] and notes == []  # eleven held and one on its way: twelve
+
+
+def test_a_waiting_short_buys_money_is_not_held_back_twice(store):
+    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    state = {"cash": 450_000 + 250 * 100.15,  # the long part's money, and the waiting short-term buy's
+             "positions": [{"instrument_id": 50, "sleeve": "short", "value": 25_000.0, "held_days": 1}],
+             "pending": [waiting_buy(51, "short", 250)]}
+
+    placed, notes = paper._plan(state, policy, paper.Scan(7, [pick(100 + i, i + 1) for i in range(12)], []), True)
+
+    # The short-term part is full, one held and one on its way, so all of the rest buys the twelve.
+    assert [o["shares"] for o in placed] == [374] * 12 and notes == []
 
 
 def test_it_waits_for_closing_prices_and_rests_on_holidays(store):

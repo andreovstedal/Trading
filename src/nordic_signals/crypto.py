@@ -16,15 +16,16 @@ time, so only the prices are stored (``collectors.crypto``), and late prices cor
 * **Rebalancing.** On the first of each month at 00:00 UTC, every coin the rule holds and the pump.fun part go back
   to their share of the account, unless they are already within a fifth of it (``TOLERANCE``): that keeps the
   50/30/20 split without paying for small trades. When those trades need more money than there is, the parts above
-  their share pay for it; money left over goes to the parts below theirs. The cash of the coins the rule does not
-  hold stays put. That night's check also applies the trend rule.
+  their share pay for it; money left over goes to the coins below theirs, then to the pump.fun part. The cash of
+  the coins the rule does not hold counts as a part of its own, with their share as its target. That night's check
+  also applies the trend rule.
 * **Prices and fees.** Firi's price list (checked 5 October 2026): 0.7 % of each trade. A trade is a market order
   at the first prices collected after the decision, buying at the best ask and selling at the best bid of Firi's
   NOK order book, so the spread is paid too: in the first days about 0.3 % for Bitcoin, 0.6-1.2 % for the smaller
   coins and 1-2.3 % for Ether, each way, at any hour. A purchase spends the money set for it, fees and spread
   included, so each part pays its own costs. The pump.fun part's
   SOL is bought on Firi and sent to a wallet for 0.05 SOL (``SOL_WITHDRAWAL``, Firi's fee from 1 December 2026;
-  0.045 before); sending it back is free.
+  0.045 before), so it is only bought when that is at most 5 % of it; sending it back is free.
 * **Value.** Coins at the middle of Firi's best bid and ask, the pump.fun part at its SOL's value; the cost of
   selling is paid when something is sold.
 
@@ -80,6 +81,8 @@ TREND_DAYS = 200
 TOLERANCE = 0.2  # the monthly rebalancing leaves a holding that is within this share of its target
 DECIDE_AT = time(0, 0)  # UTC: the day before has closed
 MIN_TRADE = 10.0  # NOK: smaller trades are left out
+CASH = "NOK"  # the monthly rebalancing's key for the cash of the coins the trend rule does not hold
+WITHDRAWAL_SHARE = 0.05  # SOL is bought for the pump.fun part only if sending it costs at most this share
 
 
 # The prices
@@ -235,11 +238,11 @@ class _Book:
                        c.weight * value if wanted[c.symbol] else 0.0, c.weight) for c in COINS}
         parts[None] = (self.pump.units * index * mid_price(books[SOL]), PUMPFUN * value, PUMPFUN)
         moves: dict[str | None, tuple[float, str]] = {}  # the change to make, in NOK, and why
+        switched = {c.symbol for c in COINS if kind != "start" and wanted[c.symbol] != self.wanted.get(c.symbol)}
         for key, (held, target, weight) in parts.items():
-            switched = key is not None and kind != "start" and wanted[key] != self.wanted.get(key)
             if kind == "start":
                 moves[key] = (target - held, f"Start: {text.percent(weight, 0)} av kontoen")
-            elif switched:
+            elif key in switched:
                 view = views[key]
                 gap = text.percent(view["gap"], 1, True) if view else "for kort historikk"
                 moves[key] = (target - held, f"Over snittet for {TREND_DAYS} dager igjen ({gap})" if wanted[key]
@@ -247,61 +250,76 @@ class _Book:
             elif kind == "month" and abs(held - target) > TOLERANCE * target:
                 moves[key] = (target - held, f"Månedlig rebalansering fra {text.percent(held / value, 1)} til "
                                              f"{text.percent(weight, 0)}")
-        if kind == "month":
-            self._settle(moves, parts, value)
+        # The cash that stays: on the first of the month, the share of the coins the rule does not hold.
+        keep = self._settle(moves, parts, value, switched) if kind == "month" else 0.0
         before = len(self.trades)
         # Sales first, so their money is there for the purchases.
         for key, (change, reason) in moves.items():
             if change < -MIN_TRADE:
-                self._sell_part(key, -change, parts[key][1] == 0, books, index, at, decided, kind, reason)
+                received = self._sell_part(key, -change, parts[key][1] == 0, books, index, at, decided, kind, reason)
+                if kind == "month" and key in switched:  # a coin the rule leaves pays its costs from its own cash
+                    keep -= -change - received
         for key, (change, reason) in moves.items():
             if change > MIN_TRADE:
-                self._buy_part(key, change, books, index, at, decided, kind, reason)
+                self._buy_part(key, min(change, self.cash - keep), books, index, at, decided, kind, reason)
         self.wanted = wanted
         self.started_at = self.started_at or at
         self.checks.append({"decided_at": decided, "at": at, "kind": kind, "value": value,
                             "trades": len(self.trades) - before, "wanted": wanted, "views": views})
 
     def _settle(self, moves: dict[str | None, tuple[float, str]], parts: dict[str | None, tuple[float, float, float]],
-                value: float) -> None:
-        """The month's money in and out: what the parts outside their band need beyond the spare cash is sold from
-        the parts above their target, and what is left over goes to the parts below it. The cash of the coins the
-        trend rule does not hold stays put, waiting for them."""
-        reserve = value - sum(target for _, target, _ in parts.values())
-        spare = self.cash - reserve - sum(change for change, _ in moves.values())
+                value: float, switched: set[str]) -> float:
+        """The month's money in and out, and the cash to keep. The cash of the coins the trend rule does not hold is
+        a part too, with their share as its target, once the coins the rule switches have been bought or sold. What
+        the parts outside their band need beyond the spare cash is sold from the parts within their band and above
+        their target, and what is left over goes to those below it: first the coins, then the pump.fun part, where
+        a purchase pays a fixed fee to send the SOL."""
+        share = max(0.0, value - sum(target for _, target, _ in parts.values()))
+        cash = self.cash - sum(change for key, (change, _) in moves.items() if key in switched)
+        keep = cash if abs(cash - share) <= TOLERANCE * share else share
+        spare = self.cash - keep - sum(change for change, _ in moves.values())
         others = {key: (held, target, weight) for key, (held, target, weight) in parts.items()
                   if key not in moves and target > 0}
+        if keep == cash and share > 0:
+            others[CASH] = (cash, share, share / value)
         if spare < -MIN_TRADE:
             gaps = {key: held - target for key, (held, target, _) in others.items() if held > target}
             reason = "for å betale for de andre delene"
         elif spare > MIN_TRADE:
-            gaps = {key: target - held for key, (held, target, _) in others.items() if held < target}
+            gaps = {key: target - held for key, (held, target, _) in others.items() if held < target and key}
             reason = "med pengene som ble til overs"
         else:
-            return
+            return keep
         total = sum(gaps.values())
-        if total <= 0:
-            return
         moved = min(abs(spare), total)
         for key, gap in gaps.items():
             held, _, weight = others[key]
             change = moved * gap / total * (1 if spare > 0 else -1)
+            if key == CASH:
+                keep += change
+                continue
             moves[key] = (change, f"Månedlig rebalansering fra {text.percent(held / value, 1)} mot "
                                   f"{text.percent(weight, 0)}, {reason}")
+        held, target, weight = others.get(None, (0.0, 0.0, PUMPFUN))
+        top_up = min(spare - moved, target - held)
+        if spare > 0 and top_up > MIN_TRADE:
+            moves[None] = (top_up, f"Månedlig rebalansering fra {text.percent(held / value, 1)} mot "
+                                   f"{text.percent(weight, 0)}, {reason}")
+        return keep
 
     def _sell_part(self, key: str | None, amount: float, everything: bool, books: dict[str, tuple[float, float]],
-                   index: float, at: datetime, decided: datetime, kind: str, reason: str) -> None:
-        """Sell ``amount`` NOK of a part at the middle price (all of it when its target is nothing)."""
+                   index: float, at: datetime, decided: datetime, kind: str, reason: str) -> float:
+        """Sell ``amount`` NOK of a part at the middle price (all of it when its target is nothing); returns what
+        the sale brought in."""
         if key is None:
             book = books[SOL]
             sol = min(amount / mid_price(book), self.pump.units * index)
-            self._sell("pump.fun", "pump.fun-delen", "pumpfun", self.pump, sol / index, book, at, decided, kind,
-                       f"{reason}: SOL tilbake til Firi og solgt", per_unit=index)
-            return
+            return self._sell("pump.fun", "pump.fun-delen", "pumpfun", self.pump, sol / index, book, at, decided,
+                              kind, f"{reason}: SOL tilbake til Firi og solgt", per_unit=index)["cash"]
         c = COIN[key]
         h, book = self.coins[key], books[c.market]
         units = h.units if everything else min(amount / mid_price(book), h.units)
-        self._sell(c.symbol, c.name, c.part, h, units, book, at, decided, kind, reason)
+        return self._sell(c.symbol, c.name, c.part, h, units, book, at, decided, kind, reason)["cash"]
 
     def _buy_part(self, key: str | None, amount: float, books: dict[str, tuple[float, float]], index: float,
                   at: datetime, decided: datetime, kind: str, reason: str) -> None:
@@ -312,7 +330,7 @@ class _Book:
         if key is None:
             book = books[SOL]
             sol = spend / (book[1] * (1 + FEE))
-            if sol <= SOL_WITHDRAWAL:
+            if SOL_WITHDRAWAL > WITHDRAWAL_SHARE * sol:  # too little to be worth sending
                 return
             trade = self._buy("pump.fun", "pump.fun-delen", "pumpfun", self.pump, sol, book, at, decided, kind,
                               f"{reason}: SOL kjøpt og sendt til lommeboken", per_unit=index,

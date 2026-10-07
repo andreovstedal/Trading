@@ -61,7 +61,7 @@ def context(store: Store, periode: str = DEFAULT_PERIOD, now: datetime | None = 
         "trades": a["trades"][::-1][:TRADE_ROWS], "checks": a["checks"][::-1][:CHECK_ROWS],
         "held": sum(1 for c in a["coins"] if c["units"]), "parts": crypto.PARTS, "kinds": KINDS, "sides": SIDES,
         "rules": {"trend_days": crypto.TREND_DAYS, "tolerance": crypto.TOLERANCE, "pumpfun": crypto.PUMPFUN},
-        "fees": {"trade": crypto.FEE, "sol_withdrawal": crypto.SOL_WITHDRAWAL},
+        "fees": {"trade": crypto.FEE, "sol_withdrawal": crypto.SOL_WITHDRAWAL, "withdrawal_share": crypto.WITHDRAWAL_SHARE},
     }
 
 
@@ -172,9 +172,11 @@ def _meta(now: datetime) -> dict[str, Any]:
         "rules": {"trend_days": crypto.TREND_DAYS, "tolerance": crypto.TOLERANCE,
                   "trend": "trend: a coin is held while its latest daily close is above its average over trend_days "
                            "days, checked on Mondays at 00:00 UTC; hold: always held",
-                  "rebalance": "first of each month at 00:00 UTC, for every coin held and the pump.fun part, unless "
-                               "within tolerance of its target"},
-        "fees": {"trade": crypto.FEE, "sol_withdrawal_sol": crypto.SOL_WITHDRAWAL, "checked": "2026-10-05",
+                  "rebalance": "first of each month at 00:00 UTC, for every coin held, the pump.fun part and the cash "
+                               "of the coins not held (their share), unless within tolerance of its target; parts "
+                               "within it pay for or take the difference"},
+        "fees": {"trade": crypto.FEE, "sol_withdrawal_sol": crypto.SOL_WITHDRAWAL,
+                 "sol_bought_if_withdrawal_at_most": crypto.WITHDRAWAL_SHARE, "checked": "2026-10-05",
                  "source": "https://firi.com/no/priser"},
         "notes": {
             "trades": "Market orders at the first prices collected after the decision (at): bought at Firi's best "

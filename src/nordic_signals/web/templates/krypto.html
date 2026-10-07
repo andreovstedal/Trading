@@ -225,10 +225,12 @@
     <li><strong>Rebalansering.</strong> Den første i hver måned kl. 00:00 UTC går myntene kontoen eier, og pump.fun-delen,
       tilbake til sin andel av kontoen, med mindre de allerede er innenfor en femtedel av den. Det holder fordelingen
       uten å betale for små handler. Trengs det mer penger enn det som er ledig, betaler delene som er over sin andel;
-      penger til overs går til delene under sin. Kronene til en mynt trendregelen har solgt, venter på den.</li>
+      penger til overs går til myntene under sin, så til pump.fun-delen. Kronene til myntene trendregelen har solgt, er en egen del, med
+      myntenes andel som mål.</li>
     <li><strong>pump.fun-delen</strong> er SOL i en lommebok som følger <a href="/pumpfun">hovedkontoen på
       pump.fun-siden</a> opp og ned, og SOL-kursen. SOL kjøpes på Firi og sendes til lommeboken for
-      {{ fees.sol_withdrawal | num(2) }}&nbsp;SOL; tilbake er gratis.</li>
+      {{ fees.sol_withdrawal | num(2) }}&nbsp;SOL, så det kjøpes bare når det er høyst
+      {{ (fees.withdrawal_share * 100) | num(0) }}&nbsp;% av kjøpet; tilbake er gratis.</li>
     <li><strong>Firis priser</strong> (sjekket 5. oktober 2026): {{ (fees.trade * 100) | num(1) }}&nbsp;% i gebyr per handel.
       Handlene er markedsordre: kjøp til laveste salgskurs og salg til høyeste kjøpskurs i Firis ordrebok i kroner, så
       spreaden betales også. De første dagene var den rundt 0,3&nbsp;% for Bitcoin, 0,6–1,2&nbsp;% for de mindre myntene
