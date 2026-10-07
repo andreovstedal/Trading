@@ -224,16 +224,18 @@
       brukte trendlinjen; sjekket ukentlig handler den omtrent fire ganger i året per mynt.</li>
     <li><strong>Rebalansering.</strong> Den første i hver måned kl. 00:00 UTC går myntene kontoen eier, og pump.fun-delen,
       tilbake til sin andel av kontoen, med mindre de allerede er innenfor en femtedel av den. Det holder fordelingen
-      uten å betale for små handler.</li>
+      uten å betale for små handler. Trengs det mer penger enn det som er ledig, betaler delene som er over sin andel;
+      penger til overs går til delene under sin. Kronene til en mynt trendregelen har solgt, venter på den.</li>
     <li><strong>pump.fun-delen</strong> er SOL i en lommebok som følger <a href="/pumpfun">hovedkontoen på
       pump.fun-siden</a> opp og ned, og SOL-kursen. SOL kjøpes på Firi og sendes til lommeboken for
       {{ fees.sol_withdrawal | num(2) }}&nbsp;SOL; tilbake er gratis.</li>
     <li><strong>Firis priser</strong> (sjekket 5. oktober 2026): {{ (fees.trade * 100) | num(1) }}&nbsp;% i gebyr per handel.
       Handlene er markedsordre: kjøp til laveste salgskurs og salg til høyeste kjøpskurs i Firis ordrebok i kroner, så
-      spreaden betales også. Den var fra 0,2&nbsp;% (XRP) til 1&nbsp;% (Ether) hver vei den dagen.</li>
+      spreaden betales også. De første dagene var den rundt 0,3&nbsp;% for Bitcoin, 0,6–1,2&nbsp;% for de mindre myntene
+      og 1–2,3&nbsp;% for Ether, hver vei, uansett tid på døgnet.</li>
     <li><strong>Hvorfor så sjelden?</strong> På daglige kurser fra 2018 til 2026 ga regelen, med Firis gebyr og spread,
-      litt mindre enn kjøp og hold (34&nbsp;% mot 36&nbsp;% i året for Bitcoin, Ether, XRP og Cardano), men det verste
-      fallet var −55&nbsp;% mot −77&nbsp;%. Regler som handler oftere, tapte det de vant på kostnadene. Myntene er dagens
+      litt mindre enn kjøp og hold (34&nbsp;% mot 35&nbsp;% i året for Bitcoin, Ether, XRP og Cardano), men det verste
+      fallet var −54&nbsp;% mot −78&nbsp;%. Regler som handler oftere, tapte det de vant på kostnadene. Myntene er dagens
       overlevere og historien er kort, så tallene er en pekepinn, ikke en lovnad.</li>
     <li><strong>Ikke med:</strong> skatt (22&nbsp;% på gevinst), og at en stor ordre kan flytte kursen i Firis tynne
       ordrebøker. Ordrene her er små nok til å gå til beste kurs.</li>

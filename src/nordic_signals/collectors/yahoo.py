@@ -103,6 +103,12 @@ class YahooCollector(Collector):
         return self.summary
 
 
+class PaperPricesCollector(YahooCollector):
+    """The play-money account's stocks during the day (``advisor.paper.watched_symbols``): the same bars, logged
+    apart from the nightly prices for every share, so those keep their own time on the Data page."""
+    source = "lekepenger-kurser"
+
+
 def universe_symbols(store: Store, countries: Iterable[str], limit: int | None = None) -> list[str]:
     """Yahoo symbols for tradable shares in the stored Nordnet universe."""
     t = store.table("instruments")

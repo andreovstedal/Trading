@@ -161,15 +161,56 @@ def test_the_month_rebalances_what_is_more_than_a_fifth_off(store):
 
     a = crypto.account(store, month + timedelta(hours=1))
 
-    # The weekly checks found nothing to do and waited for prices with the month's; Ether and the smaller coins are
-    # within a fifth of their share, so only Bitcoin and the pump.fun part are moved.
+    # The weekly checks found nothing to do and waited for prices with the month's. Bitcoin and the pump.fun part
+    # are more than a fifth off: Bitcoin's sale pays for the pump.fun part, and what is left over goes to the coins
+    # below their share, so no money is left idle.
     assert [c["kind"] for c in a["checks"]] == ["start", "week", "week", "week", "month"]
-    assert trades(a, since=month) == [("sell", "BTC"), ("buy", "pump.fun")]
-    trim, top_up = a["trades"][-2:]
+    assert trades(a, since=month) == [("sell", "BTC"), ("buy", "pump.fun"), ("buy", "ETH"), ("buy", "XRP"),
+                                      ("buy", "ADA"), ("buy", "SOL")]
+    trim, top_up, eth = a["trades"][-6:-3]
     assert trim["reason"].startswith("Månedlig rebalansering fra 4") and top_up["withdrawal"] == pytest.approx(50.0)
+    assert eth["reason"].endswith("med pengene som ble til overs")
     shares = {c["symbol"]: c["share"] for c in a["coins"]}
-    assert shares["BTC"] == pytest.approx(0.25, abs=0.002) and shares["ETH"] == pytest.approx(0.217, abs=0.002)
-    assert a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.002) and a["cash"] > 0
+    assert shares["BTC"] == pytest.approx(0.25, abs=0.003) and shares["ETH"] == pytest.approx(0.25, abs=0.003)
+    assert shares["XRP"] == pytest.approx(0.10, abs=0.002) and a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.003)
+    assert 0 <= a["cash"] < crypto.MIN_TRADE
+
+
+def test_the_parts_above_their_share_pay_for_the_one_below(store):
+    rising(store, date(2026, 10, 31))
+    pump(store, (T0 - timedelta(hours=1), 10.0), (datetime(2026, 10, 31, tzinfo=timezone.utc), 5.0))
+    quotes(store, T0 + timedelta(minutes=5), mids())
+    month = datetime(2026, 11, 1, 0, 5, tzinfo=timezone.utc)
+    quotes(store, month, mids())  # only the pump.fun part has moved: halved, with no cash to top it up
+
+    a = crypto.account(store, month + timedelta(hours=1))
+
+    assert trades(a, since=month) == [("sell", "BTC"), ("sell", "ETH"), ("sell", "XRP"), ("sell", "ADA"),
+                                      ("sell", "SOL"), ("buy", "pump.fun")]
+    assert a["trades"][-2]["reason"].endswith("for å betale for de andre delene")
+    assert a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.003) and a["cash"] < crypto.MIN_TRADE
+    shares = {c["symbol"]: c["share"] for c in a["coins"]}
+    assert shares["BTC"] == pytest.approx(0.25, abs=0.003) and shares["ADA"] == pytest.approx(0.10, abs=0.002)
+
+
+def test_the_trend_rules_cash_waits_for_its_coin_at_the_month(store):
+    last = date(2026, 10, 31)
+    btc = [100.0 + i for i in range(240)]
+    btc[-21:] = [50.0] * 21  # under its average since 11 October
+    closes(store, "BTC-USD", last, btc)
+    rising(store, last, coins=crypto.COINS[1:])
+    pump(store, (T0 - timedelta(hours=1), 10.0), (datetime(2026, 10, 31, tzinfo=timezone.utc), 5.0))
+    quotes(store, T0 + timedelta(minutes=5), mids())
+    quotes(store, datetime(2026, 10, 12, 0, 5, tzinfo=timezone.utc), mids())
+    month = datetime(2026, 11, 1, 0, 5, tzinfo=timezone.utc)
+    quotes(store, month, mids())
+
+    a = crypto.account(store, month + timedelta(hours=1))
+
+    # Bitcoin was sold on 12 October; its share waits in kroner, so the pump.fun part is paid for by the others.
+    assert ("sell", "BTC") in trades(a, since=datetime(2026, 10, 12, tzinfo=timezone.utc))
+    assert ("sell", "BTC") not in trades(a, since=month) and ("buy", "BTC") not in trades(a, since=month)
+    assert a["cash"] / a["equity"] == pytest.approx(0.25, abs=0.004) and a["pumpfun"]["share"] == pytest.approx(0.2, abs=0.004)
 
 
 def test_the_pump_fun_index_carries_on_across_versions(store):

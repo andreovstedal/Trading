@@ -151,9 +151,10 @@ def test_the_play_money_stocks_are_fetched_while_a_market_is_open(store, monkeyp
     assert scheduler._paper_prices(store, NoNetwork()) is True and calls == []  # nothing to fetch: no run logged
     monkeypatch.setattr(scheduler.paper, "watched_symbols", lambda _store: ["EQNR.OL", "SEKNOK=X"])
     assert scheduler._paper_prices(store, NoNetwork()) is True
-    assert calls == [("yahoo", {"symbols": ["EQNR.OL", "SEKNOK=X"], "range_": "5d"})]
+    assert calls == [("lekepenger-kurser", {"symbols": ["EQNR.OL", "SEKNOK=X"], "range_": "5d"})]
     (job,) = [j for j in scheduler.JOBS if j.name == "lekepenger-kurser"]
-    assert job.is_due(store, job.name, at(MONDAY, 7, 5)) and not job.is_due(store, job.name, at(MONDAY, 17, 5))
+    assert job.is_due(store, job.name, at(MONDAY, 7, 5)) and job.is_due(store, job.name, at(MONDAY, 17, 5))
+    assert not job.is_due(store, job.name, at(MONDAY, 18, 5))
 
 
 def test_quotes_run_every_minute_without_logging_runs(store, monkeypatch):

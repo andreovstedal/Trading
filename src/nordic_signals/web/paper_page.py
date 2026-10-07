@@ -91,11 +91,11 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
     the holdings, the dividends and the value day by day."""
     now = now or utcnow()
     account = paper.account(store, now)
-    filled = {t["order_id"] for t in account["trades"]}
+    filled = {t["order_id"]: t["shares"] for t in account["trades"]}
     waiting = {o["id"] for o in account["pending"]}
     lapsed = {o["id"]: o["status"] for o in account["lapsed"]}
-    orders = [{**o, "status": "utført" if o["id"] in filled else "venter" if o["id"] in waiting else "bortfalt",
-               "note": lapsed.get(o["id"])} for o in account["orders"]]
+    orders = [{**o, "status": _status(o, filled, waiting), "note": lapsed.get(o["id"]) or _cut(o, filled)}
+              for o in account["orders"]]
     positions = [{k: p[k] for k in ("instrument_id", "symbol", "name", "country", "currency", "sleeve", "shares",
                                     "opened_on", "cost", "price", "rate", "value", "result", "result_pct",
                                     "held_days", "reason", "signal_type")} for p in account["positions"]]
@@ -107,6 +107,19 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
     yield ',\n"dividends": [' + ",\n".join(exports.to_json(d) for d in account["dividends"]) + "]"
     yield ',\n"equity": [' + ",\n".join(exports.to_json({"day": day, "equity": equity, "cash": cash})
                                         for day, equity, cash in account["history"]) + "]}\n"
+
+
+def _status(o: dict[str, Any], filled: dict[int, int], waiting: set[int]) -> str:
+    if o["id"] in filled:
+        return "delvis utført" if filled[o["id"]] < o["shares"] else "utført"
+    return "venter" if o["id"] in waiting else "bortfalt"
+
+
+def _cut(o: dict[str, Any], filled: dict[int, int]) -> str | None:
+    shares = filled.get(o["id"])
+    if shares is not None and shares < o["shares"]:
+        return f"{shares} av {o['shares']} aksjer: ikke nok penger ved åpningen"
+    return None
 
 
 def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
@@ -135,10 +148,13 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
                     "and notes.",
             "orders": "What it decided, for the next opening: shares planned, the closing price it saw (ref_price, "
                       "in the stock's currency; fx_rate is NOK per unit), the rank and score that evening. status: "
-                      "utført (filled), venter (waiting for the opening or its prices) or bortfalt (see note).",
+                      "utført (filled), delvis utført (fewer shares, see note), venter (waiting for the opening or "
+                      "its prices) or bortfalt (see note).",
             "trades": "Fills at the opening price of the stock's next trading day (at_close: the opening price was "
-                      "missing, so the closing price was used). value, courtage and exchange are NOK; cash is what "
-                      "the trade did to the cash; a sale's result is against the purchase, fees included.",
+                      "missing, so the closing price was used); planned is the order's shares, more than shares when "
+                      "a buy was cut to the cash at the opening. fx_rate is SEK/NOK at that day's close, not at the "
+                      "opening. value, courtage and exchange are NOK; cash is what the trade did to the cash; a "
+                      "sale's result is against the purchase, fees included.",
             "positions": "Open holdings at the latest close. held_days counts the market's trading days, the "
                          "buying day being the first.",
             "dividends": "Credited on the ex-date, from Yahoo's dividend events; Swedish ones after withholding tax.",

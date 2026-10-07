@@ -74,6 +74,8 @@ MAX_NEW_SHORT = 2  # new short-term trades an evening
 ORDER_DAYS = 5  # an order lapses if its stock has not traded within this many of its market's trading days
 AFTER_CLOSE = time(18, 0)  # Norwegian time: a snapshot from then on has the day's closing prices
 EVENING = time(20, 45)  # UTC: the account decides after the nightly collection, which starts at 20:30 UTC
+EVENING_ENDS = time(6, 0)  # Norwegian time: until then, a decision belongs to the evening before
+WATCH_AFTER_CLOSE = timedelta(hours=1)  # the stocks are fetched until this long after a market closes
 INTRADAY = timedelta(minutes=30)  # how often the account's stocks are fetched while a market is open
 
 
@@ -145,16 +147,29 @@ def market_days(country: str, after: date, until: date) -> list[date]:
 
 def watched_symbols(store: Store, now: datetime | None = None) -> list[str]:
     """Yahoo symbols for the stocks the account holds or has orders waiting for, and SEK/NOK, while a market is open
-    (none otherwise): fetched during the day, so an order fills soon after the opening and the account is valued at
-    the latest prices instead of yesterday's closes."""
+    and for an hour after it closes (none otherwise): fetched during the day, so an order fills soon after the
+    opening and the account is valued at the latest prices, then the closing prices, instead of yesterday's."""
     now = now or utcnow()
-    if not any(market_status(country, now)["open"] for country in MARKETS):
+    if not any(_watched(country, now) for country in MARKETS):
         return []
     state = account(store, now)
     stocks = {(s["symbol"], s["country"]) for s in (*state["positions"], *state["pending"])}
     symbols = sorted(yahoo_symbol(symbol, country) for symbol, country in stocks
                      if symbol and country in EXCHANGE_SUFFIX)
     return [*symbols, *FX_PAIRS.values()] if symbols else []
+
+
+def _watched(country: str, now: datetime) -> bool:
+    """From the opening until an hour after the close, so the last fetch has the closing auction's price."""
+    hours = trading_hours(country, now.astimezone(NORDIC_TZ).date())
+    return hours is not None and hours[0] <= now < hours[1] + WATCH_AFTER_CLOSE
+
+
+def evening_of(now: datetime) -> date:
+    """The trading day whose evening ``now`` is in: a decision retried after midnight (behind the nightly price
+    job) still belongs to the evening before."""
+    local = now.astimezone(NORDIC_TZ)
+    return local.date() - timedelta(days=1) if local.time() < EVENING_ENDS else local.date()
 
 
 def next_evening(now: datetime) -> datetime | None:
@@ -258,6 +273,10 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                 if shares == 0:
                     lapsed.append({**o, "status": "Ikke kjøpt: ikke nok penger"})
                     continue
+                if shares < o["shares"] and shares * price * rate < POLICY["min_position"]:
+                    lapsed.append({**o, "status": f"Ikke kjøpt: pengene som var igjen ved åpningen, ga en posisjon "
+                                                  f"under {POLICY['min_position']:,.0f} NOK".replace(",", " ")})
+                    continue
                 value = shares * price * rate
                 courtage, exchange = costs(value, o["currency"])
                 cash -= value + courtage + exchange
@@ -303,6 +322,7 @@ def _trade(o: dict[str, Any], day: date, shares: int, price: float, rate: float,
     total = value - courtage - exchange if o["side"] == "sell" else -(value + courtage + exchange)
     opens = MARKETS[o["country"]].opens if o["country"] in MARKETS else time(9, 0)
     return {"order_id": o["id"], "day": day, "at": datetime.combine(day, opens, NORDIC_TZ), "side": o["side"],
+            "planned": o["shares"],
             "sleeve": o["sleeve"], "instrument_id": o["instrument_id"], "symbol": o["symbol"], "name": o["name"],
             "country": o["country"], "currency": o["currency"], "shares": shares, "price": price, "fx_rate": rate,
             "value": value, "courtage": courtage, "exchange": exchange, "cash": total, "reason": o["reason"],
@@ -466,7 +486,7 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
     """The evening's orders, for the next opening. Returns what happened; "ok" is False if it should be tried
     again later (tonight's closing prices are not in yet)."""
     now = now or utcnow()
-    today = now.astimezone(NORDIC_TZ).date()
+    today = evening_of(now)
     if store.get("paper_days", account=ACCOUNT, decided_on=today):
         return {"ok": True, "note": "Allerede bestemt i kveld"}
     if not any(trading_hours(country, today) for country in MARKETS):
@@ -485,11 +505,18 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
 
 def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
           rebalance: bool) -> tuple[list[dict[str, Any]], list[str]]:
-    held = {p["instrument_id"]: p for p in state["positions"]}
+    # Orders still waiting for their opening (a market holiday, a stock that did not trade) are counted as done:
+    # their sales are not ordered again, their money is spoken for, and their short-term buys take their slots.
+    selling_already = {o["instrument_id"] for o in state["pending"] if o["side"] == "sell"}
+    held = {p["instrument_id"]: p for p in state["positions"] if p["instrument_id"] not in selling_already}
     taken = set(held) | {o["instrument_id"] for o in state["pending"]}
     orders: list[dict[str, Any]] = []
     notes: list[str] = []
     cash = state["cash"]
+    for o in state["pending"]:
+        value = o["shares"] * (o["ref_price"] or 0) * (o["fx_rate"] or 0)
+        cash += value - sum(costs(value, o["currency"])) if o["side"] == "sell" else -value * buy_room(o["currency"])
+    pending_short = sum(1 for o in state["pending"] if o["side"] == "buy" and o["sleeve"] == "short")
 
     def sell(position: dict[str, Any], reason: str, pick: Pick | None = None) -> None:
         nonlocal cash
@@ -550,7 +577,7 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
             notes.append(f"{kept} av {n} langsiktige posisjoner: for lite penger eller for få kvalifiserte aksjer.")
 
     slots = min(MAX_SHORT_POSITIONS, math.floor(policy.short_capital / policy.min_position))
-    free, new = slots - len(short_kept), 0
+    free, new = slots - len(short_kept) - pending_short, 0
     for pick in tonight.signals:
         if free <= 0 or new >= MAX_NEW_SHORT:
             break
@@ -577,11 +604,16 @@ def _save(store: Store, today: date, now: datetime, rebalance: bool, tonight: Sc
 
 
 def _closed_today(store: Store, today: date) -> bool:
-    """Whether a Nordnet snapshot taken after today's close shows trades from today."""
-    t = store.table("nordnet_observations")
+    """Whether Nordnet snapshots taken after today's close show trades from today, for every market that was open:
+    a collection cut off after the Oslo pages does not pass for Stockholm's."""
+    t, i = store.table("nordnet_observations"), store.table("instruments")
     after = datetime.combine(today, AFTER_CLOSE, NORDIC_TZ)
-    tick = store.scalar(select(func.max(t.c.tick_at)).where(t.c.observed_at >= after))
-    return tick is not None and trading_day(tick, after) == today
+    ticks = {r["country"]: r["tick"] for r in store.query(
+        select(i.c.exchange_country.label("country"), func.max(t.c.tick_at).label("tick"))
+        .join(i, i.c.instrument_id == t.c.instrument_id)
+        .where(t.c.observed_at >= after).group_by(i.c.exchange_country))}
+    return all(ticks.get(country) is not None and trading_day(ticks[country], after) == today
+               for country in MARKETS if trading_hours(country, today))
 
 
 def _rebalance_due(store: Store, today: date) -> bool:

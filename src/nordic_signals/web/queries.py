@@ -25,6 +25,7 @@ SOURCES = {
     "pumpfun": "pump.fun-lanseringer til målingen av pump-and-dump-filteret (DexScreener, Solana)",
     "krypto": "Kryptokontoens kurser: Firis ordrebøker hvert kvarter og daglige sluttkurser (Yahoo)",
     "lekepenger": "Lekepengekontoens beslutninger etter børsslutt (henter ingenting selv)",
+    "lekepenger-kurser": "Lekepengekontoens aksjer hver halvtime mens børsene er åpne (Yahoo)",
 }
 
 

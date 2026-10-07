@@ -9,7 +9,7 @@ from .newsweb import NewsWebCollector
 from .no_short import NoShortCollector
 from .nordnet import NordnetCollector
 from .pumpfun import PumpFunCollector
-from .yahoo import YahooCollector
+from .yahoo import PaperPricesCollector, YahooCollector
 
 COLLECTORS: dict[str, type[Collector]] = {
     c.source: c
@@ -20,6 +20,7 @@ COLLECTORS: dict[str, type[Collector]] = {
         NoShortCollector,
         MfnCollector,
         YahooCollector,
+        PaperPricesCollector,
         NordnetCollector,
         PumpFunCollector,
         CryptoCollector,

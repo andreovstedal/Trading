@@ -10,8 +10,8 @@ needed. Two background threads:
 * **Nordic:** the share collectors on weekdays (times in UTC):
 
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
-  * the play-money account's stocks every 30 minutes while Oslo or Stockholm is open (Yahoo), so its orders fill at
-    the opening price during the day (``advisor.paper.watched_symbols``)
+  * the play-money account's stocks every 30 minutes while Oslo or Stockholm is open and for an hour after (Yahoo),
+    so its orders fill at the opening price during the day (``advisor.paper.watched_symbols``)
   * nightly from 20:30: the daily set, then outcomes for past recommendations, then the play-money account's
     orders for the next opening (``advisor.paper``; tried again an hour later if the closing prices are missing)
   * MFN from 21:00: Swedish press releases
@@ -246,12 +246,12 @@ def _paper(store: Store, client: PoliteClient) -> bool:
 
 
 def _paper_prices(store: Store, client: PoliteClient) -> bool:
-    """The play-money account's stocks while a market is open, logged as a Yahoo run; nothing when there is
-    nothing to fetch."""
+    """The play-money account's stocks from Yahoo while a market is open and for an hour after, logged as
+    "lekepenger-kurser"; nothing when there is nothing to fetch."""
     symbols = paper.watched_symbols(store)
     if not symbols:
         return True
-    return jobs.run_source(store, client, "yahoo", symbols=symbols, range_="5d") is not None
+    return jobs.run_source(store, client, "lekepenger-kurser", symbols=symbols, range_="5d") is not None
 
 
 def when_set_up(is_due: IsDue) -> IsDue:
@@ -278,7 +278,7 @@ JOBS = [
     Job("krypto", "pumpfun", every(timedelta(minutes=15), source="krypto"), _source("krypto")),
     Job("intraday", "nordic", every(timedelta(minutes=15), source="newsweb", weekdays=True, hours=(5, 19)),
         _set("intraday")),
-    Job("lekepenger-kurser", "nordic", every(paper.INTRADAY, source="lekepenger-kurser", weekdays=True, hours=(7, 17)),
+    Job("lekepenger-kurser", "nordic", every(paper.INTRADAY, source="lekepenger-kurser", weekdays=True, hours=(7, 18)),
         _paper_prices),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),
     # Right after the nightly set, in the same lane: it needs that evening's closing prices.

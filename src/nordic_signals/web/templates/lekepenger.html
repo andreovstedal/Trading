@@ -108,7 +108,7 @@
       <tr><td class="nowrap">{{ t.day | day }}<div class="ticker">åpning {{ t.at | clock }}</div></td>
         <td>{{ t.name }}<div class="ticker">{{ t.symbol }} · {{ sleeves[t.sleeve] }}</div></td>
         <td>{{ sides[t.side] }}{% if t.at_close %} <span class="chip" title="Åpningskursen manglet, så sluttkursen er brukt">sluttkurs</span>{% endif %}</td>
-        <td class="num">{{ t.shares | num }}</td>
+        <td class="num">{{ t.shares | num }}{% if t.planned and t.shares < t.planned %}<div class="ticker">av {{ t.planned | num }} planlagt</div>{% endif %}</td>
         <td class="num">{{ t.price | num(2) }}&nbsp;{{ t.currency }}</td>
         <td class="num">{{ t.cash | num(0, True) }}&nbsp;NOK</td>
         <td class="num">{{ t.courtage | num(2) }}</td>

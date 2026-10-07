@@ -21,9 +21,13 @@ def oslo(day: date, hour: int, minute: int = 0) -> datetime:
     return datetime.combine(day, time(hour, minute), NORDIC_TZ)
 
 
-def snapshot(store, instrument_id, day, opening, closing, *, traded=None):
+def snapshot(store, instrument_id, day, opening, closing, *, traded=None, country="NO"):
     """Nordnet's stock list as the nightly run sees it on ``day``: after the close, with the last trade's time."""
+    instruments = store.table("instruments")
     with store.engine.begin() as conn:
+        if not conn.execute(instruments.select().where(instruments.c.instrument_id == instrument_id)).first():
+            conn.execute(instruments.insert().values(instrument_id=instrument_id, symbol=f"S{instrument_id}",
+                                                     exchange_country=country))
         conn.execute(store.table("nordnet_observations").insert().values(
             instrument_id=instrument_id, observed_at=oslo(day, 22, 30), tick_at=oslo(traded or day, 16, 20),
             open=opening, last=closing))
@@ -90,6 +94,7 @@ def test_orders_fill_at_the_next_opening_with_nordnets_fees(store):
 
 def test_sales_pay_for_the_days_buys_and_a_buy_is_cut_to_the_cash(store, monkeypatch):
     monkeypatch.setattr(paper, "START", 20_000.0)
+    monkeypatch.setitem(paper.POLICY, "min_position", 10_000.0)  # a small account, so the cut buy is kept
     for day in (MON, TUE, WED, THU):
         snapshot(store, 1, day, 100, 100)
         snapshot(store, 2, day, 50, 50)
@@ -135,7 +140,9 @@ def test_the_stocks_are_watched_while_a_market_is_open(store):
     order(store, TUE, 2, "buy", 10, country="SE", currency="SEK")  # for Wednesday's opening
     assert paper.watched_symbols(store, oslo(WED, 10)) == ["S1.OL", "S2.ST", "SEKNOK=X"]
     assert paper.watched_symbols(store, oslo(WED, 17)) == ["S1.OL", "S2.ST", "SEKNOK=X"]  # Stockholm until 17:30
-    assert paper.watched_symbols(store, oslo(WED, 18)) == [] and paper.watched_symbols(store, oslo(NEXT_MON - timedelta(days=2), 12)) == []
+    assert paper.watched_symbols(store, oslo(WED, 18)) != []  # an hour after Stockholm's close, for its closing price
+    assert paper.watched_symbols(store, oslo(WED, 18, 45)) == []
+    assert paper.watched_symbols(store, oslo(NEXT_MON - timedelta(days=2), 12)) == []  # Saturday
 
 
 def test_an_order_waits_for_its_stock_to_trade_and_lapses_after_five_trading_days(store):
@@ -198,6 +205,7 @@ class Advisor:
 def trading_day(store, day, instruments, price=100.0):
     for instrument_id in instruments:
         snapshot(store, instrument_id, day, price, price)
+    snapshot(store, 999, day, 50.0, 50.0, country="SE")  # Stockholm's closing prices are in too
 
 
 def orders(store):
@@ -228,6 +236,59 @@ def test_the_first_evening_buys_the_top_twelve_and_two_short_term_signals(store)
     assert any("1 kortsiktige signaler" in note for note in day["notes"])
 
     assert paper.decide(store, oslo(MON, 23), scanner=advisor)["note"] == "Allerede bestemt i kveld"
+
+
+def test_it_needs_both_markets_closing_prices(store):
+    advisor = Advisor()
+    snapshot(store, 1, MON, 100, 100)  # Oslo's pages are in, Stockholm's are not
+    assert paper.decide(store, oslo(MON, 22, 45), scanner=advisor)["note"] == "Mangler sluttkurser fra i dag"
+    snapshot(store, 2, MON, 50, 50, country="SE")
+    assert paper.decide(store, oslo(MON, 22, 45), scanner=advisor)["ok"] and advisor.calls
+
+
+def test_a_retry_after_midnight_belongs_to_the_evening_before(store):
+    advisor = Advisor()
+    trading_day(store, MON, [1])
+    summary = paper.decide(store, oslo(TUE, 1, 5), scanner=advisor)  # behind the nightly price job
+    assert summary["ok"] and store.get("paper_days", account=paper.ACCOUNT, decided_on=MON)
+    assert paper.evening_of(oslo(TUE, 5, 59)) == MON and paper.evening_of(oslo(TUE, 6)) == TUE
+
+
+def test_orders_waiting_for_a_holiday_are_not_ordered_again(store):
+    advisor = Advisor()
+    advisor.signals = [pick(300 + i, 50 + i, signal="buyback_start") for i in range(3)]
+    for day in (MON, TUE):
+        trading_day(store, day, [1, 2])
+    order(store, MON, 1, "buy", 100, sleeve="short", signal_type="buyback_start")
+    order(store, MON, 2, "buy", 100, sleeve="short", signal_type="buyback_start")
+    order(store, TUE, 1, "sell", 100, sleeve="short")  # its market is closed on Wednesday: still waiting
+    order(store, TUE, 3, "buy", 100, sleeve="short", signal_type="buyback_start")
+    state = paper.account(store)
+    assert [o["instrument_id"] for o in state["pending"]] == [1, 3]
+
+    with store.engine.begin() as conn:  # Wednesday evening: no new snapshot of stock 1, so its sale still waits
+        conn.execute(store.table("paper_days").insert().values(
+            account=paper.ACCOUNT, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True, equity=paper.START,
+            cash=paper.START, orders=2, notes=[]))
+    policy = paper.Policy(account_value=state["equity"], **paper.POLICY)
+    orders, _ = paper._plan({**state, "positions": [{**p, "held_days": 5} for p in state["positions"]]}, policy,
+                            paper.Scan(None, [], advisor.signals), False)
+    # Stock 1's sale is already ordered; stock 2's is due; the pending buy of stock 3 holds the other slot.
+    assert [(o["side"], o["instrument_id"]) for o in orders] == [("sell", 2), ("buy", 300)]
+
+
+def test_a_buy_cut_below_the_smallest_position_lapses(store, monkeypatch):
+    monkeypatch.setattr(paper, "START", 50_000.0)
+    for day in (MON, TUE):
+        snapshot(store, 1, day, 100, 100)
+        snapshot(store, 2, day, 100, 100)
+    order(store, MON, 1, "buy", 300)  # 30 000 NOK
+    order(store, MON, 2, "buy", 240)  # 24 000 NOK, but only about 19 950 is left
+
+    account = paper.account(store)
+
+    assert [t["instrument_id"] for t in account["trades"]] == [1]
+    assert account["lapsed"][0]["status"].startswith("Ikke kjøpt: pengene som var igjen ved åpningen")
 
 
 def test_it_waits_for_closing_prices_and_rests_on_holidays(store):
@@ -289,10 +350,12 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     for day in (MON, TUE, WED):
         snapshot(store, 1, day, 100, 101)
         snapshot(store, 2, day, 50, 52)
+        snapshot(store, 3, day, 100, 100)
         sek_rate(store, day, 0.95)
     order(store, MON, 1, "buy", 100)
     order(store, MON, 2, "buy", 200, country="SE", currency="SEK", sleeve="short", signal_type="insider_cluster")
     order(store, WED, 1, "sell", 100)  # still waiting for Thursday's opening
+    order(store, MON, 3, "buy", 10_000)  # far more than the cash left: cut at the opening
     with store.engine.begin() as conn:
         conn.execute(store.table("paper_days").insert().values(
             account=paper.ACCOUNT, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True,
@@ -313,12 +376,14 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     assert "Utført ved åpningen, venter på kursen" in opened and "Venter på åpningen" not in opened
     assert "utført ved åpningen" in opened and "til sluttkurs" in opened  # Thursday is not priced yet
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
-    assert len(rows) == 2 and "Kurtasje (NOK)" in header
+    assert len(rows) == 3 and "Kurtasje (NOK)" in header
+    assert "planlagt" in page
     assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="lekepenger-')
     data = log.json()
     assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity"]
     assert data["meta"]["fees"]["courtage_min_nok"] == 29.0 and len(data["equity"]) == 2
-    assert [o["status"] for o in data["orders"]] == ["utført", "utført", "venter"]
+    assert [o["status"] for o in data["orders"]] == ["utført", "utført", "delvis utført", "venter"]  # by evening
+    assert data["orders"][2]["note"].endswith("aksjer: ikke nok penger ved åpningen")
 
 
 @pytest.fixture

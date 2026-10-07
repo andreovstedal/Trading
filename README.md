@@ -71,13 +71,16 @@ What it follows: the advisor's own default policy, 90 % in the long-term part an
 
 How it trades:
 - **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
+  - The evening's decision waits until Nordnet's evening snapshot has that day's closing prices from both Oslo and Stockholm. A decision retried after midnight, behind the nightly price job, still belongs to that evening.
   - An order waits while its stock doesn't trade, and lapses after 5 of its market's trading days.
   - Oslo Børs trades 09:00–16:25 and Nasdaq Stockholm 09:00–17:30, Norwegian time.
   - Holidays come from Euronext's and Nasdaq's calendars (2026–2027; add each new year's dates to `MARKETS`).
 - **Fees.** Nordnet's Norwegian price list, class Mini, checked 4 October 2026: 0.15 % of each trade in Nordic shares, at least 29 NOK. Swedish shares bought from a NOK account also pay 0.25 % on each automatic currency exchange. A buy is cut to the cash there is at the opening, and sales come before the day's buys, so their money can pay for them.
+  - A buy cut to the cash at the opening shows as `delvis utført` in the log. If what is left would buy less than the smallest position (20,000 NOK), the buy lapses instead.
 - **Dividends** are credited on the ex-date, from Yahoo's dividend events. Swedish dividends are paid after 15 % withholding tax. As on an ASK, there is no Norwegian tax.
 - **Value.** The account is valued at each day's closing price, as Nordnet shows an account; the cost of selling is paid when a position is sold.
-- **During the day.** While Oslo or Stockholm is open, the stocks the account holds or has orders for, and SEK/NOK, are fetched from Yahoo every 30 minutes. The morning's orders then show as filled at the opening price soon after 09:00, and the account is valued at the latest prices, until the evening's closing prices replace them.
+- **During the day.** While Oslo or Stockholm is open, and for an hour after, the stocks the account holds or has orders for, and SEK/NOK, are fetched from Yahoo every 30 minutes. The morning's orders then show as filled at the opening price soon after 09:00, and the account is valued at the latest prices, then at the closing auction's, until Nordnet's evening snapshot replaces them. Swedish trades use that day's evening SEK/NOK rate, not the rate at the opening (about 0.1 % apart on the first day).
+- **Orders still waiting** for their opening, after a holiday on one exchange or a day the stock did not trade, are counted as done the next evening: a sale is not ordered again, their money is spoken for, and a short-term buy takes its slot.
 - **Not modelled:** a large order moving the price, and the delay between seeing a signal and trading. The orders are small next to the stocks' turnover, since the advisor only picks liquid stocks.
 
 The account is a replay: only the orders are stored (`paper_orders`, and each evening's decision in `paper_days`). Fills, fees, dividends and the daily value are worked out from the prices every time, so late data corrects the history. Change `ACCOUNT` when the rules change, and a new account starts from scratch.
@@ -99,25 +102,26 @@ Two accounts make the same start:
 - **The main account follows a trend rule.** Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its price is above its average over the last 200 days. Below it, the coin is sold and its share waits in NOK until a later Monday finds it above again. A coin with less than 200 days of closes is held.
 - **The yardstick holds every coin all the time:** what the trend rule is up against.
 
-Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. That night's check also applies the trend rule.
+Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. When those trades need more money than is spare, the parts above their share pay for it; money left over goes to the parts below theirs, so none sits idle. The kroner of a coin the trend rule has sold stay put, waiting for it. That night's check also applies the trend rule.
 
 How it trades:
 - **Fees.** Firi's price list, checked 5 October 2026: 0.7 % of each trade.
-- **Prices.** A trade is a market order at the first prices collected after the decision: it buys at the best ask and sells at the best bid of Firi's NOK order book, so the spread is paid too. That day it ranged from 0.2 % (XRP) to 1 % (Ether) each way, and 25,000 NOK filled at the best price in all five books. A purchase spends the money set for it, fees and spread included, so each part pays its own costs. Starting the account cost about 1.6 %.
+- **Prices.** A trade is a market order at the first prices collected after the decision: it buys at the best ask and sells at the best bid of Firi's NOK order book, so the spread is paid too. In the first days it was about 0.3 % for Bitcoin, 0.6–1.2 % for Cardano, XRP and Solana and 1–2.3 % for Ether, each way, at any hour: Firi's market maker moves its quotes every few minutes, so a fill's spread is partly luck. 25,000 NOK filled at the best price in all five books. A purchase spends the money set for it, fees and spread included, so each part pays its own costs. Starting the account on 6 October cost 1.9 % (fee 0.7 %, spread 1.15 %, sending SOL 0.06 %).
+- **XRP's book barely moves:** Firi showed the same best bid and ask for XRP for a whole day, so XRP is valued at a price that can lag the market.
 - **Value.** Coins are valued at the middle of Firi's best bid and ask, and the pump.fun part at its SOL's value. The cost of selling is paid when something is sold.
 - **Not modelled:** tax (22 % on gains), and a large order moving the price in Firi's thin order books.
 
-Why the 200-day average, checked weekly? Each rule was tested on daily closes (USD, from Yahoo) with Firi's fee and the spreads above, against buy and hold with the same monthly rebalancing. From July 2018 the test holds Bitcoin, Ether, XRP and Cardano; from November 2020 Solana too. Returns are a year, compounded:
+Why the 200-day average, checked weekly? Each rule was tested on daily closes (USD, from Yahoo) with Firi's fee and the spreads seen in the account's first days (Bitcoin 0.33 %, Ether 1.5 %, XRP 1 %, Cardano 0.7 %, Solana 1.1 % each way), against buy and hold, both rebalanced monthly with the account's 20 % band. From July 2018 the test holds Bitcoin, Ether, XRP and Cardano; from November 2020 Solana too. Returns are a year, compounded:
 
 | Rule | From 2018 | Worst fall | From 2020 | Worst fall |
 |---|---|---|---|---|
-| Buy and hold | 36.0 % | −77 % | 61.0 % | −80 % |
-| **200-day average, weekly** | 34.2 % | −55 % | 55.1 % | −47 % |
-| 20-week average, weekly | 37.4 % | −59 % | 52.3 % | −58 % |
-| 4-week momentum, weekly | 33.1 % | −56 % | 59.8 % | −46 % |
-| 50-day average, daily | 21.1 % | −73 % | 40.0 % | −67 % |
+| Buy and hold | 35.4 % | −78 % | 61.2 % | −80 % |
+| **200-day average, weekly** | 33.8 % | −54 % | 52.8 % | −50 % |
+| 20-week average, weekly | 36.7 % | −61 % | 49.8 % | −59 % |
+| 4-week momentum, weekly | 29.3 % | −56 % | 54.5 % | −51 % |
+| 50-day average, daily | 12.3 % | −78 % | 29.7 % | −71 % |
 
-The slow rules earned a little less than buy and hold, 2 to 6 points a year, and cut the worst fall from about −80 % to about −50 %. They trade about four times a year per coin, costing some 5–6 % of the account a year, against 1.6–1.8 % for buy and hold. The fast rules would have won before costs: the 50-day average checked daily made 84 % a year from 2020 with no costs. Firi's fees and spreads took more than that edge, about 27 % a year. The 200-day average is the most widely used trend line, and the steadiest here across both periods, though not the best in every column; it was chosen after this test, so the test does not prove it. The coins are today's survivors and the history is short, so the table is a pointer, not a promise; the two accounts test it going forward.
+The slow rules earned less than buy and hold, 1 to 11 points a year, and cut the worst fall from about −78 % to about −52 %. The 200-day rule trades about four times a year per coin, costing some 7 % of the account a year, against 1.3 % for buy and hold. The fast rules would have won before costs: the 50-day average checked daily made 83 % a year from 2020 with no costs. Firi's fees and spreads took far more than that edge, about 33 % a year. The first version of this table used one evening's spreads, about half as wide, and showed the 200-day rule closer to buy and hold; the spreads the account has paid since are the better guide. The 200-day average is the most widely used trend line, and the steadiest here across both periods, though not the best in every column; it was chosen after this test, so the test does not prove it. The coins are today's survivors and the history is short, so the table is a pointer, not a promise; the two accounts test it going forward.
 
 The account is a replay: only the prices are stored. Firi's best bid and ask are kept every 15 minutes (`crypto_quotes`, thinned to the first complete run of each hour after a week), and the coins' daily closes are in `price_bars`. Trades, fees and value are worked out from them every time, so late prices correct the history. Change `ACCOUNT` and `STARTED_AT` when the rules change, and the account starts again. It starts on 6 October 2026 at 00:00 UTC.
 
@@ -275,7 +279,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
 | lekepenger | none; `advisor.paper.decide` | right after the nightly set on weekdays: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
-| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–16:59 on weekdays, while Oslo or Stockholm is open: the account's stocks and SEK/NOK, so its orders fill at the opening price during the day |
+| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks and SEK/NOK, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
 | prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
 
