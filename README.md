@@ -35,7 +35,7 @@ nordic-signals web                     # http://127.0.0.1:8000, or --host/--port
 | **Signaler** | Fresh events from the last four days: Swedish insider purchases, Norwegian insider notices, new buyback programmes and rising short interest. |
 | **Resultater** | The track record: excess return, hit rate and rank IC per model version and horizon, and per short-term signal type. |
 | **Lekepenger** | A play-money Nordnet account that trades on the advice by itself, with Nordnet's fees and the exchanges' opening hours: its value day by day, holdings, orders waiting for the opening, trades and each evening's decisions, with the whole log to download. See [Lekepenger](#lekepenger-a-play-money-account). |
-| **Krypto** | A play-money crypto account on Firi: 50 % in Bitcoin and Ether, 30 % in XRP, Cardano and Solana, 20 % on pump.fun, trading on a trend rule beside a buy-and-hold yardstick. It has the pump.fun page's neon look and updates itself. See [Krypto](#krypto-a-play-money-crypto-account). |
+| **Krypto** | A play-money crypto account on Firi: 50 % in Bitcoin and Ether, 30 % in XRP, Cardano and Solana, 20 % on pump.fun, held, beside the same coins on a trend rule. It has the pump.fun page's neon look and updates itself. See [Krypto](#krypto-a-play-money-crypto-account). |
 | pump.fun (`/pumpfun`) | The pump-and-dump filter's measurement, and the fake accounts that trade it: the detail page of Krypto's pump.fun part, reached from there (it has no tab of its own). See [pump.fun measurement](#pumpfun-measurement). |
 | **Data** | When each source last ran, row counts, and buttons for a manual refresh and the one-off history load (**Hent historikk**). |
 
@@ -101,8 +101,8 @@ The parts:
 - **pump.fun, 20 %:** SOL in a wallet that follows the [pump.fun page's](#pumpfun-measurement) main fake account up and down, as a share of it would, and the price of SOL. SOL is bought on Firi and sent to the wallet for 0.05 SOL (Firi's fee from 1 December 2026; 0.045 before); sending it back is free. A new filter version, whose account starts again at 10 SOL, carries on from where the last one ended.
 
 Two accounts make the same start:
-- **The main account follows a trend rule.** Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its price is above its average over the last 200 days. Below it, the coin is sold and its share waits in NOK until a later Monday finds it above again. A coin with less than 200 days of closes is held.
-- **The yardstick holds every coin all the time:** what the trend rule is up against.
+- **The main account holds every coin all the time** (buy and hold), chosen by the backtest below.
+- **Beside it, the same coins on a trend rule.** Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its price is above its average over the last 200 days. Below it, the coin is sold and its share waits in NOK until a later Monday finds it above again. A coin with less than 200 days of closes is held.
 
 Both rebalance on the first of each month at 00:00 UTC: every coin the account holds, and the pump.fun part, go back to their share of the account, unless they are already within a fifth of it. When those trades need more money than is spare, the parts above their share pay for it; money left over goes to the coins below theirs, then to the pump.fun part, so none sits idle (but SOL is only sent to the wallet when the 0.05 SOL fee is at most 5 % of it). The kroner of the coins the trend rule has sold count as a part of their own, with those coins' share as its target, and pay their own selling costs. That night's check also applies the trend rule.
 
@@ -113,17 +113,16 @@ How it trades:
 - **Value.** Coins are valued at the middle of Firi's best bid and ask, and the pump.fun part at its SOL's value. The cost of selling is paid when something is sold.
 - **Not modelled:** tax (22 % on gains), and a large order moving the price in Firi's thin order books.
 
-Why the 200-day average, checked weekly? Each rule was tested on daily closes (USD, from Yahoo) with Firi's fee and the spreads seen in the account's first days (Bitcoin 0.33 %, Ether 1.5 %, XRP 1 %, Cardano 0.7 %, Solana 1.1 % each way), against buy and hold, both rebalanced monthly with the account's 20 % band. From July 2018 the test holds Bitcoin, Ether, XRP and Cardano; from November 2020 Solana too. Returns are a year, compounded:
+Why buy and hold? A backtest written down before it ran (`research/PREREGISTRATION.md`) set the bar a trading rule had to clear: beat holding after Firi's fee, the account's spreads (Bitcoin 0.33 %, Ether 1.5 %, XRP 1 %, Cardano 0.7 %, Solana 1.1 % each way) and Norway's 22 % tax on realised gains, from July 2018, from November 2020, in the median 3-year window, and on Bitcoin alone in 2010–18. None of the eight rules did (`research/b3_crypto/results.md`). Net a year after costs and tax:
 
-| Rule | From 2018 | Worst fall | From 2020 | Worst fall |
+| Rule | From Jul 2018 | From Nov 2020 | Median 3 years | Worst fall, from 2018 |
 |---|---|---|---|---|
-| Buy and hold | 35.4 % | −78 % | 61.2 % | −80 % |
-| **200-day average, weekly** | 33.8 % | −54 % | 52.8 % | −50 % |
-| 20-week average, weekly | 36.7 % | −61 % | 49.8 % | −59 % |
-| 4-week momentum, weekly | 29.3 % | −56 % | 54.5 % | −51 % |
-| 50-day average, daily | 12.3 % | −78 % | 29.7 % | −71 % |
+| **Buy and hold** | 40.3 % | 51.7 % | 62.3 % | −81 % |
+| 200-day average, weekly | 37.9 % | 44.6 % | 41.3 % | −58 % |
+| 150-day average, weekly | 40.5 % | 42.1 % | 37.2 % | −55 % |
+| 250-day average, weekly | 38.1 % | 47.2 % | 37.6 % | −64 % |
 
-The 200-day rule earned 1.6 to 8.4 points a year less than buy and hold; the slow rules together ranged from 1.3 points more (20-week, from 2018) to 11 points less (20-week, from 2020). All three cut the worst fall from −78 % or −80 % to between −50 % and −61 %. The 200-day rule trades about four times a year per coin, costing some 7 % of the account a year, against 1.3 % for buy and hold. The fast rules would have won before costs: the 50-day average checked daily made 83 % a year from 2020 with no costs. Firi's fees and spreads took far more than that edge, about 33 % a year. The first version of this table used one evening's spreads, about two-thirds as wide on average (much narrower for XRP and Solana, wider for Cardano), and showed the 200-day rule closer to buy and hold; the spreads the account has paid since are the better guide. The 200-day average is the most widely used trend line, and the steadiest here across both periods, though not the best in every column; it was chosen after this test, so the test does not prove it. The coins are today's survivors and the history is short, so the table is a pointer, not a promise; the two accounts test it going forward.
+The average rules cut the worst fall, but cost 6.6–16.5 % of the account a year in fees and spreads against 1.6 % for holding, and pay tax every year where holding pays once. No difference reaches two standard errors, and the coins are today's survivors, which favours holding (a coin that died would have cost holding its whole share). So buy and hold is the main account, and the 200-day rule stays beside it to show what the insurance against big falls costs as it happens. An earlier, exploratory version of this test (not written down first) had chosen the 200-day rule.
 
 The account is a replay: only the prices are stored. Firi's best bid and ask are kept every 15 minutes (`crypto_quotes`, thinned to the first complete run of each hour after a week), and the coins' daily closes are in `price_bars`. Trades, fees and value are worked out from them every time, so late prices correct the history. Change `ACCOUNT` and `STARTED_AT` when the rules change, and the account starts again. It starts on 6 October 2026 at 00:00 UTC.
 

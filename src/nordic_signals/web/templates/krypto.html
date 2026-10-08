@@ -49,9 +49,9 @@
   <div class="tile"><div class="label">PnL</div>
     <div class="value mono" data-tick="result" data-value="{{ a.result }}">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
     <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter gebyr og spread</div></div>
-  <div class="tile"><div class="label">Mot kjøp og hold</div>
-    <div class="value mono" data-tick="versus" data-value="{{ a.equity - hold.equity }}">{{ arrow(a.equity - hold.equity) }}{{ (a.equity - hold.equity) | num(0, True) }}&nbsp;NOK</div>
-    <div class="sub">kjøp og hold står i {{ hold.equity | nok }}</div></div>
+  <div class="tile"><div class="label">Mot trendregelen</div>
+    <div class="value mono" data-tick="versus" data-value="{{ a.equity - rule.equity }}">{{ arrow(a.equity - rule.equity) }}{{ (a.equity - rule.equity) | num(0, True) }}&nbsp;NOK</div>
+    <div class="sub">trendregelen står i {{ rule.equity | nok }}</div></div>
   <div class="tile"><div class="label">Kostnader</div>
     <div class="value mono" data-tick="costs" data-value="{{ a.costs }}">{{ a.costs | nok }}</div>
     <div class="sub">gebyr {{ a.fees | nok }}, spread {{ a.spread | nok }}{% if a.withdrawals %}, SOL-uttak {{ a.withdrawals | nok }}{% endif %}</div></div>
@@ -75,27 +75,28 @@
   {% elif not a.started_at %}
   <div class="empty-note">
     <p>Kontoen starter {% if a.upcoming.start %}{{ a.upcoming.start | when }}{% else %}ved de neste kursene fra Firi{% endif %} <span aria-hidden="true">🚀</span></p>
-    <p class="muted small">Da kjøper den til de første kursene fra Firi etter det. Trendregelen kjøper bare myntene som
-      er over snittet for de siste {{ rules.trend_days }} dagene; resten venter i kroner.</p>
+    <p class="muted small">Da kjøper den alle myntene til de første kursene fra Firi etter det. Trendregelen ved siden av
+      kjøper bare dem som er over snittet for de siste {{ rules.trend_days }} dagene; resten venter i kroner.</p>
   </div>
   {% else %}
   <p class="muted">Grafen kommer når det finnes minst to målinger i perioden. Firis kurser hentes hvert kvarter.</p>
   {% endif %}
   {% if a.started_at %}
   <div class="compare">
-    <div class="main"><div class="label">📈 Trendregelen</div>
+    <div class="main"><div class="label">💎 Kjøp og hold</div>
       <div class="mono"><b>{{ a.equity | nok }}</b> {{ arrow(a.result) }}{{ a.result | pct(1, True) }}</div>
-      <div class="sub">kontoen over · eier {{ held }} av {{ a.coins | length }} mynter nå</div></div>
-    <div><div class="label">💎 Kjøp og hold</div>
-      <div class="mono"><b data-tick="hold" data-value="{{ hold.equity }}">{{ hold.equity | nok }}</b> {{ arrow(hold.result) }}{{ hold.result | pct(1, True) }}</div>
-      <div class="sub">målestokken: alle myntene hele tiden</div></div>
+      <div class="sub">kontoen over · alle myntene hele tiden</div></div>
+    <div><div class="label">📈 Trendregelen</div>
+      <div class="mono"><b data-tick="rule" data-value="{{ rule.equity }}">{{ rule.equity | nok }}</b> {{ arrow(rule.result) }}{{ rule.result | pct(1, True) }}</div>
+      <div class="sub">ved siden av · eier {{ held }} av {{ rule.coins | length }} mynter nå</div></div>
     <div><div class="label">🎰 pump.fun-delen</div>
       <div class="mono"><b>{{ a.pumpfun.value | nok }}</b> {{ arrow(a.pumpfun.result_pct) }}{{ a.pumpfun.result_pct | pct(1, True) }}</div>
       <div class="sub"><a href="/pumpfun">følger hovedkontoen på pump.fun-siden →</a></div></div>
   </div>
   <p class="small muted">Begge kontoene har samme fordeling og samme pump.fun-del, og rebalanseres likt. Forskjellen er
-    trendregelen: hovedkontoen selger en mynt som faller under snittet for de siste {{ rules.trend_days }} dagene, og
-    venter i kroner til den er over igjen.</p>
+    trendregelen: den selger en mynt som faller under snittet for de siste {{ rules.trend_days }} dagene, og venter i
+    kroner til den er over igjen. Kjøp og hold er hovedkontoen fordi ingen handelsregel slo det i testen
+    (<a href="#hvorfor">hvorfor</a>).</p>
   {% endif %}
   {% if a.pending %}<p class="small muted">Venter på kurser fra Firi for {{ a.pending | length }}
     beslutning{{ 'er' if a.pending | length > 1 }}; de utføres til de første kursene som hentes.</p>{% endif %}
@@ -118,7 +119,7 @@
           <span class="sym">{% if o.part == "pumpfun" %}SOL i lommebok{% else %}${{ o.symbol }} · {{ parts[o.part] }}{% endif %}</span>
         </div>
         {% if o.part == "pumpfun" %}<span class="badge">{{ o.sol | num(2) }} SOL</span>
-        {%- elif o.wanted is not none %}<span class="chip {{ 'owned' if o.wanted else 'out' }}">{{ 'eies' if o.wanted else 'i kroner' }}</span>{% endif %}
+        {%- elif ruled.get(o.symbol) == false %}<span class="chip out" title="Trendregelen eier den ikke nå">under snittet</span>{% endif %}
       </header>
       <div class="pnl-row">
         <p class="pnl">{% if o.units %}{{ arrow(o.result_pct) }}<span class="mono" data-tick="pos-{{ o.symbol }}" data-value="{{ o.result_pct }}">{{ o.result_pct | pct(1, True) }}</span>
@@ -151,7 +152,7 @@
           <td class="num">{{ o.weight | pct(0) }}</td><td class="num">{{ o.share | pct(1) }}</td><td class="num">{{ o.value | nok }}</td>
           <td class="num">{{ kroner(o.price) }}{% if o.part == "pumpfun" %}<div class="ticker">per SOL</div>{% endif %}</td>
           <td class="num">{% if o.part == "pumpfun" %}–{% else %}{{ gap(o.trend) }}{% if o.trend %}<div class="ticker">sluttkurs {{ o.trend.day | day }}</div>{% endif %}{% endif %}</td>
-          <td>{% if o.part == "pumpfun" %}<span class="small">følger pump.fun-kontoen</span>{% elif o.wanted is none %}–{% elif o.wanted %}eies{% else %}<strong>i kroner</strong>{% endif %}</td>
+          <td>{% if o.part == "pumpfun" %}<span class="small">følger pump.fun-kontoen</span>{% elif ruled.get(o.symbol) is none %}–{% elif ruled[o.symbol] %}eier{% else %}<strong>i kroner</strong>{% endif %}</td>
           <td class="num">{% if o.result is not none %}{{ arrow(o.result) }} {{ o.result | num(0, True) }}&nbsp;NOK<div class="ticker">{{ o.result_pct | pct(1, True) }}</div>{% else %}–{% endif %}</td></tr>
         {% endfor %}
       {% endfor %}
@@ -194,15 +195,15 @@
   <p>Start {{ a.upcoming.start | when }}.</p>
   {% else %}
   <ul>
-    <li><strong>Ukesjekk {{ a.upcoming.week | when }}:</strong> trendregelen ser på søndagens sluttkurs. Mynter som
-      har falt under snittet, selges; mynter som er over igjen, kjøpes tilbake.</li>
-    <li><strong>Månedsskifte {{ a.upcoming.month | when }}:</strong> samme sjekk, og myntene kontoen eier og
-      pump.fun-delen går tilbake til sin andel hvis de er mer enn {{ (rules.tolerance * 100) | int }}&nbsp;% unna den.</li>
+    <li><strong>Månedsskifte {{ a.upcoming.month | when }}:</strong> myntene og pump.fun-delen går tilbake til sin andel
+      hvis de er mer enn {{ (rules.tolerance * 100) | int }}&nbsp;% unna den, i begge kontoene.</li>
+    <li><strong>Ukesjekk {{ rule.upcoming.week | when }}:</strong> trendregelen ser på søndagens sluttkurs. Mynter som
+      har falt under snittet, selger den; mynter som er over igjen, kjøper den tilbake. Tabellen viser dens sjekker.</li>
   </ul>
   {% endif %}
   {% if checks %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Tid</th><th>Hva</th><th>Mot {{ rules.trend_days }}-dagerssnittet</th><th class="num">Handler</th><th class="num">Kontoverdi</th></tr></thead>
+    <thead><tr><th>Tid</th><th>Hva</th><th>Mot {{ rules.trend_days }}-dagerssnittet</th><th class="num">Handler</th><th class="num">Trendregelens verdi</th></tr></thead>
     <tbody>{% for c in checks %}
       <tr><td class="nowrap">{{ c.at | when }}</td><td>{{ kinds[c.kind] }}</td>
         <td class="small views">{% for symbol, view in c.views.items() %}<span class="nowrap">{{ symbol }} {{ gap(view) }}</span>{{ ", " if not loop.last }}{% endfor %}</td>
@@ -218,10 +219,10 @@
   <ul>
     <li><strong>Fordeling.</strong> Bitcoin og Ether 25&nbsp;% hver (store mynter), XRP, Cardano og Solana 10&nbsp;% hver
       (mindre mynter), og {{ (rules.pumpfun * 100) | int }}&nbsp;% på pump.fun.</li>
-    <li><strong>Trendregelen.</strong> Hver mandag kl. 00:00 UTC ser hovedkontoen på søndagens sluttkurs: en mynt eies bare
-      så lenge kursen er over snittet for de siste {{ rules.trend_days }} dagene. Under snittet selges den, og pengene
-      venter i kroner til en senere mandag finner den over igjen. Snittet for {{ rules.trend_days }} dager er den mest
-      brukte trendlinjen; sjekket ukentlig handler den omtrent fire ganger i året per mynt.</li>
+    <li><strong>Kjøp og hold.</strong> Hovedkontoen eier alle myntene hele tiden.</li>
+    <li><strong>Trendregelen</strong> står ved siden av. Hver mandag kl. 00:00 UTC ser den på søndagens sluttkurs: en
+      mynt eies bare så lenge kursen er over snittet for de siste {{ rules.trend_days }} dagene. Under snittet selges den,
+      og pengene venter i kroner til en senere mandag finner den over igjen.</li>
     <li><strong>Rebalansering.</strong> Den første i hver måned kl. 00:00 UTC går myntene kontoen eier, og pump.fun-delen,
       tilbake til sin andel av kontoen, med mindre de allerede er innenfor en femtedel av den. Det holder fordelingen
       uten å betale for små handler. Trengs det mer penger enn det som er ledig, betaler delene som er over sin andel;
@@ -235,11 +236,11 @@
       Handlene er markedsordre: kjøp til laveste salgskurs og salg til høyeste kjøpskurs i Firis ordrebok i kroner, så
       spreaden betales også. De første dagene var den rundt 0,3&nbsp;% for Bitcoin, 0,6–1,2&nbsp;% for de mindre myntene
       og 1–2,3&nbsp;% for Ether, hver vei, uansett tid på døgnet.</li>
-    <li><strong>Hvorfor så sjelden?</strong> På daglige kurser til 2026 ga regelen, med Firis gebyr og spread, mindre
-      enn kjøp og hold: 34&nbsp;% mot 35&nbsp;% i året fra 2018 for Bitcoin, Ether, XRP og Cardano, og 53&nbsp;% mot
-      61&nbsp;% fra 2020 med Solana. Men det verste fallet var −54&nbsp;% mot −78&nbsp;% (−50&nbsp;% mot −80&nbsp;% fra
-      2020). Regler som handler oftere, tapte det de vant på kostnadene. Myntene er dagens
-      overlevere og historien er kort, så tallene er en pekepinn, ikke en lovnad.</li>
+    <li id="hvorfor"><strong>Hvorfor kjøp og hold?</strong> I en test bestemt på forhånd, på daglige kurser fra 2018, slo
+      ingen av åtte handelsregler kjøp og hold etter Firis gebyr og spread og 22&nbsp;% skatt. Trendregelen ga
+      37,9&nbsp;% mot 40,3&nbsp;% i året fra juli 2018 og 44,6&nbsp;% mot 51,7&nbsp;% fra november 2020, men det
+      verste fallet var −58&nbsp;% mot −81&nbsp;%. Myntene er dagens overlevere, noe som hjelper kjøp og hold, og
+      historien er kort, så tallene er en pekepinn, ikke en lovnad.</li>
     <li><strong>Ikke med:</strong> skatt (22&nbsp;% på gevinst), og at en stor ordre kan flytte kursen i Firis tynne
       ordrebøker. Ordrene her er små nok til å gå til beste kurs.</li>
   </ul>

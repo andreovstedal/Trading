@@ -1,4 +1,4 @@
-"""The Krypto page: the play-money crypto account (``crypto``) beside its buy-and-hold yardstick, and its log.
+"""The Krypto page: the play-money crypto account (``crypto``, buy and hold) beside the trend rule, and its log.
 
 It has the pump.fun page's look, and like it updates itself (``static/live.js``): it polls ``crypto.freshness``
 and, when the stamp changes, fetches the page again and swaps the parts marked ``data-live``.
@@ -31,7 +31,7 @@ CHECK_ROWS = 10
 CHART_POINTS = 400
 SPARK_POINTS = 60  # per coin card
 TAPE_FILL = 12  # the tape repeats its items to at least this many, so it fills the width
-ACCOUNTS = {"trend": "Trendregelen", "hold": "Kjøp og hold"}
+ACCOUNTS = {"hold": "Kjøp og hold", "trend": "Trendregelen"}  # the main account first
 KINDS = {"start": "Start", "week": "Ukesjekk", "month": "Månedsskifte"}
 SIDES = {"buy": "Kjøp", "sell": "Salg"}
 # The coin cards' avatars: a sign and a gradient, decoration only.
@@ -44,8 +44,8 @@ def context(store: Store, periode: str = DEFAULT_PERIOD, now: datetime | None = 
     now = now or utcnow()
     version, updated = crypto.freshness(store)
     prices = crypto.load(store)
-    a = crypto.account(store, now, trend=True, prices=prices)
-    hold = crypto.account(store, now, trend=False, prices=prices)
+    a = crypto.account(store, now, trend=False, prices=prices)  # the main account: buy and hold
+    rule = crypto.account(store, now, trend=True, prices=prices)  # beside it: the trend rule
     periode = periode if periode in PERIODS else DEFAULT_PERIOD
     back = PERIODS[periode][1]
     points = thin([p for p in a["history"] if back is None or p[0] >= now - back], CHART_POINTS)
@@ -54,12 +54,13 @@ def context(store: Store, periode: str = DEFAULT_PERIOD, now: datetime | None = 
     tape = [{"symbol": c["symbol"], "price": c["price"], "day": c["day"]} for c in cards]
     return {
         "version": version, "updated": updated, "fresh": updated is not None and now - updated < FRESH,
-        "live_for": int(FRESH.total_seconds()), "now": now, "a": a, "hold": hold, "cards": cards,
+        "live_for": int(FRESH.total_seconds()), "now": now, "a": a, "rule": rule, "cards": cards,
+        "ruled": {c["symbol"]: c["wanted"] for c in rule["coins"]},
         "tape": tape * math.ceil(TAPE_FILL / len(tape)) if runs else [],
         "periode": periode, "periods": PERIODS, "history": points,
         "chart": charts.account_chart(points, crypto.START, money=text.nok),
-        "trades": a["trades"][::-1][:TRADE_ROWS], "checks": a["checks"][::-1][:CHECK_ROWS],
-        "held": sum(1 for c in a["coins"] if c["units"]), "parts": crypto.PARTS, "kinds": KINDS, "sides": SIDES,
+        "trades": a["trades"][::-1][:TRADE_ROWS], "checks": rule["checks"][::-1][:CHECK_ROWS],
+        "held": sum(1 for c in rule["coins"] if c["units"]), "parts": crypto.PARTS, "kinds": KINDS, "sides": SIDES,
         "rules": {"trend_days": crypto.TREND_DAYS, "tolerance": crypto.TOLERANCE, "pumpfun": crypto.PUMPFUN},
         "fees": {"trade": crypto.FEE, "sol_withdrawal": crypto.SOL_WITHDRAWAL, "withdrawal_share": crypto.WITHDRAWAL_SHARE},
     }
@@ -136,7 +137,7 @@ def export_csv(store: Store, now: datetime | None = None) -> Iterator[str]:
     writer.writerow([header for header, _, _ in CSV_COLUMNS])
     yield "﻿" + exports.drain(out)
     trades = sorted(({**t, "account": name} for name, a in books.items() for t in a["trades"]),
-                    key=lambda t: (t["at"], t["account"] != "trend"))
+                    key=lambda t: (t["at"], t["account"] != "hold"))
     for trade in trades:
         writer.writerow([exports.cell(get(trade), digits) for _, get, digits in CSV_COLUMNS])
     yield exports.drain(out)
@@ -170,6 +171,8 @@ def _meta(now: datetime) -> dict[str, Any]:
         "pumpfun": {"weight": crypto.PUMPFUN, "follows": pumpfun.MAIN_ACCOUNT,
                     "screen_version": pumpfun.SCREEN_VERSION},
         "rules": {"trend_days": crypto.TREND_DAYS, "tolerance": crypto.TOLERANCE,
+                  "main_account": "hold, decided by a pre-registered backtest (research/PREREGISTRATION.md, "
+                                  "research/RESULTS-2026-10.md): no trading rule beat holding after costs and tax",
                   "trend": "trend: a coin is held while its latest daily close is above its average over trend_days "
                            "days, checked on Mondays at 00:00 UTC; hold: always held",
                   "rebalance": "first of each month at 00:00 UTC, for every coin held, the pump.fun part and the cash "

@@ -375,6 +375,16 @@ def page_client(db_url, monkeypatch, now):
     return TestClient(web.create_app(db_url))
 
 
+def test_the_page_marks_a_coin_the_trend_rule_has_sold(store, db_url, monkeypatch):
+    btc_out_since_october_12(store)
+    with page_client(db_url, monkeypatch, datetime(2026, 10, 12, 0, 15, tzinfo=timezone.utc)) as client:
+        page = client.get("/krypto").text
+
+    # The main account holds Bitcoin all along; the trend rule beside it sold it on the 12th.
+    assert page.count("under snittet</span>") == 1 and "<strong>i kroner</strong>" in page
+    assert "eier 4 av 5 mynter nå" in page
+
+
 def test_the_page_before_the_start(store, db_url, monkeypatch):
     with page_client(db_url, monkeypatch, T0 - timedelta(hours=1)) as client:
         page = client.get("/krypto").text
@@ -397,8 +407,9 @@ def test_the_page_and_its_log(store, db_url, monkeypatch):
     assert '<body class="degen">' in page and 'data-version-url="/krypto/version"' in page
     assert '<span class="state">Live</span>' in page and 'id="pf-tape" class="tape" data-live aria-hidden="true">' in page
     assert "📈 Trendregelen" in page and "💎 Kjøp og hold" in page and "🎰 pump.fun-delen" in page
+    assert "Mot trendregelen" in page and "Hvorfor kjøp og hold?" in page
     assert page.count('<article class="pos ') == 6 and "$BTC · Store mynter" in page and "SOL i lommebok" in page
-    assert '<span class="chip owned">eies</span>' in page and "Start: 25 % av kontoen" in page
+    assert "under snittet</span>" not in page and "Start: 25 % av kontoen" in page  # every coin above its average
     assert 'class="chart' in page and "Ukesjekk" in page and "/krypto/export.json" in page
     assert 'data-periode="alt" class="on"' in page and 'href="/pumpfun" class=' not in page  # no pump.fun tab
     assert re.fullmatch(r'attachment; filename="krypto-\d{4}-\d\d-\d\d-\d{4}\.csv"',
@@ -406,10 +417,11 @@ def test_the_page_and_its_log(store, db_url, monkeypatch):
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
     assert header[:3] == ["Konto", "Tidspunkt (norsk tid)", "Bestemt (norsk tid)"] and len(rows) == 12
     first = dict(zip(header, rows[0], strict=True))
-    assert first["Konto"] == "Trendregelen" and first["Mynt"] == "BTC" and first["Tidspunkt (norsk tid)"] == "2026-10-06 02:05:00"
+    assert first["Konto"] == "Kjøp og hold" and first["Mynt"] == "BTC" and first["Tidspunkt (norsk tid)"] == "2026-10-06 02:05:00"
     assert first["Beløp på kontoen (NOK)"] == "-25000,00"
     data = everything.json()
-    assert list(data) == ["meta", "trend", "hold"] and list(data["trend"]) == ["summary", "trades", "checks", "equity"]
+    assert list(data) == ["meta", "hold", "trend"] and list(data["trend"]) == ["summary", "trades", "checks", "equity"]
+    assert data["meta"]["rules"]["main_account"].startswith("hold")
     assert len(data["trend"]["trades"]) == 6 and len(data["trend"]["equity"]) == 2
     assert data["meta"]["fees"]["trade"] == crypto.FEE and data["trend"]["checks"][0]["views"]["BTC"]["above"] is True
 

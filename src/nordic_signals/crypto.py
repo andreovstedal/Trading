@@ -8,11 +8,14 @@ time, so only the prices are stored (``collectors.crypto``), and late prices cor
 * **The parts.** Bitcoin and Ether get 25 % each (the big coins); XRP, Cardano and Solana 10 % each (the smaller
   ones); and 20 % is SOL in a wallet trading on pump.fun, which follows the pump.fun page's main fake account
   (``pumpfun.MAIN_ACCOUNT``) up and down, as a share of it would.
-* **The trend rule** (the main account). Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its
+* **Buy and hold** (the main account) holds every coin all the time. A backtest decided this before the result was
+  known (``research/PREREGISTRATION.md``, ``research/RESULTS-2026-10.md``): none of eight trading rules beat holding
+  after Firi's costs and tax.
+* **The trend rule** (its comparison). Every Monday at 00:00 UTC, on Sunday's close, a coin is held only while its
   price is above its average over the last 200 days; below it, its share waits in NOK until a later Monday finds it
-  above again. The 200-day average is the most widely used long-term trend line, and checked weekly rather than
-  daily it trades about four times a year per coin, which Firi's costs allow (see the README for the backtest).
-  A coin with less than 200 days of closes is held.
+  above again. A coin with less than 200 days of closes is held. In the backtest it cut the worst fall from -81 % to
+  -58 %, but after costs and tax it earned less than holding: 37.9 % a year against 40.3 % from July 2018, 44.6 %
+  against 51.7 % from November 2020.
 * **Rebalancing.** On the first of each month at 00:00 UTC, every coin the rule holds and the pump.fun part go back
   to their share of the account, unless they are already within a fifth of it (``TOLERANCE``): that keeps the
   50/30/20 split without paying for small trades. When those trades need more money than there is, the parts above
@@ -29,8 +32,8 @@ time, so only the prices are stored (``collectors.crypto``), and late prices cor
 * **Value.** Coins at the middle of Firi's best bid and ask, the pump.fun part at its SOL's value; the cost of
   selling is paid when something is sold.
 
-``accounts`` gives the main account and its yardstick, which holds every coin all the time and rebalances the same
-way: what the trend rule is up against. Both have the same pump.fun part.
+``accounts`` gives the main account (buy and hold) and the trend rule beside it; both rebalance the same way and
+have the same pump.fun part.
 
 Change ``ACCOUNT`` and ``STARTED_AT`` when the rules change, and the account starts again from scratch.
 """
@@ -403,11 +406,11 @@ def account(store: Store, now: datetime | None = None, *, trend: bool = True,
 
 
 def accounts(store: Store, now: datetime | None = None) -> dict[str, dict[str, Any]]:
-    """The main account (the trend rule) and its yardstick (buy and hold), from the same prices."""
+    """The main account (buy and hold) and its comparison (the trend rule), from the same prices."""
     now = now or utcnow()
     prices = load(store)
-    return {"trend": account(store, now, trend=True, prices=prices),
-            "hold": account(store, now, trend=False, prices=prices)}
+    return {"hold": account(store, now, trend=False, prices=prices),
+            "trend": account(store, now, trend=True, prices=prices)}
 
 
 def _summary(book: _Book, prices: Prices, now: datetime, pending: list[tuple[datetime, str]]) -> dict[str, Any]:
