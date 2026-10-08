@@ -5,6 +5,14 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+# The key numbers of the run before the review (results.json of 8 October 2026, 10:15), for "Changed after the check"
+BEFORE_CHECK = {"net_vs_index": 0.0065, "net_vs_index_t": 0.2378, "cost_a_year": 0.0388,
+                "half_spread_cost_a_year": 0.0195, "ew_universe_cagr": 0.1265, "net_vs_ew_book_mix": -0.0018,
+                "ic_momentum_pooled": 0.0335, "ic_momentum_pooled_t": 3.0335, "ic_momentum_stockholm_t": 2.1856,
+                "ic_low_vol_pooled": 0.0731, "ic_low_vol_pooled_t": 6.099, "bottom_quintile": 0.0139}
+REPAIR_LABELS = {"split_price": "w/o 1", "oslo_ex_dates": "w/o 2", "edge_sign": "w/o 3"}  # w/o 4: no change
+Z_POWER = 1.96 + 0.84  # a two-sided 5 % test with 80 % power
+
 
 def pct(x: float | None, d: int = 1, signed: bool = False) -> str:
     if x is None:
@@ -25,140 +33,144 @@ def verdict(t: float) -> str:
 
 def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     b = r["books"]
-    net, fees, gross, cap = (b["net"], b["fees only"], b["gross"], b["net, sector cap 3 (exploratory)"])
-    u, p, ic = r["universe"], r["parameters"], r["rank_ic"]
-    per = r["period"]
-    lines: list[str] = []
-    add = lines.append
+    net, fees, gross = b["net"], b["fees only"], b["gross"]
+    hi, lo = b["net, half-spread |EDGE| (high end)"], b["net, half-spread signed bucket mean (low end)"]
+    u, p, ic, per, ck = r["universe"], r["parameters"], r["rank_ic"], r["period"], r["checks"]
+    out: list[str] = []
+    add = out.append
     add("# B2: the score's price-only part")
     add("")
-    add(f"Pre-registered in `research/PREREGISTRATION.md`; it sets no bar and moves no money. "
-        f"{per['months']} months, April 2013 to September 2026. Run: `.venv/bin/python research/b2_prices/b2.py` "
-        f"(`--cache DIR`, `--offline`).")
+    add("Pre-registered: the book vs the index blend, momentum's direction, turnover, costs; no bar. "
+        f"The rest, in *italics*, is exploratory. {per['months']} months, April 2013 to September 2026. "
+        "`.venv/bin/python research/b2_prices/b2.py [--cache DIR] [--offline]`.")
     add("")
-    add("**Survivorship, stated with every number below:** the universe is today's Nordnet list, so every stock "
-        "that was delisted between 2013 and 2026 (bankruptcies, takeovers, mergers, moves abroad) is missing. "
-        "Those are disproportionately the losers, so the equal-weighted universe and the book look better than "
-        "they were, and the comparison with the indices, which held those stocks, is biased in the book's favour. "
-        "The comparison with the equal-weighted universe shares the bias, which falls more on the losing, "
-        "volatile stocks the score avoids; if anything that understates the book's edge over its own universe.")
+    gone = [y for y, v in ck["delisted_examples_on_yahoo"].items() if v.startswith("missing")]
+    add("**Survivorship:** the universe is today's Nordnet list. Missing failures flatter the EW universe and the "
+        f"bottom quintile; missing takeover targets (Yahoo has nothing for {', '.join(gone)}), low-volatility names "
+        "the book would often have held, cost it their bid premiums. Against the indices the direction is unknown.")
     add("")
-    add("## What ran")
+    add("## Method")
     add("")
-    add(f"- **Universe:** {u['nordnet_instruments_kept']} shares on Nordnet's list on 8 Oct 2026 "
-        f"({u['by_country']['NO']} Oslo, {u['by_country']['SE']} Stockholm; shares in other currencies dropped, "
-        f"as `scoring.py` has no rate for them). Yahoo has no history for {u['yahoo_missing']}. "
-        f"Eligible each month-end, from prices alone: price ≥ {p['min_price_nok']:.0f} NOK, at least 12 months of "
-        f"prices, 12-month rise ≤ 300 %, median daily turnover (Yahoo close × volume, last 20 days) ≥ "
-        f"{p['min_adv_nok'] / 1e6:.3f} mill. NOK (50 × the {p['target_position_nok']:,.0f} NOK position), "
-        "one share class per issuer (the most liquid). Not applied, for want of history: market cap ≥ 500 mill. "
-        "NOK, positive P/E ≥ 4, so loss-makers are in.".replace(",", " "))
-    add("- **Score** (as `features.py`/`scoring.py`): momentum = (1 + r₁₂ₘ)/(1 + r₁ₘ) − 1 on Yahoo's close; "
-        "volatility = stdev of daily log returns of the last 61 adjusted closes within 100 days × √252 (≥ 40 "
-        "returns); percentile ranks within country (ties averaged); score = mean(rank_mom, 1 − rank_vol).")
-    add(f"- **Book:** at each month-end close, buy the best-ranked until {p['n_positions']} are held, keep "
-        f"while ranked ≤ {p['hold_rank']}, trade at each stock's next opening; sales' cash is split equally "
-        "between the buys (fully invested; held positions drift). Dividends at the ex-date, Swedish ones after "
-        "15 % withholding. Start 450 000 NOK.")
-    add(f"- **Costs:** `paper.costs` (0.15 %, min 29 NOK; 0.25 % currency exchange each way in Stockholm) plus a "
-        f"half-spread from the EDGE estimator (Ardia, Guidotti & Kroencke 2024) on the last {p['edge_window_days']} "
-        "days of OHLC, capped at 5 %; a missing estimate takes its country and liquidity bucket's median. "
-        "`edge.py` is a pure-Python port of `bidask.edge` 2.1.0 (`check_edge.py`: identical on 300 windows).")
-    add("- **Benchmarks:** OSEBX GI and OMXSBGI (× SEK/NOK) weighted by the book's country mix each month; the "
-        "equal-weighted eligible universe (gross, no costs).")
+    early = u["nordnet_instruments_kept"] - u["yahoo_missing"] - u["yahoo_history_starts_after_2012_03"]
+    add(f"- **Universe:** {u['nordnet_instruments_kept']} shares ({u['by_country']['NO']} Oslo, "
+        f"{u['by_country']['SE']} Stockholm); Yahoo has {u['nordnet_instruments_kept'] - u['yahoo_missing']}, "
+        f"{early} from early 2012. Eligible: quoted price ≥ {p['min_price_nok']:.0f} NOK (close × later splits), "
+        "12 months of prices, 12-month rise ≤ 300 %, volume on ≥ 10 of 20 sessions, median turnover ≥ "
+        f"{p['min_adv_nok'] / 1e6:.3f} mill. NOK, one share class per issuer; no market-cap or P/E filter.")
+    add("- **Score** (`scoring.py`): mom = (1 + r₁₂ₘ)/(1 + r₁ₘ) − 1; vol = sd(log total returns, last 61 closes) × √252; "
+        "ranks within country; score = mean(rank_mom, 1 − rank_vol).")
+    add(f"- **Book:** signal at the month-end close, trade at the next opening (the paper account: a trading day "
+        f"later); top {p['n_positions']} bought, kept while ≤ {p['hold_rank']}.")
+    add(f"- **Costs:** `paper.costs` plus an EDGE half-spread (`bidask.edge(sign=True)`, {p['edge_window_days']} "
+        "days, negatives as 0, cap 5 %).")
+    add("- **Statistics:** a year = 12 × mean monthly excess; SE = 12 × sd/√n; t = mean/(sd/√n).")
     add("")
     add("## Results")
     add("")
-    add("| | Book, net | Fees only | Gross | Index blend | EW universe |")
-    add("|---|---|---|---|---|---|")
-    rows = [("Return a year (CAGR)", "cagr"), ("Volatility", "vol"), ("Max drawdown", "max_drawdown")]
-    for label, key in rows:
-        add(f"| {label} | {pct(net['book'][key])} | {pct(fees['book'][key])} | {pct(gross['book'][key])} | "
+    add("| | Book net | Gross | Index blend | *EW universe* |")
+    add("|---|---|---|---|---|")
+    for label, key in [("Return a year", "cagr"), ("Volatility", "vol"), ("Max drawdown", "max_drawdown")]:
+        add(f"| {label} | {pct(net['book'][key])} | {pct(gross['book'][key])} | "
             f"{pct(net['index_blend'][key])} | {pct(net['ew_universe'][key])} |")
     add("")
-    add("Excess = book − benchmark, monthly. Excess a year = 12 × mean; SE = 12 × sd/√n; t = mean/(sd/√n) "
-        "(Newey–West, 6 lags, beside it); tracking error = sd × √12; Sharpe of excess = excess a year / TE.")
+    add("| Excess a year | Net | Fees only | Gross |")
+    add("|---|---|---|---|")
+    for label, key in [("vs index blend", "vs_index"), ("*vs EW universe, book's country mix*", "vs_ew_universe_book_mix")]:
+        add(f"| {label} | " + " | ".join(f"{pct(x[key]['excess_a_year'], signed=True)} ({num(x[key]['t'])})"
+                                         for x in (net, fees, gross)) + " |")
+    s = net["vs_index"]
     add("")
-    add("| Book vs benchmark | Excess a year | SE | t (NW) | Tracking error | Sharpe of excess |")
-    add("|---|---|---|---|---|---|")
-    for label, book, key in [("Net vs index blend", net, "vs_index"), ("Fees only vs index", fees, "vs_index"),
-                             ("Gross vs index", gross, "vs_index"), ("Net vs EW universe", net, "vs_ew_universe"),
-                             ("Net vs EW universe, book's country mix", net, "vs_ew_universe_book_mix"),
-                             ("*Exploratory:* sector cap 3, net vs index", cap, "vs_index")]:
-        s = book[key]
-        add(f"| {label} | {pct(s['excess_a_year'], signed=True)} | {pct(s['se_a_year'])} | "
-            f"{num(s['t'])} ({num(s['t_newey_west'])}) | {pct(s['tracking_error'])} | {num(s['sharpe_of_excess'])} |")
-    add("")
-    halves = net["halves_vs_index"]
-    hk = list(halves)
-    add(f"Net vs index by half: {hk[0]} {pct(halves[hk[0]]['excess_a_year'], signed=True)} (t {num(halves[hk[0]]['t'])}), "
-        f"{hk[1]} {pct(halves[hk[1]]['excess_a_year'], signed=True)} (t {num(halves[hk[1]]['t'])}). "
-        f"Worst relative drawdown against the index blend: {pct(net['relative_max_drawdown_vs_index'])}. "
-        f"The book held {pct(net['mean_se_share'], 0)} in Stockholm on average.")
+    add(f"t in brackets. Net vs index: SE {pct(s['se_a_year'])}, Newey–West (6 lags) t {num(s['t_newey_west'])}. All books pay 15 % "
+        "Swedish withholding; indices and EW universe are untaxed.")
     add("")
     add("## Turnover and costs")
     add("")
     cp = net["cost_parts_a_year"]
-    drag = r["cost_drag_a_year"]
-    add("| Monthly turnover (one way) | Trades a month | Costs a year | of which courtage / FX / half-spread | "
-        "Cost drag (gross − net CAGR) | Half-spread paid, median |")
-    add("|---|---|---|---|---|---|")
-    add(f"| {pct(net['monthly_turnover_one_way'])} | {num(net['trades_a_month'], 1)} | {pct(net['cost_a_year'], 2)} | "
-        f"{pct(cp['courtage'], 2)} / {pct(cp['fx'], 2)} / {pct(cp['spread'], 2)} | {pct(drag['gross_minus_net_cagr'], 2)} | "
-        f"{pct(net.get('half_spread_paid_median'), 2)} |")
+    bk = u["edge_half_spread_by_bucket"]
+    neg = sum(v["share_negative"] * v["n"] for v in bk.values()) / sum(v["n"] for v in bk.values())
+    liquid = [v["share_negative"] for k, v in bk.items() if k.endswith("over 50 mill. NOK")]
+    fl = ck["net_book_fills"]
+    add(f"Turnover {pct(net['monthly_turnover_one_way'], 0)} a month, one way. Costs {pct(net['cost_a_year'], 2)} a "
+        f"year: courtage {pct(cp['courtage'], 2)}, FX {pct(cp['fx'], 2)}, half-spread {pct(cp['spread'], 2)}, an "
+        f"estimate: {pct(lo['cost_parts_a_year']['spread'], 2)} with each bucket's mean signed estimate, "
+        f"{pct(hi['cost_parts_a_year']['spread'], 2)} with |estimate| (net vs index "
+        f"{pct(lo['vs_index']['excess_a_year'], signed=True)}, {pct(hi['vs_index']['excess_a_year'], signed=True)}). "
+        f"{pct(neg, 0)} of estimates are negative ({pct(min(liquid), 0)[:-2]}–{pct(max(liquid), 0)} over 50 mill. NOK "
+        f"a day): there EDGE is mostly noise. {pct(fl['buy']['share_opening_equals_previous_close'], 0)} "
+        f"of buys and {pct(fl['sell']['share_opening_equals_previous_close'], 0)} of sells fill at an opening equal to "
+        f"the previous close, probably Yahoo's filler (mean gaps {pct(fl['buy']['mean_gap_previous_close_to_fill'], 2, True)}"
+        f", {pct(fl['sell']['mean_gap_previous_close_to_fill'], 2, True)}: no bias); EDGE without them: "
+        f"{pct(fl['edge_on_buys']['mean_with_filled_openings_missing'], 2)} on the buys, not "
+        f"{pct(fl['edge_on_buys']['mean_half_spread_charged'], 2)}.")
     add("")
-    add("EDGE half-spreads of eligible stock-months, median by liquidity: " + "; ".join(
-        f"{k} {pct(v['median'], 2)} (n {v['n']})" for k, v in u["edge_half_spread_median_by_bucket"].items()) + ".")
+    add("## Rank IC")
     add("")
-    add("## Rank IC of each theme")
+    add("Spearman per month and country vs the next month's return from the next opening; pooled weights by stocks.")
     add("")
-    add("Spearman correlation, each month and country, of the theme's rank with the next month's local total "
-        "return from the next opening; pooled = the two countries weighted by stocks; t = mean/(sd/√months).")
-    add("")
-    add("| Theme | Oslo: mean IC (t) | Stockholm: mean IC (t) | Pooled: mean IC (t) | Months |")
-    add("|---|---|---|---|---|")
-    for theme, label in [("momentum", "Momentum 12-1"), ("low_vol", "Low volatility"), ("score", "Score (both)")]:
+    add("| Theme | Oslo IC (t) | Stockholm | Pooled |")
+    add("|---|---|---|---|")
+    for theme, label in [("momentum", "Momentum 12-1"), ("low_vol", "*Low volatility*"), ("score", "*Score*")]:
         d = ic[theme]
         cells = [f"{num(d[c]['mean_ic'], 3)} ({num(d[c]['t'])})" if c in d else "–" for c in ("NO", "SE", "pooled")]
-        add(f"| {label} | {' | '.join(cells)} | {d['pooled']['months'] if 'pooled' in d else '–'} |")
+        add(f"| {label} | {' | '.join(cells)} |")
     add("")
     add("## Reading")
     add("")
-    s = net["vs_index"]
-    mom = ic["momentum"]["pooled"]
-    add(f"- Net of costs the book's excess over the index blend was {pct(s['excess_a_year'], signed=True)} a year, "
-        f"t = {num(s['t'])}: {verdict(s['t'])}. With {per['months']} months and a tracking error of "
-        f"{pct(s['tracking_error'])}, the standard error is {pct(s['se_a_year'])} a year, so only an edge above "
-        f"about {pct(2 * s['se_a_year'], 0)} a year could have shown at t = 2. Survivorship inflates this comparison.")
-    e = net["vs_ew_universe"]
-    add(f"- Against its own (equally survivor-biased) universe: {pct(e['excess_a_year'], signed=True)} a year, "
-        f"t = {num(e['t'])}: {verdict(e['t'])}.")
-    add(f"- Momentum's direction: pooled rank IC {num(mom['mean_ic'], 3)} (t {num(mom['t'])}), positive in "
-        f"{pct(mom['share_positive'], 0)} of months. Low volatility: {num(ic['low_vol']['pooled']['mean_ic'], 3)} "
-        f"(t {num(ic['low_vol']['pooled']['t'])}).")
-    add(f"- Costs: about {pct(net['cost_a_year'], 1)} of the book a year at {pct(net['monthly_turnover_one_way'], 0)} "
-        f"monthly one-way turnover; the half-spread is the larger part. If the opening auction's fill costs no "
-        f"spread, as the paper account assumes, the fees-only line applies.")
+    mom = ic["momentum"]
+    add(f"- Net excess over the index blend {pct(s['excess_a_year'], signed=True)} a year (t {num(s['t'])}): "
+        f"{verdict(s['t'])}. An observed edge needs about {pct(2 * s['se_a_year'])} a year for t = 2; a true edge below "
+        f"about {pct(Z_POWER * s['se_a_year'])} is missed more often than 1 time in 5.")
+    add(f"- Momentum's direction is {'positive' if mom['pooled']['mean_ic'] > 0 else 'negative'} ("
+        f"{pct(mom['pooled']['share_positive'], 0)} of months above zero); Stockholm alone: t {num(mom['SE']['t'])}.")
+    h = net["halves_vs_index"]
+    h0, h1 = list(h)
+    q = r["score_quintiles_a_year"]
+    add(f"- *Exploratory:* net vs index {h0[:4]}–{h0[-7:-3]} {pct(h[h0]['excess_a_year'], signed=True)} (t "
+        f"{num(h[h0]['t'])}), {h1[:4]}–{h1[-7:-3]} {pct(h[h1]['excess_a_year'], signed=True)} (t {num(h[h1]['t'])}). "
+        f"Score quintiles (EW gross, best first): {', '.join(pct(x, 1) for x in q)}.")
     add("")
-    add("## Gaps and what could not be done")
+    add("## Repairs and gaps")
     add("")
-    first = next(iter(u["eligible_by_month_end"].items()))
-    last = list(u["eligible_by_month_end"].items())[-1]
-    add(f"- **Delisted stocks are missing** (see the top). Eligible stocks: {first[1]['NO']} Oslo and "
-        f"{first[1]['SE']} Stockholm in {first[0][:7]}, {last[1]['NO']} and {last[1]['SE']} in {last[0][:7]}; "
-        f"the early years are thin because only survivors are in. {u['yahoo_history_starts_after_2012_03']} of "
-        "the series start after March 2012 (listings since, or Yahoo history lost at a ticker change).")
-    add(f"- Yahoo has no data for {u['yahoo_missing']} of today's shares: "
-        f"{', '.join(u['yahoo_missing_symbols'][:12])}{' …' if u['yahoo_missing'] > 12 else ''}.")
-    add("- No market-cap or P/E filter (no history of either), and today's Nordnet list stands in for each "
-        "month's. The liquidity floor is in 2026 kroner throughout.")
-    add(f"- Data repairs: {u['bad_opens_replaced_by_previous_close']} opening prices missing or outside the day's "
-        f"range were replaced by the previous close; {u['bad_dividends_dropped']} Yahoo dividends of half the "
-        "price or more were dropped.")
-    sc = u["sector_coverage_ever_top60"]
-    add(f"- Nordnet's list has no sectors (its `attributes` endpoint lists none), so the exploratory sector cap "
-        f"uses Yahoo's sector (today's classification) for {sc['with_sector']} of the {sc['stocks']} stocks ever "
-        "ranked in the top 60; the rest are uncapped.")
-    add("- Not modelled: Norwegian tax (an ASK defers it), price impact, and the delay between the close and the "
-        "evening decision.")
-    path.write_text("\n".join(lines) + "\n")
+    od = ck["oslo_dividends"]
+    yb, yc = (od["median_fall_by_year_n_on_ex_date_day_before_yahoo"],
+              od["median_fall_by_year_n_on_ex_date_day_before_corrected"])
+
+    def rng(d: dict[str, list[float]], years: range, k: int) -> str:
+        vals = [d[str(y)][k] for y in years if str(y) in d]
+        return f"{num(min(vals))}…{num(max(vals))}"
+
+    add(f"- Yahoo's Oslo ex-dates {od['window'][0][:7]} to {od['window'][1][:7]} are a trading day late: median fall "
+        f"(in dividends) on Yahoo's date / the day before, 2012–20 {rng(yb, range(2012, 2021), 1)} / "
+        f"{rng(yb, range(2012, 2021), 2)}, 2021–23 {rng(yb, range(2021, 2024), 1)} / {rng(yb, range(2021, 2024), 2)}. "
+        f"{od['moved_a_trading_day_earlier']} moved a day earlier (after: {rng(yc, range(2021, 2025), 1)} / "
+        f"{rng(yc, range(2021, 2025), 2)}); volatility uses our total return.")
+    add(f"- {u['one_day_spikes_repaired'] + u['fx_spikes_repaired']} one-day spikes, "
+        f"{u['bad_opens_replaced_by_previous_close']} openings outside the day's range, {u['bad_dividends_dropped']} "
+        "dividends over 20 % without a price drop. Not modelled: tax, price impact, waiting orders.")
+    add("")
+    add("## Changed after the check")
+    add("")
+    pf, fz = ck["price_floor"], ck["frozen_series"]
+    add(f"A review found four real errors, fixed: (1) the 5 NOK floor used the split-adjusted close, admitting "
+        f"{pf['rows_under_5_nok_quoted_but_not_split_adjusted']} stock-months quoted under 5 NOK (BNOR: 35 500 for "
+        f"3.55); (2) the late ex-dates; (3) negative EDGE estimates charged as positive (costs were "
+        f"{pct(BEFORE_CHECK['cost_a_year'], 2)}); (4) frozen series (BNOR ranked 1st, volatility 0): the volume "
+        f"rule drops {fz['of_which_turnover_passed']} eligible stock-months. Added: book-mix EW, cost ranges; "
+        "reworded survivorship, labels, power. Each w/o turns one repair off (`--undo`):")
+    add("")
+    ca = r.get("changed_after_check")
+    if ca:
+        cols = [BEFORE_CHECK, ca["with_all_repairs"], *[ca["without_one_repair"][k] for k in REPAIR_LABELS]]
+        add("| | Before | After | " + " | ".join(REPAIR_LABELS.values()) + " |")
+        add("|---" * (len(cols) + 1) + "|")
+        rows = [("Net vs index, %", "net_vs_index"), ("*EW universe, %*", "ew_universe_cagr"),
+                ("Momentum IC, t", "ic_momentum_pooled_t"), ("*Low-vol IC*", "ic_low_vol_pooled"),
+                ("*Bottom quintile, %*", "bottom_quintile")]
+        for label, key in rows:
+            cells = [num(c[key]) if key.endswith("_t") else num(c[key], 3) if key.startswith("ic_")
+                     else pct(c[key], 1, signed=key.startswith("net"))[:-2] for c in cols]
+            add(f"| {label} | " + " | ".join(cells) + " |")
+        add("")
+        moves = max(abs(ca["with_all_repairs"]["net_vs_index"] - c["net_vs_index"]) for c in cols[2:])
+        add(f"Each repair moves the book's excess by at most {100 * moves:.1f} points, inside its SE.")
+    path.write_text("\n".join(out) + "\n")

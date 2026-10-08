@@ -53,7 +53,7 @@ class Downloader:
         if path.exists():
             return json.loads(path.read_text())
         if self.offline:
-            return None
+            raise FileNotFoundError(f"{path} is not in the cache (offline run)")
         payload = fetch()
         if payload is None:
             return None
@@ -80,7 +80,7 @@ class Downloader:
 
             doc = self._cached(path, fetch)
             if doc is None:
-                raise RuntimeError(f"Nordnet {country} offset {offset} not in the cache (offline run)")
+                raise RuntimeError(f"Nordnet {country} offset {offset} could not be fetched")
             payload = doc["payload"]
             total = payload.get("total_hits", 0)
             ins, obs = nordnet.parse_stocklist(payload, doc["fetched_at"])

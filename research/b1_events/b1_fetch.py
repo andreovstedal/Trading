@@ -22,7 +22,7 @@ NORDNET = "https://www.nordnet.no/api/2/instrument_search/query/stocklist"
 
 HOST_INTERVALS = {  # seconds between requests to one host
     "query1.finance.yahoo.com": 1.1,
-    "query2.finance.yahoo.com": 1.1,
+    "query2.finance.yahoo.com": 2.5,  # the search answers 429 at about one request a second
     "api3.oslo.oslobors.no": 1.0,
     "marknadssok.fi.se": 1.0,
     "www.nordnet.no": 2.0,
@@ -43,7 +43,8 @@ class Cache:
 
     def client(self) -> PoliteClient:
         if self._client is None:
-            self._client = PoliteClient(host_intervals=HOST_INTERVALS, max_retries=5, backoff_base=4.0)
+            self._client = PoliteClient(host_intervals=HOST_INTERVALS, max_retries=8, backoff_base=10.0,
+                                        max_backoff=180.0)
         return self._client
 
     def close(self) -> None:
@@ -170,7 +171,9 @@ def yahoo_chart(cache: Cache, symbol: str, period1: int, period2: int) -> dict |
 
 
 def yahoo_search(cache: Cache, query: str) -> list[dict]:
-    safe = "".join(c if c.isalnum() else "_" for c in query)[:80]
+    # Punctuation such as "ser. B" makes Yahoo's edge answer 429 every time, so search on words only.
+    query = " ".join("".join(c if c.isalnum() else " " for c in query).split())
+    safe = query.replace(" ", "_")[:80]
     payload = cache.get_json(f"yahoo/search/{safe}.json", "GET", YAHOO_SEARCH,
                              params={"q": query, "quotesCount": 6, "newsCount": 0}, missing_ok=(404, 400))
     return (payload or {}).get("quotes") or []

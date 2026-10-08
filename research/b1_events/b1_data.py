@@ -19,6 +19,15 @@ FI_FROM = date(2016, 7, 1)  # the register starts on 2016-07-03
 YAHOO_P1 = int(datetime(2004, 6, 1, tzinfo=timezone.utc).timestamp())
 YAHOO_P2 = int(datetime(2026, 10, 8, tzinfo=timezone.utc).timestamp())
 OSEBX, OMXSB, SEKNOK = "OSEBX.OL", "^OMXSBGI", "SEKNOK=X"
+# Large, long-listed stocks whose trading days fill the gaps in Yahoo's index series (and Oslo's calendar before
+# the index starts): a weekday is a market day when at least LARGE_QUORUM of them traded.
+LARGE = {"NO": ("EQNR.OL", "DNB.OL", "NHY.OL", "TEL.OL", "ORK.OL", "YAR.OL", "MOWI.OL", "STB.OL"),
+         "SE": ("VOLV-B.ST", "ERIC-B.ST", "HM-B.ST", "SEB-A.ST", "SHB-A.ST", "ATCO-A.ST", "INVE-B.ST", "SAND.ST")}
+LARGE_QUORUM = 4
+# Exchanges where a company quoted in Oslo may have its main listing (Yahoo's codes); OTC, German regional and
+# London's international order book are left out, as they quote shares listed elsewhere.
+MAIN_FOREIGN = {"CPH", "STO", "HEL", "ICE", "NYQ", "NMS", "NGM", "NCM", "ASE", "LSE", "PAR", "AMS", "BRU", "TOR",
+                "ASX", "SES", "HKG"}
 
 
 def newsweb(cache: Cache, warnings: list[str]) -> dict[int, list[dict]]:
@@ -105,12 +114,65 @@ def map_no_signs(cache: Cache, signs: dict[str, str], nordnet_no: list[dict]) ->
     return out
 
 
+def trading_calendar(index: Bars, large: list[Bars | None]) -> list[date]:
+    """The market's days: the index's, plus the weekdays on which at least LARGE_QUORUM of the large stocks
+    traded (Yahoo's index series misses some days, about 0.6 %)."""
+    traded: dict[date, int] = {}
+    for b in large:
+        for r in b.rows if b else []:
+            if r[6]:
+                traded[r[0]] = traded.get(r[0], 0) + 1
+    extra = {d for d, n in traded.items() if n >= LARGE_QUORUM and d.weekday() < 5}
+    return sorted(set(index.days) | extra)
+
+
+class IndexSeries:
+    """An index's opening and closing levels on any market day; on a day missing from Yahoo's series the index is
+    taken as unchanged from its previous close."""
+
+    def __init__(self, bars: Bars):
+        self.bars = bars
+
+    def prev_close(self, day: date) -> float | None:
+        from bisect import bisect_left
+
+        i = bisect_left(self.bars.days, day) - 1
+        return self.bars.rows[i][4] if i >= 0 else None
+
+    def open(self, day: date) -> float | None:
+        j = self.bars.index.get(day)
+        return self.bars.rows[j][1] if j is not None else self.prev_close(day)
+
+    def close(self, day: date) -> float | None:
+        j = self.bars.index.get(day)
+        return self.bars.rows[j][4] if j is not None else self.prev_close(day)
+
+    def has(self, day: date) -> bool:
+        return day in self.bars.index
+
+
+def foreign_listing(cache: Cache, issuer: str) -> str | None:
+    """A Yahoo symbol on another main exchange whose name matches the issuer's word for word and which has prices:
+    an Oslo issuer listed abroad, not delisted."""
+    key = _name_key(issuer)
+    if not key:
+        return None
+    for q in yahoo_search(cache, issuer):
+        if q.get("quoteType") != "EQUITY" or q.get("exchange") not in MAIN_FOREIGN:
+            continue
+        if key in (_name_key(q.get("longname") or ""), _name_key(q.get("shortname") or "")):
+            if load_bars(cache, q["symbol"]) is not None:
+                return q["symbol"]
+    return None
+
+
 class Bars:
     """One symbol's daily bars, by Oslo/Stockholm local date."""
 
-    def __init__(self, symbol: str, bars: list[dict], meta: dict):
+    def __init__(self, symbol: str, bars: list[dict], meta: dict, splits: list[dict] | None = None):
         self.symbol = symbol
         self.meta = meta
+        self.split_days = sorted(date.fromisoformat(s["ex_date"]) for s in splits or [])
         rows = []
         for b in bars:
             day = datetime.fromtimestamp(b["ts"], tz=NORDIC_TZ).date()
@@ -137,14 +199,14 @@ def _load_bars(cache: Cache, symbol: str) -> Bars | None:
     if payload is None:
         return None
     try:
-        bars, _, _ = parse_chart(payload)
+        bars, _, splits = parse_chart(payload)
     except ValueError:
         return None
     if not bars:
         return None
     meta = payload["chart"]["result"][0].get("meta", {})
     return Bars(symbol, bars, {k: meta.get(k) for k in ("longName", "shortName", "currency", "exchangeName",
-                                                        "instrumentType", "firstTradeDate")})
+                                                        "instrumentType", "firstTradeDate")}, splits)
 
 
 def prefetch(cache_dir: Path) -> None:
