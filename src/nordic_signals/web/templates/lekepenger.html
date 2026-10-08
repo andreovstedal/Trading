@@ -34,6 +34,14 @@
     <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter kurtasje og veksling</div></div>
   <div class="tile"><div class="label">Beholdning</div><div class="value">{{ a.positions | length }}</div>
     <div class="sub">aksjer verdt {{ a.positions_value | nok }} · {{ a.cash | nok }} i kontanter</div></div>
+  <div class="tile"><div class="label">Mot indeksene</div>
+    {%- if y %}
+    <div class="value">{{ arrow(y.excess) }}{{ (y.excess * 100) | num(2, True) }}&nbsp;poeng</div>
+    <div class="sub">indeksene {{ y.result | pct(2, True) }}, kontoen {{ y.account_result | pct(2, True) }}, til sluttkurs {{ y.valued_on | day }}</div>
+    {%- else %}
+    <div class="value">–</div>
+    <div class="sub">venter på indeksenes kurser</div>
+    {%- endif %}</div>
   <div class="tile"><div class="label">Kostnader</div><div class="value">{{ (a.courtage + a.exchange) | nok }}</div>
     <div class="sub">kurtasje {{ a.courtage | nok }}, veksling {{ a.exchange | nok }}{% if a.dividends_nok %} · utbytte {{ a.dividends_nok | nok }}{% endif %}</div></div>
 </div>
@@ -171,6 +179,10 @@
       {{ (fees.courtage * 100) | num(2) }}&nbsp;% kurtasje, minst {{ fees.minimum | num(0) }}&nbsp;NOK per handel i nordiske
       aksjer. Svenske aksjer koster i tillegg {{ (fees.exchange * 100) | num(2) }}&nbsp;% i valutaveksling ved både kjøp
       og salg.</li>
+    <li><strong>Mot indeksene.</strong> De samme pengene i {{ indexes.NO }} og {{ indexes.SE }}, begge med utbytte,
+      i samme fordeling mellom Oslo og Stockholm og til samme tider som kontoen: det kontoen eide ved en sluttkurs,
+      følger indeksen fra den, og det den kjøpte ved åpningen, fra åpningen. Uten kurtasje og fondskostnader, så
+      forskjellen er det aksjevalget og kostnadene ga. Grå linje i grafen.</li>
     <li><strong>Utbytte</strong> godskrives på eksdagen; svensk utbytte etter {{ (fees.dividend_tax * 100) | int }}&nbsp;%
       kildeskatt. Ingen norsk skatt, som på en aksjesparekonto.</li>
     <li><strong>Ikke med:</strong> at en stor ordre kan flytte kursen, og forsinkelsen fra du ser et signal til du

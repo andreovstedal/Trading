@@ -17,6 +17,7 @@ from .store import Store
 log = logging.getLogger("nordic_signals")
 
 FX_SYMBOLS = ["SEKNOK=X"]  # NOK per SEK, to size Swedish positions in a NOK account
+INDEX_SYMBOLS = ["OSEBX.OL", "^OMXSBGI"]  # the play-money stock account's yardstick (advisor.paper.INDEXES)
 
 # Named sets of collector runs, in order.
 # - intraday: light enough to run every 15 minutes in market hours.
@@ -35,13 +36,13 @@ SETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
         ("fi-insider", {"days": 4}),
         ("fi-short", {}),
         ("no-short", {}),
-        ("yahoo", {"symbols": FX_SYMBOLS, "range_": "1mo"}),
+        ("yahoo", {"symbols": [*FX_SYMBOLS, *INDEX_SYMBOLS], "range_": "1mo"}),
     ],
     "refresh": [
         ("nordnet", {"countries": ("NO", "SE")}),
         ("newsweb", {"days": 1}),
         ("fi-insider", {"days": 2}),
-        ("yahoo", {"symbols": FX_SYMBOLS, "range_": "5d"}),
+        ("yahoo", {"symbols": [*FX_SYMBOLS, *INDEX_SYMBOLS], "range_": "5d"}),
     ],
     "backfill": [
         ("nordnet", {"countries": ("NO", "SE")}),
@@ -49,7 +50,7 @@ SETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
         ("fi-short", {"history": True}),
         ("no-short", {}),
         ("newsweb", {"days": 120, "detail_categories": [1102, 1007]}),
-        ("yahoo", {"symbols": FX_SYMBOLS, "range_": "1y"}),
+        ("yahoo", {"symbols": [*FX_SYMBOLS, *INDEX_SYMBOLS], "range_": "1y"}),
         ("yahoo", {"universe": ["NO", "SE"], "range_": "1y"}),
     ],
 }

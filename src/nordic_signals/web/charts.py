@@ -3,8 +3,9 @@
 * ``account_chart``: a fake-money account's value over time, in SOL by default (pump.fun) or in any currency
   (``money``), point by point or, for the stock account, day by day (``daily``). One series, so no legend
   (the card title names it); the starting amount is a dashed reference line, the line and the area to it are
-  green above and pink below, and the latest value is labelled directly. A crosshair and tooltip follow the
-  pointer (``static/charts.js``).
+  green above and pink below, and the latest value is labelled directly. The stock account's yardstick
+  (``yardstick``) is a thin grey line, labelled at its end. A crosshair and tooltip follow the pointer
+  (``static/charts.js``).
 * ``sparkline``: one position's result after fees since it was bought, the same way around a dashed
   break-even line. A sold position's axis is its 24 hours; an open one's runs to now (at least an hour), so
   a new position's first minutes fill the chart.
@@ -38,15 +39,18 @@ SPARK_MIN_SPAN = 0.10  # a position's chart shows at least −10 % to +10 %
 
 
 def account_chart(points: list[tuple[datetime, float]], start: float, *, live: bool = False,
-                  money: Callable[[float], str] | None = None, daily: bool = False) -> Markup:
+                  money: Callable[[float], str] | None = None, daily: bool = False,
+                  yardstick: list[tuple[datetime, float]] | None = None,
+                  yardstick_label: str = "indeksene") -> Markup:
     """``live``: the last point is the value now, between two recorded ones. ``daily``: one point a day, labelled
-    with the date only."""
+    with the date only. ``yardstick``: what the account is measured against, at some or all of the same times."""
     if len(points) < 2:
         return Markup("")
     amount = money or _sol_amount
     stamp = _day if daily else _date_time
     t0, t1 = points[0][0].timestamp(), points[-1][0].timestamp()
-    values = [v for _, v in points]
+    yardstick = [(t, v) for t, v in yardstick or [] if t0 <= t.timestamp() <= t1]
+    values = [v for _, v in points] + [v for _, v in yardstick]
     lo, hi = _padded(min(*values, start * (1 - MIN_SPAN)), max(*values, start * (1 + MIN_SPAN)))
     span = max(t1 - t0, 1.0)
     ticks, digits = _ticks(lo, hi)
@@ -63,6 +67,13 @@ def account_chart(points: list[tuple[datetime, float]], start: float, *, live: b
     coords = [(x(t.timestamp()), y(v)) for t, v in points]
     parts = [_grid(ticks, digits, y, left, WIDTH - right),
              _split(coords, y(start), "acct", (left, TOP, WIDTH - right, HEIGHT - BOTTOM))]
+    if len(yardstick) > 1:
+        marks = [(x(t.timestamp()), y(v)) for t, v in yardstick]
+        parts.append('<path class="yardstick" d="M' + " L".join(f"{cx},{cy}" for cx, cy in marks) + '"/>')
+        end_x, end_y = marks[-1]
+        clear = end_y + 16 if abs(end_y - coords[-1][1]) < 16 and end_y >= coords[-1][1] else end_y - 6 \
+            if abs(end_y - coords[-1][1]) < 16 else end_y + 4
+        parts.append(f'<text class="axis-label" x="{end_x + 8}" y="{clear}">{escape(yardstick_label)}</text>')
     # The start label goes on the side of the reference line that the first part of the line keeps away from.
     early = [v for _, v in points[:max(2, len(points) // 6)]]
     label_at = y(start) + 16 if sum(early) / len(early) >= start else y(start) - 6
@@ -78,12 +89,16 @@ def account_chart(points: list[tuple[datetime, float]], start: float, *, live: b
         label = "nå" if live and cx != left else stamp(when)
         parts.append(f'<text class="axis-label" x="{cx}" y="{HEIGHT - 8}" text-anchor="{anchor}">{label}</text>')
     parts.append(_hover(TOP, HEIGHT - BOTTOM, left, WIDTH - left - right))
-    data = [{"x": cx, "y": cy, "t": f"{stamp(when)} · {amount(v)}"}
+    beside = {t: v for t, v in yardstick}
+    data = [{"x": cx, "y": cy, "t": f"{stamp(when)} · {amount(v)}"
+             + (f" · {yardstick_label} {amount(beside[when])}" if when in beside else "")}
             for (when, v), (cx, cy) in zip(points, coords, strict=True)]
     if live:
         data[-1]["t"] = f"nå · {amount(points[-1][1])}"
     label = (f"Kontoverdi fra {amount(points[0][1])} til {amount(points[-1][1])}, "
              f"{stamp(points[0][0])} til {'nå' if live else stamp(points[-1][0])}. Start: {amount(start)}.")
+    if len(yardstick) > 1:
+        label += f" {yardstick_label.capitalize()}: {amount(yardstick[-1][1])} {stamp(yardstick[-1][0])}."
     return _figure(parts, label, data, (WIDTH, HEIGHT))
 
 

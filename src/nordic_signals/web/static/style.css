@@ -202,6 +202,7 @@ dl.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
 .chart .axis-label { fill: var(--muted); font-size: 12px; }
 .chart .value-label { fill: var(--ink); font-size: 13px; font-weight: 600; }
 .chart .ref { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 4 4; }
+.chart .yardstick { stroke: var(--muted); stroke-width: 1.5; fill: none; }
 .chart .line { fill: none; stroke: var(--series-1); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
 .chart .dot { fill: var(--series-1); stroke: var(--surface); stroke-width: 2; }
 .chart .dot.hover { fill: var(--ink); }  /* neutral: the line under it can be either colour */

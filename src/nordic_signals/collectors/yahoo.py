@@ -91,7 +91,10 @@ class YahooCollector(Collector):
     def run(self, *, symbols: Iterable[str], range_: str = "5d", interval: str = "1d") -> RunSummary:
         params = {"range": range_, "interval": interval, "events": "div,splits", "includePrePost": "false"}
         for symbol in symbols:
-            resp, fetch_id = self.fetch("GET", CHART_URL.format(symbol=symbol), params=params)
+            resp, fetch_id = self.fetch("GET", CHART_URL.format(symbol=symbol), params=params, allow_status=(404,))
+            if resp.status == 404:  # an unknown or delisted symbol: the others still count
+                self.warn(f"{symbol}: ukjent for Yahoo (HTTP 404)")
+                continue
             try:
                 bars, dividends, splits = parse_chart(resp.json())
             except ValueError as exc:

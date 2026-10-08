@@ -80,7 +80,8 @@ How it trades:
   - A buy cut to the cash at the opening shows as `delvis utført` in the log. If the cut leaves less than 90 % of its shares and less than the smallest position, the buy lapses instead; a smaller cut, from a higher opening price, is kept.
 - **Dividends** are credited on the ex-date, from Yahoo's dividend events. Swedish dividends are paid after 15 % withholding tax. As on an ASK, there is no Norwegian tax.
 - **Value.** The account is valued at each day's closing price, as Nordnet shows an account; the cost of selling is paid when a position is sold.
-- **During the day.** While Oslo or Stockholm is open, and for an hour after, the stocks the account holds or has orders for, and SEK/NOK, are fetched from Yahoo every 30 minutes. The morning's orders then show as filled at the opening price soon after 09:00, and the account is valued at the latest prices, then at the closing auction's, until Nordnet's evening snapshot replaces them. Swedish trades use that day's evening SEK/NOK rate, not the rate at the opening (about 0.1 % apart on the first day).
+- **Yardstick.** The same money in Oslo Børs Benchmark Index and OMX Stockholm Benchmark, both with dividends reinvested (Yahoo's `OSEBX.OL` and `^OMXSBGI`, collected with SEK/NOK), split between Oslo and Stockholm as the account is and at the same times: what it held at a close follows its market's index from that close, what it bought at an opening from that opening, and what it sold at an opening the index's move up to it. No fees or fund costs, so the difference is what the stock picking and the costs gave. The page shows it as a grey line and a tile, in percentage points.
+- **During the day.** While Oslo or Stockholm is open, and for an hour after, the stocks the account holds or has orders for, SEK/NOK and the yardstick's two indexes are fetched from Yahoo every 30 minutes. The morning's orders then show as filled at the opening price soon after 09:00, and the account is valued at the latest prices, then at the closing auction's, until Nordnet's evening snapshot replaces them. Swedish trades use that day's evening SEK/NOK rate, not the rate at the opening (about 0.1 % apart on the first day).
 - **Orders still waiting** for their opening, after a holiday on one exchange or a day the stock did not trade, are counted as done the next evening: a sale is not ordered again, their money is spoken for, and a buy takes its place among the 12 long-term or the short-term slots.
 - **Not modelled:** a large order moving the price, and the delay between seeing a signal and trading. The orders are small next to the stocks' turnover, since the advisor only picks liquid stocks.
 
@@ -244,7 +245,7 @@ nordic-signals collect no-short                # Norwegian short positions
 nordic-signals collect mfn --slug nibe-industrier --days 30
 nordic-signals collect yahoo --symbol EQNR.OL --symbol VOLV-B.ST --range 1y
 nordic-signals collect intraday                # today's NewsWeb announcements and FI insider trades
-nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate
+nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate, OSEBX and OMX Stockholm Benchmark
 nordic-signals collect backfill                # one-off history load for a new database (1-2 hours)
 nordic-signals collect pumpfun                 # pump.fun launches for the pump-and-dump measurement
 nordic-signals collect krypto                  # Firi order books and daily closes for the play-money crypto account
@@ -280,7 +281,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
 | lekepenger | none; `advisor.paper.decide` | right after the nightly set on weekdays: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
-| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks and SEK/NOK, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
+| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks, SEK/NOK and the two indexes, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
 | prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
 

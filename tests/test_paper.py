@@ -138,11 +138,63 @@ def test_the_stocks_are_watched_while_a_market_is_open(store):
         snapshot(store, 1, day, 100, 100)
     order(store, MON, 1, "buy", 10)
     order(store, TUE, 2, "buy", 10, country="SE", currency="SEK")  # for Wednesday's opening
-    assert paper.watched_symbols(store, oslo(WED, 10)) == ["S1.OL", "S2.ST", "SEKNOK=X"]
-    assert paper.watched_symbols(store, oslo(WED, 17)) == ["S1.OL", "S2.ST", "SEKNOK=X"]  # Stockholm until 17:30
+    watched = ["S1.OL", "S2.ST", "SEKNOK=X", "OSEBX.OL", "^OMXSBGI"]  # and the yardstick's indexes
+    assert paper.watched_symbols(store, oslo(WED, 10)) == watched
+    assert paper.watched_symbols(store, oslo(WED, 17)) == watched  # Stockholm until 17:30
     assert paper.watched_symbols(store, oslo(WED, 18)) != []  # an hour after Stockholm's close, for its closing price
     assert paper.watched_symbols(store, oslo(WED, 18, 45)) == []
     assert paper.watched_symbols(store, oslo(NEXT_MON - timedelta(days=2), 12)) == []  # Saturday
+
+
+def index_bar(store, symbol, day, opening, closing):
+    with store.engine.begin() as conn:
+        conn.execute(store.table("price_bars").insert().values(
+            symbol=symbol, interval="1d", ts=int(oslo(day, 9).timestamp()), open=opening, close=closing))
+
+
+def test_the_yardstick_follows_the_indexes_at_the_accounts_times(store):
+    for day, (opening, closing) in zip((MON, TUE, WED), ((100, 100), (100, 105), (105, 110)), strict=True):
+        snapshot(store, 1, day, opening, closing)
+    order(store, MON, 1, "buy", 100)  # Tuesday's opening, 10 029 NOK with courtage
+    assert paper.account(store)["yardstick"] is None  # no index prices yet
+    for day, opening, closing in ((MON, 990, 1000), (TUE, 1010, 1020), (WED, 1025, 1030)):
+        index_bar(store, "OSEBX.OL", day, opening, closing)
+
+    a = paper.account(store)
+
+    # Tuesday: what was bought at the opening follows the index from its opening. Wednesday: what was held at
+    # Tuesday's close (10 500 NOK, of an account worth 500 471) follows it from that close.
+    tuesday = paper.START + 10_029 * (1020 / 1010 - 1)
+    wednesday = tuesday * (1 + 10_500 * (1030 / 1020 - 1) / 500_471)
+    y = a["yardstick"]
+    assert [d for d, _ in y["history"]] == [TUE, WED]
+    assert y["history"][0][1] == pytest.approx(tuesday) and y["equity"] == pytest.approx(wednesday)
+    assert y["valued_on"] == WED and a["equity"] == pytest.approx(500_971)
+    assert y["excess"] == pytest.approx((500_971 - wednesday) / paper.START)
+
+
+def test_the_yardstick_holds_stockholm_in_kroner_and_waits_for_missing_days(store):
+    for day in (MON, TUE, WED, THU):
+        snapshot(store, 1, day, 100, 100)
+        snapshot(store, 2, day, 50, 50, country="SE")
+        sek_rate(store, day, {MON: 0.95, TUE: 0.95, WED: 0.96, THU: 0.96}[day])
+    order(store, MON, 2, "buy", 200, country="SE", currency="SEK")
+    for day, level in ((MON, 2000), (TUE, 2000), (THU, 2100)):  # Wednesday's index is missing
+        index_bar(store, "^OMXSBGI", day, level, level)
+    for day in (MON, TUE, WED, THU):
+        index_bar(store, "OSEBX.OL", day, 1000, 1000)
+
+    y = paper.account(store)["yardstick"]
+
+    # Wednesday is left out; Thursday's move from Tuesday's close covers it, and the krone's 1 % on top.
+    assert [d for d, _ in y["history"]] == [TUE, THU]
+    held, equity = 200 * 50 * 0.95, paper.account(store)["history"][0][1]
+    assert y["equity"] == pytest.approx(paper.START * (1 + held * (2100 * 0.96 / (2000 * 0.95) - 1) / equity))
+
+
+def test_the_daily_job_collects_the_yardsticks_indexes():
+    from nordic_signals.jobs import INDEX_SYMBOLS
+    assert INDEX_SYMBOLS == list(paper.INDEXES.values())
 
 
 def test_an_order_waits_for_its_stock_to_trade_and_lapses_after_five_trading_days(store):
@@ -423,6 +475,9 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     order(store, MON, 2, "buy", 200, country="SE", currency="SEK", sleeve="short", signal_type="insider_cluster")
     order(store, WED, 1, "sell", 100)  # still waiting for Thursday's opening
     order(store, MON, 3, "buy", 10_000)  # far more than the cash left: cut at the opening
+    for day, level in ((MON, 1000), (TUE, 1010), (WED, 1005)):
+        index_bar(store, "OSEBX.OL", day, level, level)
+        index_bar(store, "^OMXSBGI", day, 2 * level, 2 * level)
     with store.engine.begin() as conn:
         conn.execute(store.table("paper_days").insert().values(
             account=paper.ACCOUNT, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True,
@@ -445,10 +500,12 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     header, *rows = csv.reader(io.StringIO(spreadsheet.text.lstrip("﻿")), delimiter=";")
     assert len(rows) == 3 and "Kurtasje (NOK)" in header
     assert "planlagt" in page and "90&nbsp;% av aksjene, faller" in page
+    assert "Mot indeksene" in page and "poeng" in page and 'class="yardstick"' in page
     assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="lekepenger-')
     data = log.json()
     assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity"]
     assert data["meta"]["fees"]["courtage_min_nok"] == 29.0 and len(data["equity"]) == 2
+    assert data["meta"]["yardstick"]["indexes"]["NO"]["yahoo"] == "OSEBX.OL" and data["equity"][-1]["yardstick"] > 0
     assert [o["status"] for o in data["orders"]] == ["utført", "utført", "delvis utført", "venter"]  # by evening
     assert data["orders"][2]["note"].endswith("aksjer: ikke nok penger ved åpningen")
 

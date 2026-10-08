@@ -18,6 +18,7 @@ from . import charts, exports
 TRADE_ROWS = 30
 DAY_ROWS = 10
 SLEEVES = {"long": "Langsiktig", "short": "Kortsiktig"}
+INDEX_NAMES = {"NO": "Oslo Børs Benchmark Index", "SE": "OMX Stockholm Benchmark"}  # paper.INDEXES, with dividends
 SIDES = {"buy": "Kjøp", "sell": "Salg"}
 VALUED_AT = time(17, 30)  # a day's value is at the close: Stockholm's, the later of the two
 
@@ -26,8 +27,12 @@ def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
     account = paper.account(store, now)
     points = [(datetime.combine(day, VALUED_AT, NORDIC_TZ), equity) for day, equity, _ in account["history"]]
+    yardstick = [(datetime.combine(day, VALUED_AT, NORDIC_TZ), value)
+                 for day, value in (account["yardstick"] or {}).get("history", [])]
     if points and account["started_on"]:  # from the start: the evening of the first decision, all in cash
-        points.insert(0, (datetime.combine(account["started_on"], VALUED_AT, NORDIC_TZ), account["start"]))
+        first = (datetime.combine(account["started_on"], VALUED_AT, NORDIC_TZ), account["start"])
+        points.insert(0, first)
+        yardstick.insert(0, first)
     pending = []
     for o in account["pending"]:
         opening = paper.next_opening(o["country"], o["decided_on"])
@@ -36,7 +41,8 @@ def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
     return {
         "a": account, "now": now, "markets": markets,
         "today": now.astimezone(NORDIC_TZ).date(), "open_now": any(m["open"] for m in markets),
-        "chart": charts.account_chart(points, account["start"], money=text.nok, daily=True),
+        "chart": charts.account_chart(points, account["start"], money=text.nok, daily=True, yardstick=yardstick),
+        "y": account["yardstick"], "indexes": INDEX_NAMES,
         "history": points, "pending": pending, "trades": account["trades"][::-1][:TRADE_ROWS],
         "days": paper.days(store, DAY_ROWS), "sleeves": SLEEVES, "sides": SIDES, "policy": paper.POLICY,
         "cut_keeps": paper.CUT_KEEPS,
@@ -106,7 +112,9 @@ def export_json(store: Store, now: datetime | None = None) -> Iterator[str]:
     yield ',\n"trades": [' + ",\n".join(exports.to_json(t) for t in account["trades"]) + "]"
     yield ',\n"positions": [' + ",\n".join(exports.to_json(p) for p in positions) + "]"
     yield ',\n"dividends": [' + ",\n".join(exports.to_json(d) for d in account["dividends"]) + "]"
-    yield ',\n"equity": [' + ",\n".join(exports.to_json({"day": day, "equity": equity, "cash": cash})
+    beside = dict((account["yardstick"] or {}).get("history", []))
+    yield ',\n"equity": [' + ",\n".join(exports.to_json({"day": day, "equity": equity, "cash": cash,
+                                                          "yardstick": beside.get(day)})
                                         for day, equity, cash in account["history"]) + "]}\n"
 
 
@@ -143,6 +151,18 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
                   "order_lapses_after_trading_days": paper.ORDER_DAYS},
         "markets": {c: {"name": m.name, "opens": m.opens.isoformat("minutes"), "closes": m.closes.isoformat("minutes")}
                     for c, m in paper.MARKETS.items()},
+        "yardstick": {
+            "indexes": {c: {"yahoo": symbol, "name": INDEX_NAMES[c] + " (gross, dividends reinvested)"}
+                        for c, symbol in paper.INDEXES.items()},
+            "method": "The same money in each market's index, at the same times as the account: what it held at a "
+                      "close earns the index from that close, what it bought at an opening from that opening, and "
+                      "what it sold at an opening the index's move up to it; Stockholm's index in NOK at SEK/NOK; "
+                      "cash earns nothing. No fees or fund costs.",
+            "valued_on": (account["yardstick"] or {}).get("valued_on"),
+            "result": (account["yardstick"] or {}).get("result"),
+            "account_result_same_day": (account["yardstick"] or {}).get("account_result"),
+            "excess": (account["yardstick"] or {}).get("excess"),
+        },
         "notes": {
             "days": "One row per evening the account decided, after both markets had closed: whether it was the "
                     "monthly rebalance, the recommendation it followed then, its value and cash at that close, "
@@ -159,6 +179,7 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
             "positions": "Open holdings at the latest close. held_days counts the market's trading days, the "
                          "buying day being the first.",
             "dividends": "Credited on the ex-date, from Yahoo's dividend events; Swedish ones after withholding tax.",
-            "equity": "The account's value at each trading day's close: cash plus holdings at their closing prices.",
+            "equity": "The account's value at each trading day's close: cash plus holdings at their closing prices. "
+                      "yardstick: the same money in the indexes (meta.yardstick), at the same times.",
         },
     }

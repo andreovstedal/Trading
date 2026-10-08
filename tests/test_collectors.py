@@ -150,10 +150,12 @@ def test_yahoo_warns_on_bad_symbol_and_continues(server, store):
     server.add("GET", f"{CHART}/NOPE.OL",
                httpx.Response(200, json={"chart": {"result": None, "error": {"code": "Not Found"}}}))
 
-    summary = run("yahoo", server, store, symbols=["NOPE.OL", "MOWI.OL"])
+    server.add("GET", f"{CHART}/GONE.OL", httpx.Response(404, json={"chart": {"result": None}}))
+
+    summary = run("yahoo", server, store, symbols=["NOPE.OL", "GONE.OL", "MOWI.OL"])
 
     assert summary.tables["price_bars"].inserted == 2
-    assert len(summary.warnings) == 1 and summary.warnings[0].startswith("NOPE.OL")
+    assert [w.split(":")[0] for w in summary.warnings] == ["NOPE.OL", "GONE.OL"]  # a 404 does not stop the run
 
 
 def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, capsys):
@@ -165,7 +167,8 @@ def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, 
     server.add("GET", SSR, httpx.Response(200, json=fixture_json("ssr_instruments.json")))
     server.add("GET", STOCKLIST,
                httpx.Response(200, json=fixture_json("nordnet_stocklist.json") | {"total_hits": 2}))
-    server.add("GET", f"{CHART}/SEKNOK=X", httpx.Response(200, json=fixture_json("yahoo_chart.json")))
+    for symbol in ("SEKNOK=X", "OSEBX.OL", "^OMXSBGI"):  # the rate, and the play-money account's yardstick
+        server.add("GET", f"{CHART}/{symbol}", httpx.Response(200, json=fixture_json("yahoo_chart.json")))
     monkeypatch.setattr(cli, "PoliteClient", server.client)
     assert cli.main(["--db", db_url, "collect", "daily"]) == 0
     assert cli.main(["--db", db_url, "status"]) == 0

@@ -81,6 +81,8 @@ EVENING = time(20, 45)  # UTC: the account decides after the nightly collection,
 EVENING_ENDS = time(6, 0)  # Norwegian time: until then, a decision belongs to the evening before
 WATCH_AFTER_CLOSE = timedelta(hours=1)  # the stocks are fetched until this long after a market closes
 INTRADAY = timedelta(minutes=30)  # how often the account's stocks are fetched while a market is open
+# The yardstick: each market's benchmark index with dividends reinvested, as a Norwegian index fund would hold it.
+INDEXES = {"NO": "OSEBX.OL", "SE": "^OMXSBGI"}  # Oslo Børs Benchmark Index_GI, OMX Stockholm Benchmark_GI
 
 
 @dataclass(frozen=True)
@@ -160,7 +162,7 @@ def watched_symbols(store: Store, now: datetime | None = None) -> list[str]:
     stocks = {(s["symbol"], s["country"]) for s in (*state["positions"], *state["pending"])}
     symbols = sorted(yahoo_symbol(symbol, country) for symbol, country in stocks
                      if symbol and country in EXCHANGE_SUFFIX)
-    return [*symbols, *FX_PAIRS.values()] if symbols else []
+    return [*symbols, *FX_PAIRS.values(), *INDEXES.values()] if symbols else []
 
 
 def _watched(country: str, now: datetime) -> bool:
@@ -218,7 +220,7 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
     now = now or utcnow()
     orders = _orders(store)
     if not orders:
-        return _summary(START, {}, [], [], [], [], [], [], _closes({}), {})
+        return _summary(START, {}, [], [], [], [], [], [], _closes({}), {}, [])
     since = min(o["decided_on"] for o in orders)
     stocks = {o["instrument_id"]: o for o in orders}
     prices = _prices(store, stocks, since)
@@ -241,6 +243,7 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
 
     cash, holdings, trades, received, history = START, {}, [], [], []
     paid_through: date = since
+    yardstick = _Yardstick(_indexes(store), fx)
     for day in sorted({d for series in prices.values() for d in series if d > since}):
         for ex_date, instrument_id, amount, currency in dividends:
             lot = holdings.get(instrument_id)
@@ -267,6 +270,7 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                 value = lot.shares * price * rate
                 courtage, exchange = costs(value, o["currency"])
                 cash += value - courtage - exchange
+                yardstick.sold(o["country"], yardstick.held_value(lot, close))
                 trades.append(_trade(o, day, lot.shares, price, rate, value, courtage, exchange, opening is None,
                                      result=value - courtage - exchange - lot.cost, lot=lot))
             elif o["instrument_id"] in holdings:
@@ -284,12 +288,15 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                 value = shares * price * rate
                 courtage, exchange = costs(value, o["currency"])
                 cash -= value + courtage + exchange
+                yardstick.bought(o["country"], value + courtage + exchange)
                 holdings[o["instrument_id"]] = Lot(o, shares, value + courtage + exchange, day)
                 trades.append(_trade(o, day, shares, price, rate, value, courtage, exchange, opening is None))
         worth = sum(lot.shares * close(i, day) * (_rate(fx, lot.order["currency"], day) or 0.0)
                     for i, lot in holdings.items())
         history.append((day, cash + worth, cash))
-    return _summary(cash, holdings, trades, received, history, pending, lapsed, orders, close, fx)
+        yardstick.close(day, holdings, close, cash + worth)
+    return _summary(cash, holdings, trades, received, history, pending, lapsed, orders, close, fx,
+                    yardstick.history)
 
 
 def _turn(o: dict[str, Any]) -> tuple:
@@ -300,7 +307,8 @@ def _turn(o: dict[str, Any]) -> tuple:
 
 
 def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list, history: list, pending: list,
-             lapsed: list, orders: list, close: Callable[[int, date], float], fx: dict) -> dict[str, Any]:
+             lapsed: list, orders: list, close: Callable[[int, date], float], fx: dict,
+             yardstick: list[tuple[date, float]]) -> dict[str, Any]:
     latest = history[-1][0] if history else None
     positions = []
     for instrument_id, lot in holdings.items():
@@ -325,7 +333,104 @@ def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list
         "dividends_nok": sum(d["nok"] for d in received),
         "sales": len(sales), "won": sum(t["result"] > 0 for t in sales),
         "started_on": min((o["decided_on"] for o in orders), default=None),
+        "yardstick": _versus(yardstick, history),
     }
+
+
+def _versus(yardstick: list[tuple[date, float]], history: list) -> dict[str, Any] | None:
+    """The yardstick at its latest day, and the account against it on that day."""
+    if not yardstick:
+        return None
+    day, value = yardstick[-1]
+    equity = next(e for d, e, _ in history if d == day)
+    return {"valued_on": day, "equity": value, "result": value / START - 1, "account_result": equity / START - 1,
+            "excess": (equity - value) / START, "history": yardstick}
+
+
+class _Yardstick:
+    """The same money in the indexes (``INDEXES``), at the same times as the account: what it held at a close earns
+    its market's index from that close, what it bought at an opening from that opening, and what it sold at an
+    opening the index's move up to it. Each market in its own index, in NOK; cash earns nothing, as in the account.
+    A day whose index is missing is left out, and the next day's index move covers it."""
+
+    def __init__(self, indexes: dict[str, dict[date, tuple[float | None, float]]],
+                 fx: dict[str, list[tuple[date, float]]]):
+        self.indexes, self.fx = indexes, fx
+        self.value, self.equity = START, START  # the yardstick, and the account, at the last close
+        self.exposure: dict[str, float] = {}  # NOK per market at the last close
+        self.sales: dict[str, float] = defaultdict(float)  # today's sales, at the last close's value
+        self.purchases: dict[str, float] = defaultdict(float)  # today's purchases, NOK spent
+        self.last: date | None = None
+        self.history: list[tuple[date, float]] = []
+
+    def held_value(self, lot: Lot, close: Callable[[int, date], float]) -> float:
+        if self.last is None:
+            return 0.0
+        return lot.shares * close(lot.order["instrument_id"], self.last) * (
+            _rate(self.fx, lot.order["currency"], self.last) or 0.0)
+
+    def sold(self, country: str, value: float) -> None:
+        self.sales[country] += value
+
+    def bought(self, country: str, spent: float) -> None:
+        self.purchases[country] += spent
+
+    def close(self, day: date, holdings: dict[int, Lot], close: Callable[[int, date], float], equity: float) -> None:
+        moves = {c: self._moves(c, day) for c in {*self.exposure, *self.purchases} if c in INDEXES}
+        if not self.indexes or any(m is None for m in moves.values()):
+            # Left out: the yardstick keeps its last close's split, with the day's trades in it, until the next
+            # day its indexes have prices.
+            for country, spent in self.purchases.items():
+                self.exposure[country] = self.exposure.get(country, 0.0) + spent
+            for country, value in self.sales.items():
+                self.exposure[country] = self.exposure.get(country, 0.0) - value
+            self.sales, self.purchases = defaultdict(float), defaultdict(float)
+            return
+        gain = 0.0
+        for country, (since_close, to_open, from_open) in moves.items():
+            held = self.exposure.get(country, 0.0) - self.sales[country]
+            gain += held * since_close + self.sales[country] * to_open + self.purchases[country] * from_open
+        self.value *= 1 + gain / self.equity
+        self.history.append((day, self.value))
+        exposure: dict[str, float] = defaultdict(float)
+        for i, lot in holdings.items():
+            exposure[lot.order["country"]] += lot.shares * close(i, day) * (
+                _rate(self.fx, lot.order["currency"], day) or 0.0)
+        self.exposure, self.equity, self.last = dict(exposure), equity, day
+        self.sales, self.purchases = defaultdict(float), defaultdict(float)
+
+    def _moves(self, country: str, day: date) -> tuple[float, float, float] | None:
+        """The index's move in NOK from the last close to today's close, to today's opening, and from the opening
+        to the close; nothing moved on a day its market was shut; None if a trading day's index is missing."""
+        series = self.indexes.get(country, {})
+        today = series.get(day)
+        if today is None:
+            return (0.0, 0.0, 0.0) if trading_hours(country, day) is None else None
+        currency = "SEK" if country == "SE" else "NOK"
+        rate = 1.0 if currency == "NOK" else _rate(self.fx, currency, day)
+        before = [d for d in series if d < day]
+        if rate is None or not before:
+            return None
+        then = max(before)
+        then_rate = 1.0 if currency == "NOK" else _rate(self.fx, currency, then)
+        if then_rate is None:
+            return None
+        base = series[then][1] * then_rate
+        opening = today[0] or series[then][1]  # no opening price: as if it opened where it closed
+        return today[1] * rate / base - 1, opening * rate / base - 1, today[1] / opening - 1
+
+
+def _indexes(store: Store) -> dict[str, dict[date, tuple[float | None, float]]]:
+    """(opening, closing) level per trading day of each market's index."""
+    bars = store.table("price_bars")
+    out: dict[str, dict[date, tuple[float | None, float]]] = {}
+    for country, symbol in INDEXES.items():
+        rows = store.query(select(bars.c.ts, bars.c.open, bars.c.close)
+                           .where(bars.c.symbol == symbol, bars.c.interval == "1d", bars.c.close > 0))
+        series = {datetime.fromtimestamp(r["ts"], NORDIC_TZ).date(): (r["open"] or None, r["close"]) for r in rows}
+        if series:
+            out[country] = series
+    return out
 
 
 def _trade(o: dict[str, Any], day: date, shares: int, price: float, rate: float, value: float, courtage: float,
