@@ -7,7 +7,7 @@ from sqlalchemy import select
 from nordic_signals.advisor import Policy, recommend
 from nordic_signals.advisor.allocation import allocate_long, short_sleeve
 from nordic_signals.advisor.evaluate import evaluate, spearman, track_record
-from nordic_signals.advisor.features import build_features, insider_direction
+from nordic_signals.advisor.features import build_features, buyback_start, insider_direction
 from nordic_signals.advisor.scoring import percentile_ranks, score_stocks
 from nordic_signals.collectors.base import NORDIC_TZ
 from nordic_signals.http import FetchedResponse
@@ -55,6 +55,44 @@ def test_stale_observations_are_left_out(store):
 ])
 def test_insider_direction(text, expected):
     assert insider_direction(text) == expected
+
+
+# Real titles from NewsWeb's own-shares category and MFN's repurchase tag, September-October 2026.
+@pytest.mark.parametrize("title", [
+    "Kitron ASA - Initiation of share buyback program",
+    "AF Gruppen ASA initiates share buyback program",
+    "Elopak ASA: Launch of share buy-back programme",
+    "Iverksettelse av tilbakekjøpsprogram",
+    "Solid Försäkringsaktiebolag inleder återköpsprogram av egna aktier",
+    "Solid Försäkringsaktiebolag to repurchase shares",
+    "Rusta’s board of directors has resolved to repurchase own shares",
+    "Bilia beslutar om återköp av aktier",
+    "Bilia decides to buy back own shares",
+])
+def test_a_new_buyback_programme_is_a_start(title):
+    assert buyback_start(title)
+
+
+@pytest.mark.parametrize("title", [
+    "Share buyback programme - transactions in week 40",
+    "Danske Bank share buy-back programme: transactions in week 40",
+    "DNB Bank ASA - status for tilbakekjøpsprogram etter uke 40 2026",
+    "Status of share buy-back programme after week 40",
+    "Schouw & Co. share buy-back programme, week 40 2026",
+    "STOREBRAND ASA: Status share buyback program",
+    "Transactions carried out under the buy-back program",
+    "DNB Bank ASA's share buy-back programme has been completed",
+    "DNB Bank ASAs tilbakekjøpsprogram er avsluttet",
+    "Moreld ASA: Share buy-back programme closed",
+    "Equinor ASA: Share buy-back - third tranche for 2026",
+    "Equinor ASA: Buy-back of shares to share programmes for employees",
+    "Vend Marketplaces ASA: Repurchase of own shares",
+    "Återköp av aktier i Bilia AB under  vecka 25, 2022",
+    "Threshold exceeded for major shareholding notification due to buyback of own shares",
+    "CORRECTION: Missing MAR label in earlier press release ”The Board of Bilia has decided to repurchase own shares”",
+])
+def test_a_report_on_a_running_programme_is_not(title):
+    assert not buyback_start(title)
 
 
 def test_percentile_ranks_share_ties():

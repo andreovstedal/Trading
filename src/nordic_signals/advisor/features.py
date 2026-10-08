@@ -34,10 +34,21 @@ NEWSWEB_OWN_SHARES = 1007
 _BUY_WORDS = re.compile(r"\b(purchase[sd]?|bought|buys?|acquire[sd]?|kjøp(?:t|er|e)?|ervervet|tegnet|subscribed)\b",
                         re.IGNORECASE)
 _SELL_WORDS = re.compile(r"\b(sold|sells?|sale|disposed?|solgt|selger|salg|avhendet)\b", re.IGNORECASE)
-_BUYBACK_WORDS = re.compile(r"buy-?back|repurchase|tilbakekjøp|återköp|egne aksjer|own shares", re.IGNORECASE)
+_BUYBACK = r"buy[- ]?backs?|repurchase|tilbakekjøp|återköp"
+_BUYBACK_WORDS = re.compile(rf"{_BUYBACK}|egne aksjer|own shares", re.IGNORECASE)
+# A new programme: a word for starting or deciding one near a word for the buyback, either way round.
+_START = (r"launch|initiat|commenc|\bstart|\bnew\b|\bnytt?\b|announc|resol|decid|decision|approv|iverksett|"
+          r"igangsett|vedt|beslut|inled")
 _BUYBACK_START = re.compile(
-    r"(launch|initiat|commenc|start|announce|new|resolve|decide|beslut|inled|igangsett|vedtatt).{0,60}"
-    r"(buy-?back|repurchase|tilbakekjøp|återköp)|(buy-?back|repurchase|återköps?|tilbakekjøps?)[ -]?program",
+    rf"(?:{_START}).{{0,60}}(?:{_BUYBACK})|(?:{_BUYBACK}).{{0,60}}(?:{_START})|\bto (?:repurchase|buy[- ]?back)",
+    re.IGNORECASE,
+)
+# What is not a new programme: the weekly reports on one already running, its end, buybacks for employees' share
+# schemes, a general meeting's authorisation, flagging and corrections of earlier notices.
+_NOT_A_START = re.compile(
+    r"transa[ck]tion|transaksjon|status|week|\buke\b|vecka|update|result|notification of trades|rapport|complet|"
+    r"avslut|genomfört|gjennomført|fullført|\bclosed?\b|\bends?\b|\bended\b|tranche|transje|employee|ansatte|"
+    r"aksjeprogram|incentive|authori[sz]|fullmakt|bemyndig|threshold|flagg|correction|rättelse|korreksjon|rettelse",
     re.IGNORECASE,
 )
 
@@ -251,10 +262,18 @@ def _add_newsweb(store: Store, stocks: list[Stock], asof: datetime) -> None:
                                      "title": r["title"], "message_id": r["message_id"]})
         if NEWSWEB_OWN_SHARES in categories and _BUYBACK_WORDS.search(text):
             stock.features["buyback_notices"] += 1
-            if fresh and _BUYBACK_START.search(r["title"] or ""):
+            if fresh and buyback_start(r["title"] or ""):
                 stock.features["buyback_start"] = True
                 stock.events.append({"type": "buyback_start", "at": published.isoformat(), "title": r["title"],
                                      "message_id": r["message_id"]})
+
+
+def buyback_start(title: str) -> bool:
+    """Whether a buyback notice's title announces a new programme, rather than reporting on one already running.
+
+    Most notices are the weekly reports of programmes under way ("transactions in week 40", "status etter uke
+    40"), which say nothing new; the research's announcement effect is about the start."""
+    return bool(_BUYBACK_START.search(title)) and not _NOT_A_START.search(title)
 
 
 def insider_direction(text: str) -> int:
@@ -289,7 +308,7 @@ def _add_mfn_buybacks(store: Store, stocks: list[Stock], asof: datetime) -> None
                 continue
             seen_titles.add(day_key)
             stock.features["buyback_notices"] += 1
-            if published >= asof - EVENT_WINDOW and _BUYBACK_START.search(r["title"] or ""):
+            if published >= asof - EVENT_WINDOW and buyback_start(r["title"] or ""):
                 stock.features["buyback_start"] = True
                 stock.events.append({"type": "buyback_start", "at": published.isoformat(), "title": r["title"]})
 

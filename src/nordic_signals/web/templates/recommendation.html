@@ -173,8 +173,10 @@
     og nok daglig omsetning til at en posisjon utgjør høyst 2&nbsp;% av den. Én aksjeklasse per selskap.
     {% if rec.model_version != "v1" %}Fra modell v2 holdes også aksjer med P/E under 4 utenfor, fordi inntjeningen da
     som regel er en engangsgevinst, verdiendringer eller et kortvarig toppresultat, og aksjer som har steget mer enn
-    300&nbsp;% på 12 måneder, fordi det er en hendelse og ikke momentum.{% endif %} Deretter får de høyest rangerte
-    aksjene like vekter.</p>
+    300&nbsp;% på 12 måneder, fordi det er en hendelse og ikke momentum.{% endif %}
+    {% if rec.model_version not in ("v1", "v2") %}Fra modell v3 teller et tilbakekjøp som nytt bare når meldingen
+    kunngjør et program, ikke de ukentlige rapportene fra et program som alt er i gang.{% endif %} Deretter får de
+    høyest rangerte aksjene like vekter.</p>
   <p>Poengsummen til hver aksje og tallene bak den lagres sammen med anbefalingen, slik at
     <a href="/track-record">resultatsiden</a> senere kan sjekke om høyere poeng ga høyere avkastning.</p>
 </details>

@@ -14,6 +14,11 @@ more than 300 % in a year is an event (a takeover bid, a turnaround, a
 temporary boom), not the persistent trend the momentum evidence is about.
 Hunter Group in October 2026 was both: two tanker charters earning extreme
 spot rates, ending within months.
+
+v3 counts a buyback as new only when the notice announces a programme
+(features.buyback_start). v2 also counted the weekly reports of programmes
+already running, which are most buyback notices, so a bank buying back shares
+every week looked like a fresh announcement every week.
 """
 
 from __future__ import annotations
@@ -25,7 +30,7 @@ from typing import Any
 from .. import text
 from .features import Stock
 
-MODEL_VERSION = "v2"
+MODEL_VERSION = "v3"
 
 THEMES = ("value", "quality", "momentum", "low_vol")
 
