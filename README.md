@@ -67,7 +67,7 @@ The rules come in versions (`VERSIONS`), each a fresh account of 500,000 NOK fro
 | Version | From | Rules |
 |---|---|---|
 | `lekepenger-1` | 5 October 2026 | 90 % long-term and 10 % in the short-term signals, model v2 to v4 |
-| `lekepenger-2` | 2 November 2026 | all of it long-term, model v4, only shares an ASK can hold; the short-term signals followed on paper only |
+| `lekepenger-2` | 2 November 2026 | all of it long-term, model v4, only shares an ASK can hold, rebalanced quarterly (January, April, July, October; B4 in `research/b4_turnover/`); the short-term signals followed on paper only |
 
 What it follows: at most 12 positions of at least 20,000 NOK, no cash part.
 - **Long-term part.** Rebalanced on the first trading evening of each month, from that evening's recommendation, which is logged like any other so the track record measures it too:

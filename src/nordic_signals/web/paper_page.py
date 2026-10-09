@@ -22,6 +22,8 @@ SIGNAL_ROWS = 20
 SLEEVES = {"long": "Langsiktig", "short": "Kortsiktig"}
 INDEX_NAMES = {"NO": "Oslo Børs Benchmark Index", "SE": "OMX Stockholm Benchmark"}  # paper.INDEXES, with dividends
 SIDES = {"buy": "Kjøp", "sell": "Salg"}
+MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september", "oktober", "november",
+          "desember")
 VALUED_AT = time(17, 30)  # a day's value is at the close: Stockholm's, the later of the two
 
 
@@ -50,6 +52,7 @@ def context(store: Store, now: datetime | None = None) -> dict[str, Any]:
         "history": points, "pending": pending, "trades": account["trades"][::-1][:TRADE_ROWS],
         "days": paper.days(store, DAY_ROWS, version), "sleeves": SLEEVES, "sides": SIDES,
         "version": version, "policy": version.policy, "cut_keeps": paper.CUT_KEEPS,
+        "rebalance_months": [MONTHS[m - 1] for m in version.rebalance_months or ()],
         "finished": paper.finished(store, now), "signals": signals, "signal_rows": signals["events"][:SIGNAL_ROWS],
         "signal_names": paper_signals.SIGNALS,
         "fees": {"courtage": paper.COURTAGE, "minimum": paper.COURTAGE_MIN, "exchange": paper.FX_SPREAD,
@@ -180,8 +183,8 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
             "excess": (account["yardstick"] or {}).get("excess"),
         },
         "notes": {
-            "days": "One row per evening the account decided, after both markets had closed: whether it was the "
-                    "monthly rebalance, the recommendation it followed then, its value and cash at that close, "
+            "days": "One row per evening the account decided, after both markets had closed: whether it was a "
+                    "rebalance (monthly in lekepenger-1, quarterly and on its first evening in lekepenger-2), the recommendation it followed then, its value and cash at that close, "
                     "and notes.",
             "orders": "What it decided, for the next opening: shares planned, the closing price it saw (ref_price, "
                       "in the stock's currency; fx_rate is NOK per unit), the rank and score that evening. status: "

@@ -14,15 +14,23 @@ current's over the whole period and in each half (return months April 2013 to De
 September 2026). If both clear it, the one with the higher whole-period net return.
 
 Run:  .venv/bin/python research/b4_turnover/b4.py [--cache DIR] [--offline]
+
+The numbers were produced with src/ at 7636566. Later src/ dropped HOLD_RANK, which B2's backtest imported; B2
+now takes the hold rank and policy from paper.VERSIONS[0] (the same values), and re-running B2 and B4 at 0b9976e
+gives the same numbers, all but the "src" block's file ids. To run against 7636566 itself:
+  git archive 7636566 src | tar -x -C DIR
+  PYTHONPATH=DIR/src .venv/bin/python research/b4_turnover/b4.py --offline
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import math
 import statistics
+import subprocess
 import sys
 from dataclasses import dataclass
 from datetime import date, timedelta
@@ -30,10 +38,18 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
 B2_DIR = HERE.parent / "b2_prices"
 sys.path.insert(0, str(B2_DIR))
+SRC_COMMIT = "7636566"  # the src/ the published numbers were produced with
+RECIPE = (f"git archive {SRC_COMMIT} src | tar -x -C DIR, then "
+          "PYTHONPATH=DIR/src .venv/bin/python research/b4_turnover/b4.py --offline")
 
-import backtest as bt  # noqa: E402
+try:
+    import backtest as bt
+except ImportError as e:  # src/ after 7636566 dropped HOLD_RANK, which B2's backtest imports
+    raise SystemExit(f"B2's backtest cannot import from this src/ ({e}).\nRun it against src/ at commit "
+                     f"{SRC_COMMIT}: {RECIPE}") from e
 from b2 import DEFAULT_CACHE, download  # noqa: E402
 from data import Downloader  # noqa: E402
 
@@ -141,6 +157,28 @@ def reproduce(current: RuleBook, b2_results: dict[str, Any], idx_nok: dict[str, 
             "ours_vs_published": {k: list(v) for k, v in pairs.items()}}
 
 
+def src_provenance() -> dict[str, Any]:
+    """The nordic_signals files this run imported, as git blob ids, and whether each is commit SRC_COMMIT's."""
+    import nordic_signals  # noqa: PLC0415
+
+    root = Path(nordic_signals.__file__).resolve().parents[1]
+    files = sorted({Path(m.__file__).resolve() for name, m in list(sys.modules.items())
+                    if name.split(".")[0] == "nordic_signals" and getattr(m, "__file__", None)})
+    blobs = {}
+    for f in files:
+        data = f.read_bytes()
+        blobs[f"src/{f.relative_to(root).as_posix()}"] = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()  # noqa: S324
+    try:
+        tree = subprocess.run(["git", "-C", str(REPO), "ls-tree", "--full-tree", "-r", SRC_COMMIT, "--", *blobs],
+                              capture_output=True, text=True, check=True).stdout
+        at_commit = {line.split("\t")[1]: line.split()[2] for line in tree.splitlines()}
+        matches: bool | None = all(at_commit.get(p) == h for p, h in blobs.items())
+    except (OSError, subprocess.CalledProcessError):
+        matches = None  # no git or no such commit here: the blob ids can still be checked by hand
+    return {"commit": SRC_COMMIT, "imported_files_match_commit": matches, "imported_files_git_blob": blobs,
+            "reproduce": RECIPE}
+
+
 def apply_bar(blocks: dict[str, dict[str, Any]]) -> dict[str, Any]:
     cur = blocks["current"]["return_a_year"]
     tests = {}
@@ -191,6 +229,7 @@ def run(dl: Downloader, stocks: list, out_dir: Path) -> dict[str, Any]:
                                       for p, (lo, hi) in PERIODS.items()}},
         "rules": {n: {"hold_rank": h, "check_months": list(c)} for n, (h, c) in RULES.items()},
         "bar_measure": "compound annual net return (B2's 'Return a year'), whole period and each half",
+        "src": src_provenance(),
         "reproduction_of_b2": check,
         "books": blocks,
         "difference_from_current": {n: paired(b, current, months) for n, b in books.items() if n != "current"},
@@ -217,9 +256,10 @@ def run(dl: Downloader, stocks: list, out_dir: Path) -> dict[str, Any]:
 
 # The report
 
-def pct(x: float, d: int = 1, signed: bool = False) -> str:
+def pct(x: float, d: int = 1, signed: bool = False, unit: bool = True) -> str:
+    """A share as per cent; without the unit when the table's header carries it."""
     s = f"{100 * x:+.{d}f}" if signed else f"{100 * x:.{d}f}"
-    return s.replace("-", "−") + " %"
+    return s.replace("-", "−") + (" %" if unit else "")
 
 
 def num(x: float, d: int = 2) -> str:
@@ -228,21 +268,28 @@ def num(x: float, d: int = 2) -> str:
 
 def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     b, diff, bar, ex = r["books"], r["difference_from_current"], r["bar"], r["exploratory"]
-    rc, halves = r["reproduction_of_b2"], r["period"]["months_by_half"]
+    rc, halves, src = r["reproduction_of_b2"], r["period"]["months_by_half"], r["src"]
     names = list(r["rules"])
+    cur = b["current"]["return_a_year"]
     out: list[str] = []
     add = out.append
     add("# B4: trading less")
     add("")
     add("Pre-registered (`research/PREREGISTRATION.md`, \"B4\"); *italics* are exploratory. B2's book, data, costs, "
-        "universe (today's Nordnet list: delisted stocks missing) and benchmark; "
-        f"{r['period']['months']} months, April 2013 to September 2026. "
-        "`.venv/bin/python research/b4_turnover/b4.py --offline`.")
+        "universe (survivors only) and benchmark; "
+        f"{r['period']['months']} months, April 2013 to September 2026. Returns, costs and turnover in % a year.")
+    add("")
+    match = {True: "imported files match it", False: "the imported files do NOT match it",
+             None: "not checked: no git"}[src["imported_files_match_commit"]]
+    add(f"**Source:** `src/` at commit {src['commit']} ({match}); a later `src/` (0b9976e) gives the same numbers, "
+        f"once B2 took its hold rank and policy from `paper.VERSIONS[0]`. Against that commit itself: "
+        f"`git archive {src['commit']} src | tar -x -C DIR`, then "
+        "`PYTHONPATH=DIR/src .venv/bin/python research/b4_turnover/b4.py --offline`.")
     add("")
     add("- **current:** keep a holding while it ranks in the top 24, check every month (B2's book).")
     add("- **wide:** top 36, every month.")
-    add("- **quarterly:** top 24, check in January, April, July and October only (B2's December, March, June and "
-        "September month-end signals); no trades in other months.")
+    add("- **quarterly:** top 24, check in January, April, July and October only (B2's Dec/Mar/Jun/Sep month-end "
+        "signals).")
     add("")
     same = "identical to" if rc["max_abs_monthly_difference"] == 0 else "within 1e-9 of"
     add(f"**Check:** *current*'s 162 monthly returns, costs and turnover are {same} B2's published net book "
@@ -250,7 +297,7 @@ def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     add("")
     add("## The bar")
     add("")
-    add("Net return a year (compound, as B2's \"Return a year\"); a rule must beat *current* in all three. Halves: "
+    add("Net return a year (compound); a rule must beat *current* in all three. Halves: "
         f"April 2013–December 2019 ({halves['first half']} months), January 2020–September 2026 "
         f"({halves['second half']}).")
     add("")
@@ -259,15 +306,24 @@ def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     for n in names:
         ra = b[n]["return_a_year"]
         verdict = "–" if n == "current" else ("yes" if bar["tests"][n]["clears_bar"] else "no")
-        add(f"| {n} | {pct(ra['whole'], 2)} | {pct(ra['first half'], 2)} | {pct(ra['second half'], 2)} | {verdict} |")
+        add(f"| {n} | " + " | ".join(pct(ra[p], 2, unit=False) for p in PERIODS) + f" | {verdict} |")
     add("")
     winner = bar["next_stock_account_rule"]
     if len(bar["cleared"]) == 2:
         other = next(n for n in bar["cleared"] if n != winner)
-        add(f"**Outcome:** both clear the bar. By the tie-break (higher whole-period net return) **{winner}** replaces "
-            f"*current* in the next stock account: {pct(b[winner]['return_a_year']['whole'], 3)} against {other}'s "
-            f"{pct(b[other]['return_a_year']['whole'], 3)}, a margin of {100 * bar['tie_break_margin_a_year']:.3f} "
-            "percentage points a year.")
+        line = (f"**Outcome:** both clear the bar; by the tie-break (higher whole-period net return) **{winner}** "
+                f"replaces *current* in the next stock account: {pct(b[winner]['return_a_year']['whole'], 3)} against "
+                f"{other}'s {pct(b[other]['return_a_year']['whole'], 3)}. *The margin, "
+                f"{100 * bar['tie_break_margin_a_year']:.3f} points a year, is far inside the paired SEs ("
+                + " and ".join(f"{100 * diff[n]['whole']['se_a_year']:.2f}" for n in ("wide", "quarterly"))
+                + ")")
+        ph = [x["return_a_year"]["whole"] for x in ex["other_quarterly_phases"].values()]
+        wide = b["wide"]["return_a_year"]["whole"]
+        below = sum(v < wide for v in ph)
+        line += (f"; {['neither of the', 'one of the', 'both'][below]} other quarterly phases (below) "
+                 f"{'gives' if below < 2 else 'give'} less than wide ({', '.join(pct(v, 2) for v in ph)})"
+                 + (": the choice turns on the check months.*" if below else ".*"))
+        add(line)
     elif bar["cleared"]:
         add(f"**Outcome:** {winner} clears the bar and replaces *current* in the next stock account.")
     else:
@@ -279,29 +335,28 @@ def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     add("")
     add("## Difference from current")
     add("")
-    add("Rule's net monthly return minus *current*'s. SE = sd/√n; a year = 12 × a month.")
+    add("Rule's net monthly return minus *current*'s, in %. SE = sd/√n; a year = 12 × a month.")
     add("")
     add("| Rule, period | Mean a month (SE) | A year (SE) | t |")
     add("|---|---|---|---|")
     for n in ("wide", "quarterly"):
         for p, label in (("whole", "whole"), ("first half", "2013–19"), ("second half", "2020–26")):
             s = diff[n][p]
-            add(f"| {n}, {label} | {pct(s['mean_month'], 3, True)} ({pct(s['se_month'], 3)}) | "
-                f"{pct(s['excess_a_year'], 2, True)} ({pct(s['se_a_year'], 2)}) | {num(s['t'])} |")
+            add(f"| {n}, {label} | {pct(s['mean_month'], 3, True, False)} ({pct(s['se_month'], 3, unit=False)}) | "
+                f"{pct(s['excess_a_year'], 2, True, False)} ({pct(s['se_a_year'], 2, unit=False)}) | {num(s['t'])} |")
     add("")
     add("## Turnover and costs")
     add("")
     add("| | current | wide | quarterly |")
     add("|---|---|---|---|")
-    rows = [("Turnover a year, one way", lambda x: pct(x["turnover_a_year_one_way"], 0)),
+    rows = [("Turnover, one way", lambda x: pct(x["turnover_a_year_one_way"], 0, unit=False)),
             ("Trades a year", lambda x: num(x["trades_a_year"], 0)),
-            ("Costs a year", lambda x: pct(x["cost_a_year"], 2)),
-            ("– courtage", lambda x: pct(x["cost_parts_a_year"]["courtage"], 2)),
-            ("– currency exchange", lambda x: pct(x["cost_parts_a_year"]["fx"], 2)),
-            ("– half-spread (estimate)", lambda x: pct(x["cost_parts_a_year"]["spread"], 2)),
-            ("*Months a position is held*", lambda x: num(x["mean_holding_months"], 1)),
-            ("*Volatility*", lambda x: pct(x["whole_period"]["vol"], 1)),
-            ("*Max drawdown*", lambda x: pct(x["whole_period"]["max_drawdown"], 1))]
+            ("Costs", lambda x: pct(x["cost_a_year"], 2, unit=False)),
+            ("– courtage", lambda x: pct(x["cost_parts_a_year"]["courtage"], 2, unit=False)),
+            ("– currency", lambda x: pct(x["cost_parts_a_year"]["fx"], 2, unit=False)),
+            ("– half-spread (estimate)", lambda x: pct(x["cost_parts_a_year"]["spread"], 2, unit=False)),
+            ("*Months held, mean*", lambda x: num(x["mean_holding_months"], 1)),
+            ("*Max drawdown*", lambda x: pct(x["whole_period"]["max_drawdown"], 1, unit=False))]
     for label, f in rows:
         add(f"| {label} | " + " | ".join(f(b[n]) for n in names) + " |")
     add("")
@@ -309,32 +364,48 @@ def write_report(r: dict[str, Any], path: Path) -> None:  # noqa: PLR0915
     cut = {n: b["current"]["cost_a_year"] - b[n]["cost_a_year"] for n in ("wide", "quarterly")}
     add("## Reading")
     add("")
-    add("- Costs fall by " + " and ".join(f"{pct(cut[n], 2)} a year ({n})" for n in cut) + ". *Before costs, "
-        "compound a year: " + ", ".join(f"{n} {pct(g[n]['return_a_year']['whole'], 2)}" for n in names)
-        + "; difference from current " + ", ".join(
-            f"{n} {pct(gd[n]['whole']['excess_a_year'], 2, True)} a year (t {num(gd[n]['whole']['t'])})"
-            for n in ("wide", "quarterly")) + ": the gross return is about kept.*")
+    add("- Costs fall by " + " and ".join(f"{pct(cut[n], 2, unit=False)} ({n})" for n in cut) + " points a year. "
+        "*Before costs: " + ", ".join(f"{n} {pct(g[n]['return_a_year']['whole'], 2)}" for n in names)
+        + "; difference from current " + " and ".join(
+            f"{pct(gd[n]['whole']['excess_a_year'], 2, True, False)} (t {num(gd[n]['whole']['t'])})"
+            for n in ("wide", "quarterly")) + " points: the gross return is about kept.*")
     t_max = max(abs(diff[n][p]["t"]) for n in diff for p in PERIODS)
-    add(f"- The largest |t| of the net differences above is {num(t_max)}: "
-        + ("none is distinguishable from zero. " if t_max < 2 else "")
-        + "The bar asks for point estimates only, and the gap between wide and quarterly is far inside the noise.")
+    add(("- No net difference is distinguishable from zero" if t_max < 2 else "- Some net difference has |t| ≥ 2")
+        + f" (largest |t| {num(t_max)}); the bar asks for point estimates only.")
     add("")
-    add("*The quarterly check's other two phases (not part of the bar), net:*")
+    add("*Other quarterly check months (not part of the bar), net:*")
     add("")
-    add("| *Check months* | *Whole* | *2013–19* | *2020–26* | *Vs current a year (t)* | *Costs* |")
-    add("|---|---|---|---|---|---|")
+    add("| *Check months* | *Whole* | *2013–19* | *2020–26* | *Would clear the bar* | *Vs current (t)* "
+        "| *Costs* |")
+    add("|---|---|---|---|---|---|---|")
+    half_label = {"whole": "the whole period", "first half": "2013–2019", "second half": "2020–2026"}
+    verdicts = []
     for n, x in ex["other_quarterly_phases"].items():
         ra, d = x["return_a_year"], x["difference_from_current"]["whole"]
         label = n.split(", ")[1].split(" (")[0]
-        add(f"| *{label}* | {pct(ra['whole'], 2)} | {pct(ra['first half'], 2)} | {pct(ra['second half'], 2)} | "
-            f"{pct(d['excess_a_year'], 2, True)} ({num(d['t'])}) | {pct(x['cost_a_year'], 2)} |")
+        trails = [p for p in PERIODS if ra[p] <= cur[p]]
+        add(f"| *{label}* | " + " | ".join(pct(ra[p], 2, unit=False) for p in PERIODS)
+            + f" | *{'no' if trails else 'yes'}* | {pct(d['excess_a_year'], 2, True, False)} ({num(d['t'])}) | "
+            f"{pct(x['cost_a_year'], 2, unit=False)} |")
+        verdicts.append(f"{label} trails current in " + " and ".join(
+            f"{half_label[p]} ({pct(ra[p], 2)} vs {pct(cur[p], 2)})" for p in trails) + " and would fail the bar"
+            if trails else f"{label} beats it in all three")
+    add("")
+    add(f"*{'; '.join(verdicts)}.*")
     add("")
     add("## Caveats")
     add("")
-    add("- The account ranks on the whole score (value and quality too), which B4 cannot test; its turnover will "
-        "differ. The direction carries over, not the size.")
-    add("- B2's caveats apply: survivorship, the half-spread is an estimate, no price impact or tax, 15 % Swedish "
-        "withholding in every book.")
+    add("- The account ranks on the whole score, which B4 cannot test: the direction carries "
+        "over, not the size.")
+    add("- B2's caveats apply: an estimated half-spread, no price impact or tax, 15 % Swedish "
+        "withholding.")
+    add("")
+    add("## After the check")
+    add("")
+    add("- Added *Source*: `src/` from commit 0b9976e had already broken the import; b4.py now says so and "
+        "results.json records the imported files' git ids.")
+    add("- Said which quarterly phase fails the bar and that the tie-break turns on the check months.")
+    add("- Re-run: no number changed.")
     path.write_text("\n".join(out) + "\n")
 
 

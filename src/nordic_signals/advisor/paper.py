@@ -77,11 +77,13 @@ VERSIONS = (
              "short_paper_only": False, "ask_only": False, "countries": ("NO", "SE")},
             about="90 % langsiktig og 10 % i kortsiktige signaler, modell v2 til v4"),
     # The backtests (research/RESULTS-2026-10.md): no short-term signal earned its costs, so they are only
-    # followed on paper; the account holds shares an ASK can hold, as the dividends already assume.
+    # followed on paper; the account holds shares an ASK can hold, as the dividends already assume. B4
+    # (research/b4_turnover/): checking the long-term part quarterly kept the return and cut the costs.
     Version("lekepenger-2", date(2026, 11, 2),
             {"long_pct": 100.0, "short_pct": 0.0, "cash_pct": 0.0, "max_positions": 12, "min_position": 20_000.0,
              "short_paper_only": True, "ask_only": True, "countries": ("NO", "SE")},
-            about="hele beløpet langsiktig, modell v4, kortsiktige signaler bare på papir"),
+            rebalance_months=(1, 4, 7, 10),
+            about="hele beløpet langsiktig, modell v4, ombalansert hvert kvartal, kortsiktige signaler bare på papir"),
 )
 
 

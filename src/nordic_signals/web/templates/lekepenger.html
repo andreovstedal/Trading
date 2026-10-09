@@ -177,8 +177,8 @@
       {{ policy.short_pct | int }}&nbsp;% kortsiktig{% else %}Hele beløpet langsiktig{% endif %}, ingen kontantdel.
       Inntil {{ policy.max_positions }} langsiktige aksjer, hver på minst {{ policy.min_position | nok }}{% if policy.ask_only %},
       bare aksjer en aksjesparekonto kan eie{% endif %}.</li>
-    <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag {% if version.rebalance_months %}i
-      {{ version.rebalance_months | join(", ") }}. måned{% else %}hver måned{% endif %}: aksjer som fortsatt er blant de
+    <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag {% if rebalance_months %}i
+      {{ rebalance_months[:-1] | join(", ") }} og {{ rebalance_months[-1] }}, og den første dagen kontoen var i gang{% else %}hver måned{% endif %}: aksjer som fortsatt er blant de
       {{ rules.hold_rank }} beste, beholdes, resten selges, og de høyest rangerte den ikke eier, kjøpes til den har
       {{ policy.max_positions }}, høyst {{ rules.max_per_sector }} fra samme sektor. Strengere krav for å komme inn enn
       for å bli holder handelen og kurtasjen nede.</li>

@@ -66,6 +66,37 @@
   }
  },
  "bar_measure": "compound annual net return (B2's 'Return a year'), whole period and each half",
+ "src": {
+  "commit": "7636566",
+  "imported_files_match_commit": true,
+  "imported_files_git_blob": {
+   "src/nordic_signals/__init__.py": "0360e1da76470ab1c2f13c52da145beeeeb18ad2",
+   "src/nordic_signals/advisor/__init__.py": "60d934c563c623203c6e404b26329e8bc9cf686d",
+   "src/nordic_signals/advisor/allocation.py": "b4f61181677413bf830bcccfd38673c15e666905",
+   "src/nordic_signals/advisor/features.py": "f0241169d3bca1e6eba2bfb4f7b3bc39950bf8b4",
+   "src/nordic_signals/advisor/paper.py": "4a738b5c8c3ff26b269c89d5fcdea91c579d22a2",
+   "src/nordic_signals/advisor/recommend.py": "2892ab6e81da81a6f527be48db4b187655e3eb3f",
+   "src/nordic_signals/advisor/scoring.py": "8441b7267cd81cb15f1ad936abfb425d7a598bcb",
+   "src/nordic_signals/collectors/__init__.py": "fd579d60868d06cb895ed0030946990db41c5f96",
+   "src/nordic_signals/collectors/base.py": "d2c53bf76838b99a9eb3ba83f3d943fec29639f4",
+   "src/nordic_signals/collectors/crypto.py": "467ab1c9b64c897dd158ec2e9c05b4d1dc773ac6",
+   "src/nordic_signals/collectors/fi_insider.py": "859c70945266d41d5b622ea4704917656deda8a1",
+   "src/nordic_signals/collectors/fi_short.py": "d5d4dd200df04c2c318614ecacd4345daeebb6bf",
+   "src/nordic_signals/collectors/mfn.py": "49b6ef256e893cb9b2c9185f62755c5a862d158f",
+   "src/nordic_signals/collectors/newsweb.py": "4300d09455dbbf9f57f5e2bf2a6b149e98593b2d",
+   "src/nordic_signals/collectors/no_short.py": "e856921e4818b8f0ab044ec1a7206f63f4f0d1a5",
+   "src/nordic_signals/collectors/nordnet.py": "8acffd184d7523a7c0e7c4a6a9505393e21ff097",
+   "src/nordic_signals/collectors/pumpfun.py": "d77f5ee3025fef48333c3fffd8d2143b62498ba7",
+   "src/nordic_signals/collectors/yahoo.py": "ea47c1e5acfb53fbbd38b833949d425ead24edbc",
+   "src/nordic_signals/crypto.py": "7432670bf5ca86927ae60fa3da2ed2b21c7f907d",
+   "src/nordic_signals/http.py": "8d443834dbeb753d7a22ab95b49577d05fd23c24",
+   "src/nordic_signals/ods.py": "0f7f451a76e135c2bef3f6a0c6dfd51bc5f2f543",
+   "src/nordic_signals/pumpfun.py": "61e3815b65f2ca20748a5063add0a2c1fb4fee30",
+   "src/nordic_signals/store.py": "dbd7ac93d55509cf219177a00effea66aba767a1",
+   "src/nordic_signals/text.py": "83c7399491157eff0c9c39a6caa0617f2b28e6e1"
+  },
+  "reproduce": "git archive 7636566 src | tar -x -C DIR, then PYTHONPATH=DIR/src .venv/bin/python research/b4_turnover/b4.py --offline"
+ },
  "reproduction_of_b2": {
   "reproduces_b2": true,
   "max_abs_monthly_difference": 0.0,

@@ -562,7 +562,7 @@ def test_the_rebalance_takes_at_most_three_from_one_sector(store):
     assert any("sektoren" in n for n in store.get("paper_days", account=FIRST.name, decided_on=MON)["notes"])
 
 
-def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, monkeypatch):
+def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, make_client, monkeypatch):
     monkeypatch.setattr(paper, "VERSIONS", (FIRST, SECOND))
     advisor = Advisor()
     advisor.picks = [pick(100 + i, i + 1) for i in range(14)]
@@ -586,10 +586,17 @@ def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, 
     assert [(r["account"], r["bought"]) for r in logged] == [(FIRST.name, True), (FIRST.name, False),
                                                             (SECOND.name, False)]
 
+    assert not paper._rebalance_due(store, date(2026, 12, 1), SECOND)  # then quarterly: January, April, ...
+    assert paper._rebalance_due(store, date(2027, 1, 4), SECOND)
+
     later = oslo(first_monday + timedelta(days=1), 12)
     assert paper.account(store, later)["account"] == SECOND.name
     (done,) = paper.finished(store, later)
     assert done["name"] == FIRST.name and done["until"] == last_friday
+    monkeypatch.setattr(paper_page, "utcnow", lambda: later)
+    with make_client() as client:
+        page = client.get("/lekepenger").text
+    assert "januar, april, juli og oktober, og den første dagen kontoen var i gang" in " ".join(page.split())
 
 
 def test_signals_are_followed_on_paper_once_each(store):

@@ -18,10 +18,13 @@ from pathlib import Path
 from typing import Any
 
 from nordic_signals.advisor.allocation import Policy
-from nordic_signals.advisor.paper import COURTAGE, COURTAGE_MIN, FX_SPREAD, HOLD_RANK, POLICY, SE_DIVIDEND_TAX, buy_room, costs
+from nordic_signals.advisor.paper import COURTAGE, COURTAGE_MIN, FX_SPREAD, SE_DIVIDEND_TAX, VERSIONS, buy_room, costs
 from nordic_signals.advisor.scoring import PARAMS, percentile_ranks
 from edge import edge
 from universe import COUNTRIES, LARGE_DIVIDEND, OSLO_LATE_EX_DATES, Series, Stock, build_series
+
+# The account this backtest was written for: the first version of the play-money stock account.
+POLICY, HOLD_RANK = VERSIONS[0].policy, VERSIONS[0].hold_rank
 
 log = logging.getLogger("b2.backtest")
 
