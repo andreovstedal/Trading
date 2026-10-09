@@ -51,3 +51,22 @@ in the top 24, rebalanced monthly; Nordnet's fees and an estimated half-spread. 
 Stockholm stocks on Nordnet's list, so delisted stocks are missing (stated with every number). Benchmark: OSEBX
 GI and OMX Stockholm Benchmark GI in the book's country mix, March 2013 to September 2026. This calibrates
 turnover, costs and the direction of the momentum effect; it sets no bar and moves no money.
+
+## B4: trading less (added 9 October 2026, before it was run)
+
+B2 found the score's price part earned about what the indexes did after costs of 3.3 % a year, with a quarter of
+the book changing every month. The question: does trading less keep the return and cut the costs?
+
+- **The book, data, costs, universe and benchmark are B2's** (`research/b2_prices/`): momentum and low volatility in
+  equal parts, the top 12 in equal weights, Nordnet's fees and the estimated half-spread, March 2013 to September
+  2026.
+- **Three rules, and no others:**
+  1. *current:* keep a holding while it ranks in the top 24, check every month (what the account does today);
+  2. *wide:* keep it while it ranks in the top 36, check every month;
+  3. *quarterly:* keep it while it ranks in the top 24, check in January, April, July and October only.
+- **Bar:** a rule replaces *current* in the next stock account if its net return a year beats *current*'s over the
+  whole period and in each half (March 2013 to December 2019, January 2020 to September 2026). If both clear it,
+  the one with the higher net return over the whole period. Reported with it: turnover, costs, and the monthly
+  difference from *current* with its standard error.
+- **Caveat:** the account ranks on the whole score (value and quality too), which B4 cannot test, so its turnover
+  will differ; the direction of the result is what carries over.
