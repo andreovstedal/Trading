@@ -1,0 +1,2134 @@
+{
+ "period": {
+  "first_signal": "2013-03-31",
+  "first_return_month_end": "2013-04-30",
+  "last_return_month_end": "2026-09-30",
+  "months": 162,
+  "halves": {
+   "first half": [
+    "2013-04-30",
+    "2019-12-31"
+   ],
+   "second half": [
+    "2020-01-31",
+    "2026-09-30"
+   ]
+  },
+  "months_by_half": {
+   "whole": 162,
+   "first half": 81,
+   "second half": 81
+  }
+ },
+ "rules": {
+  "current": {
+   "hold_rank": 24,
+   "check_months": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ]
+  },
+  "wide": {
+   "hold_rank": 36,
+   "check_months": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ]
+  },
+  "quarterly": {
+   "hold_rank": 24,
+   "check_months": [
+    1,
+    4,
+    7,
+    10
+   ]
+  }
+ },
+ "bar_measure": "compound annual net return (B2's 'Return a year'), whole period and each half",
+ "reproduction_of_b2": {
+  "reproduces_b2": true,
+  "max_abs_monthly_difference": 0.0,
+  "ours_vs_published": {
+   "cagr": [
+    0.14326959128997951,
+    0.14326959128997951
+   ],
+   "cost_a_year": [
+    0.033426363978601964,
+    0.033426363978601964
+   ],
+   "turnover_a_month": [
+    0.2500322973789899,
+    0.2500322973789899
+   ],
+   "net_vs_index_a_year": [
+    0.006885826397651157,
+    0.006885826397651157
+   ],
+   "final_value_nok": [
+    2742959.0210925452,
+    2742959.0210925452
+   ]
+  }
+ },
+ "books": {
+  "current": {
+   "hold_rank": 24,
+   "check_months": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "return_a_year": {
+    "whole": 0.14326959128997951,
+    "first half": 0.15171343679688487,
+    "second half": 0.13488765226490118
+   },
+   "mean_return_a_year": {
+    "whole": 0.14280207436124331,
+    "first half": 0.14806320933398037,
+    "second half": 0.13754093938850628
+   },
+   "whole_period": {
+    "cagr": 0.14326959128997951,
+    "vol": 0.12878573449966546,
+    "max_drawdown": -0.17965705766338858,
+    "mean_a_year": 0.14280207436124331
+   },
+   "turnover_a_month_one_way": 0.2500322973789899,
+   "turnover_a_year_one_way": 3.000387568547879,
+   "trades_a_year": 73.77777777777777,
+   "cost_a_year": 0.033426363978601964,
+   "cost_parts_a_year": {
+    "courtage": 0.00897180402471076,
+    "fx": 0.010251772084280132,
+    "spread": 0.014202787869611072
+   },
+   "cost_a_year_by_half": {
+    "first half": 0.031230540445395538,
+    "second half": 0.03562218751180839
+   },
+   "mean_holding_months": 3.857142857142857,
+   "mean_positions": 12,
+   "vs_index": {
+    "months": 162,
+    "mean_month": 0.0005738188664709298,
+    "excess_a_year": 0.006885826397651157,
+    "tracking_error": 0.09857358380771243,
+    "t": 0.25666249232452815,
+    "t_newey_west": 0.33711014159775493,
+    "sharpe_of_excess": 0.06985468247845532,
+    "se_a_year": 0.026828331382929956
+   },
+   "final_value_nok": 2742959.0210925452
+  },
+  "wide": {
+   "hold_rank": 36,
+   "check_months": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "return_a_year": {
+    "whole": 0.15543043950795,
+    "first half": 0.1658944558473523,
+    "second half": 0.14506033873474844
+   },
+   "mean_return_a_year": {
+    "whole": 0.15430545404683188,
+    "first half": 0.1609227228468898,
+    "second half": 0.1476881852467739
+   },
+   "whole_period": {
+    "cagr": 0.15543043950795,
+    "vol": 0.13462842560415075,
+    "max_drawdown": -0.23380951861331156,
+    "mean_a_year": 0.15430545404683188
+   },
+   "turnover_a_month_one_way": 0.17385875764997483,
+   "turnover_a_year_one_way": 2.086305091799698,
+   "trades_a_year": 51.55555555555556,
+   "cost_a_year": 0.02343285288817483,
+   "cost_parts_a_year": {
+    "courtage": 0.006190496754247794,
+    "fx": 0.006980824972395918,
+    "spread": 0.01026153116153112
+   },
+   "cost_a_year_by_half": {
+    "first half": 0.019537600238301273,
+    "second half": 0.027328105538048385
+   },
+   "mean_holding_months": 5.491525423728813,
+   "mean_positions": 12,
+   "vs_index": {
+    "months": 162,
+    "mean_month": 0.0016532493417165289,
+    "excess_a_year": 0.019838992100598345,
+    "tracking_error": 0.09567044613825708,
+    "t": 0.7619187996784038,
+    "t_newey_west": 0.959593216016791,
+    "sharpe_of_excess": 0.20736803162732456,
+    "se_a_year": 0.02603819738923903
+   },
+   "final_value_nok": 3164126.7884589313
+  },
+  "quarterly": {
+   "hold_rank": 24,
+   "check_months": [
+    1,
+    4,
+    7,
+    10
+   ],
+   "return_a_year": {
+    "whole": 0.15550908675237407,
+    "first half": 0.15870163969827233,
+    "second half": 0.15232533019888916
+   },
+   "mean_return_a_year": {
+    "whole": 0.15442527592974392,
+    "first half": 0.154645198908392,
+    "second half": 0.1542053529510958
+   },
+   "whole_period": {
+    "cagr": 0.15550908675237407,
+    "vol": 0.13507599226651454,
+    "max_drawdown": -0.22776846975278975,
+    "mean_a_year": 0.15442527592974392
+   },
+   "turnover_a_month_one_way": 0.1502033772000035,
+   "turnover_a_year_one_way": 1.802440526400042,
+   "trades_a_year": 45.03703703703704,
+   "cost_a_year": 0.019508904462369605,
+   "cost_parts_a_year": {
+    "courtage": 0.005410691057236872,
+    "fx": 0.00616421858383507,
+    "spread": 0.007933994821297662
+   },
+   "cost_a_year_by_half": {
+    "first half": 0.017330388030985383,
+    "second half": 0.021687420893753827
+   },
+   "mean_holding_months": 6.2709677419354835,
+   "mean_positions": 12,
+   "vs_index": {
+    "months": 162,
+    "mean_month": 0.0016303555547689233,
+    "excess_a_year": 0.01956426665722708,
+    "tracking_error": 0.09456774548516873,
+    "t": 0.7601292109073561,
+    "t_newey_west": 0.872742283242653,
+    "sharpe_of_excess": 0.2068809672563822,
+    "se_a_year": 0.025738080284894556
+   },
+   "final_value_nok": 3167035.576790522
+  }
+ },
+ "difference_from_current": {
+  "wide": {
+   "whole": {
+    "months": 162,
+    "mean_month": 0.0009586149737990444,
+    "excess_a_year": 0.011503379685588533,
+    "tracking_error": 0.03767609159974929,
+    "t": 1.1218285662376268,
+    "t_newey_west": 1.084679678173913,
+    "sharpe_of_excess": 0.30532306290669176,
+    "se_a_year": 0.010254133324638372,
+    "se_month": 0.0008545111103865309,
+    "share_months_above": 0.6234567901234568,
+    "share_months_equal": 0.006172839506172839
+   },
+   "first half": {
+    "months": 81,
+    "mean_month": 0.001071626126075788,
+    "excess_a_year": 0.012859513512909457,
+    "tracking_error": 0.03427460870370049,
+    "t": 0.9747739627399283,
+    "t_newey_west": 1.0917795766489675,
+    "sharpe_of_excess": 0.3751906731912906,
+    "se_a_year": 0.013192303040967046,
+    "se_month": 0.001099358586747254,
+    "share_months_above": 0.6790123456790124,
+    "share_months_equal": 0.012345679012345678
+   },
+   "second half": {
+    "months": 81,
+    "mean_month": 0.0008456038215223008,
+    "excess_a_year": 0.010147245858267609,
+    "tracking_error": 0.041008050492585345,
+    "t": 0.6428815259063652,
+    "t_newey_west": 0.5720383886182541,
+    "sharpe_of_excess": 0.24744521469271819,
+    "se_a_year": 0.015784005993890612,
+    "se_month": 0.0013153338328242175,
+    "share_months_above": 0.5679012345679012,
+    "share_months_equal": 0.0
+   }
+  },
+  "quarterly": {
+   "whole": {
+    "months": 162,
+    "mean_month": 0.0009686001307083823,
+    "excess_a_year": 0.011623201568500587,
+    "tracking_error": 0.05027223464760637,
+    "t": 0.8495021124458547,
+    "t_newey_west": 0.8727532208622262,
+    "sharpe_of_excess": 0.23120519010097368,
+    "se_a_year": 0.013682369235122324,
+    "se_month": 0.0011401974362601937,
+    "share_months_above": 0.49382716049382713,
+    "share_months_equal": 0.006172839506172839
+   },
+   "first half": {
+    "months": 81,
+    "mean_month": 0.0005484991312009711,
+    "excess_a_year": 0.0065819895744116536,
+    "tracking_error": 0.04407964189834707,
+    "t": 0.3879457681641397,
+    "t_newey_west": 0.4071551871152677,
+    "sharpe_of_excess": 0.14932039578702813,
+    "se_a_year": 0.01696626207719533,
+    "se_month": 0.0014138551730996105,
+    "share_months_above": 0.4444444444444444,
+    "share_months_equal": 0.012345679012345678
+   },
+   "second half": {
+    "months": 81,
+    "mean_month": 0.0013887011302157932,
+    "excess_a_year": 0.01666441356258952,
+    "tracking_error": 0.056025734809080796,
+    "t": 0.7727773067261932,
+    "t_newey_west": 0.7852582845746533,
+    "sharpe_of_excess": 0.29744212404133435,
+    "se_a_year": 0.02156431538237959,
+    "se_month": 0.001797026281864966,
+    "share_months_above": 0.5432098765432098,
+    "share_months_equal": 0.0
+   }
+  }
+ },
+ "bar": {
+  "tests": {
+   "wide": {
+    "beats_current": {
+     "whole": true,
+     "first half": true,
+     "second half": true
+    },
+    "clears_bar": true
+   },
+   "quarterly": {
+    "beats_current": {
+     "whole": true,
+     "first half": true,
+     "second half": true
+    },
+    "clears_bar": true
+   }
+  },
+  "cleared": [
+   "wide",
+   "quarterly"
+  ],
+  "next_stock_account_rule": "quarterly",
+  "tie_break_margin_a_year": 7.864724442407933e-05
+ },
+ "exploratory": {
+  "gross_books": {
+   "current": {
+    "return_a_year": {
+     "whole": 0.18260201928291742,
+     "first half": 0.18879130551366585,
+     "second half": 0.17644495676029082
+    },
+    "turnover_a_year_one_way": 3.018832875600406
+   },
+   "wide": {
+    "return_a_year": {
+     "whole": 0.18294562610039633,
+     "first half": 0.18908023323597822,
+     "second half": 0.17684266813671723
+    },
+    "turnover_a_year_one_way": 2.0991463924611145
+   },
+   "quarterly": {
+    "return_a_year": {
+     "whole": 0.17856457033138384,
+     "first half": 0.179065109101602,
+     "second half": 0.17806424405075472
+    },
+    "turnover_a_year_one_way": 1.8131309917517227
+   }
+  },
+  "gross_difference_from_current": {
+   "wide": {
+    "whole": {
+     "months": 162,
+     "mean_month": 9.009210512504219e-05,
+     "excess_a_year": 0.0010811052615005063,
+     "tracking_error": 0.0382907407085061,
+     "t": 0.10373877078040465,
+     "t_newey_west": 0.10058915831671991,
+     "sharpe_of_excess": 0.028234117217281827,
+     "se_a_year": 0.010421419623228442,
+     "se_month": 0.0008684516352690368,
+     "share_months_above": 0.5987654320987654,
+     "share_months_equal": 0.006172839506172839
+    },
+    "first half": {
+     "months": 81,
+     "mean_month": 5.5853091918659325e-05,
+     "excess_a_year": 0.0006702371030239118,
+     "tracking_error": 0.034660357032762455,
+     "t": 0.05023973272077983,
+     "t_newey_west": 0.05882661163483583,
+     "sharpe_of_excess": 0.01933728214023805,
+     "se_a_year": 0.013340777642049296,
+     "se_month": 0.0011117314701707746,
+     "share_months_above": 0.6296296296296297,
+     "share_months_equal": 0.012345679012345678
+    },
+    "second half": {
+     "months": 81,
+     "mean_month": 0.00012433111833142508,
+     "excess_a_year": 0.001491973419977101,
+     "tracking_error": 0.04182487383770555,
+     "t": 0.09267835846810056,
+     "t_newey_west": 0.08172339428383131,
+     "sharpe_of_excess": 0.035671916806406995,
+     "se_a_year": 0.01609840144601429,
+     "se_month": 0.0013415334538345242,
+     "share_months_above": 0.5679012345679012,
+     "share_months_equal": 0.0
+    }
+   },
+   "quarterly": {
+    "whole": {
+     "months": 162,
+     "mean_month": -0.00020706204283994417,
+     "excess_a_year": -0.00248474451407933,
+     "tracking_error": 0.05062967580374923,
+     "t": -0.1803198254004043,
+     "t_newey_west": -0.18595208270334834,
+     "sharpe_of_excess": -0.049076840304304876,
+     "se_a_year": 0.013779652395746822,
+     "se_month": 0.0011483043663122353,
+     "share_months_above": 0.5185185185185185,
+     "share_months_equal": 0.006172839506172839
+    },
+    "first half": {
+     "months": 81,
+     "mean_month": -0.0006557752755084943,
+     "excess_a_year": -0.007869303306101931,
+     "tracking_error": 0.04562904730819781,
+     "t": -0.4480709312515983,
+     "t_newey_west": -0.4829883920328615,
+     "sharpe_of_excess": -0.1724625818494377,
+     "se_a_year": 0.017562628497502786,
+     "se_month": 0.0014635523747918988,
+     "share_months_above": 0.48148148148148145,
+     "share_months_equal": 0.012345679012345678
+    },
+    "second half": {
+     "months": 81,
+     "mean_month": 0.000241651189828606,
+     "excess_a_year": 0.002899814277943272,
+     "tracking_error": 0.055424431327691405,
+     "t": 0.13593172383354643,
+     "t_newey_west": 0.1375055895519042,
+     "sharpe_of_excess": 0.05232014489780526,
+     "se_a_year": 0.02133287356448304,
+     "se_month": 0.00177773946370692,
+     "share_months_above": 0.5555555555555556,
+     "share_months_equal": 0.0
+    }
+   }
+  },
+  "other_quarterly_phases": {
+   "quarterly, Feb/May/Aug/Nov (exploratory)": {
+    "hold_rank": 24,
+    "check_months": [
+     2,
+     5,
+     8,
+     11
+    ],
+    "return_a_year": {
+     "whole": 0.14857910933050422,
+     "first half": 0.15054058262442638,
+     "second half": 0.14662098001031132
+    },
+    "mean_return_a_year": {
+     "whole": 0.1481937988737699,
+     "first half": 0.147388188604072,
+     "second half": 0.14899940914346782
+    },
+    "whole_period": {
+     "cagr": 0.14857910933050422,
+     "vol": 0.13446370545942724,
+     "max_drawdown": -0.20345824786967226,
+     "mean_a_year": 0.1481937988737699
+    },
+    "turnover_a_month_one_way": 0.16297152761257738,
+    "turnover_a_year_one_way": 1.9556583313509286,
+    "trades_a_year": 48.14814814814815,
+    "cost_a_year": 0.02138016136488642,
+    "cost_parts_a_year": {
+     "courtage": 0.005853759858417313,
+     "fx": 0.006919444284775764,
+     "spread": 0.008606957221693344
+    },
+    "cost_a_year_by_half": {
+     "first half": 0.019684860441824284,
+     "second half": 0.02307546228794856
+    },
+    "mean_holding_months": 5.873111782477341,
+    "mean_positions": 12,
+    "vs_index": {
+     "months": 162,
+     "mean_month": 0.0012644992534741122,
+     "excess_a_year": 0.015173991041689348,
+     "tracking_error": 0.09397495818925294,
+     "t": 0.5932729760653276,
+     "t_newey_west": 0.6928060900312195,
+     "sharpe_of_excess": 0.16146845217138556,
+     "se_a_year": 0.025576744018117017
+    },
+    "final_value_nok": 2920013.36080872,
+    "difference_from_current": {
+     "whole": {
+      "months": 162,
+      "mean_month": 0.00044931037604388236,
+      "excess_a_year": 0.0053917245125265885,
+      "tracking_error": 0.05658668157335302,
+      "t": 0.35009052100607047,
+      "t_newey_west": 0.35091943833046907,
+      "sharpe_of_excess": 0.09528257113888758,
+      "se_a_year": 0.015400944010229565,
+      "se_month": 0.0012834120008524638,
+      "share_months_above": 0.5061728395061729,
+      "share_months_equal": 0.012345679012345678
+     },
+     "first half": {
+      "months": 81,
+      "mean_month": -5.625172749236501e-05,
+      "excess_a_year": -0.0006750207299083801,
+      "tracking_error": 0.04521826898824363,
+      "t": -0.038784220178823645,
+      "t_newey_west": -0.04856043110369382,
+      "sharpe_of_excess": -0.014928053307035696,
+      "se_a_year": 0.017404519848434247,
+      "se_month": 0.0014503766540361872,
+      "share_months_above": 0.5185185185185185,
+      "share_months_equal": 0.024691358024691357
+     },
+     "second half": {
+      "months": 81,
+      "mean_month": 0.0009548724795801297,
+      "excess_a_year": 0.011458469754961556,
+      "tracking_error": 0.06628142996672269,
+      "t": 0.449145072817883,
+      "t_newey_west": 0.4348325754024895,
+      "sharpe_of_excess": 0.17287601913106584,
+      "se_a_year": 0.025511734289040452,
+      "se_month": 0.0021259778574200376,
+      "share_months_above": 0.49382716049382713,
+      "share_months_equal": 0.0
+     }
+    }
+   },
+   "quarterly, Mar/Jun/Sep/Dec (exploratory)": {
+    "hold_rank": 24,
+    "check_months": [
+     3,
+     6,
+     9,
+     12
+    ],
+    "return_a_year": {
+     "whole": 0.15451983829249594,
+     "first half": 0.17146542357474082,
+     "second half": 0.1378193757896169
+    },
+    "mean_return_a_year": {
+     "whole": 0.15317977848253186,
+     "first half": 0.16579772660849973,
+     "second half": 0.140561830356564
+    },
+    "whole_period": {
+     "cagr": 0.15451983829249594,
+     "vol": 0.13259129589613075,
+     "max_drawdown": -0.18240855737314543,
+     "mean_a_year": 0.15317977848253186
+    },
+    "turnover_a_month_one_way": 0.1696358107833142,
+    "turnover_a_year_one_way": 2.03562972939977,
+    "trades_a_year": 50.51851851851852,
+    "cost_a_year": 0.02191386059648612,
+    "cost_parts_a_year": {
+     "courtage": 0.006093706835972703,
+     "fx": 0.006959835849261658,
+     "spread": 0.008860317911251761
+    },
+    "cost_a_year_by_half": {
+     "first half": 0.020725192239426274,
+     "second half": 0.02310252895354597
+    },
+    "mean_holding_months": 5.6023054755043225,
+    "mean_positions": 12,
+    "vs_index": {
+     "months": 162,
+     "mean_month": 0.0009286918592187165,
+     "excess_a_year": 0.011144302310624597,
+     "tracking_error": 0.09962432907878546,
+     "t": 0.4110118650650382,
+     "t_newey_west": 0.5077166769486183,
+     "sharpe_of_excess": 0.11186326084877718,
+     "se_a_year": 0.02711430802334899
+    },
+    "final_value_nok": 3130627.6162513103,
+    "difference_from_current": {
+     "whole": {
+      "months": 162,
+      "mean_month": 0.0008648086767740451,
+      "excess_a_year": 0.010377704121288541,
+      "tracking_error": 0.047977625941629146,
+      "t": 0.7947479465635213,
+      "t_newey_west": 0.8834562325339118,
+      "sharpe_of_excess": 0.21630299368948205,
+      "se_a_year": 0.013057855847456525,
+      "se_month": 0.0010881546539547103,
+      "share_months_above": 0.5185185185185185,
+      "share_months_equal": 0.006172839506172839
+     },
+     "first half": {
+      "months": 81,
+      "mean_month": 0.0014778764395432804,
+      "excess_a_year": 0.017734517274519364,
+      "tracking_error": 0.03742654295517044,
+      "t": 1.231094934574979,
+      "t_newey_west": 1.5517929193786693,
+      "sharpe_of_excess": 0.4738486612498993,
+      "se_a_year": 0.014405483100003162,
+      "se_month": 0.0012004569250002638,
+      "share_months_above": 0.5555555555555556,
+      "share_months_equal": 0.012345679012345678
+     },
+     "second half": {
+      "months": 81,
+      "mean_month": 0.00025174091400480974,
+      "excess_a_year": 0.003020890968057717,
+      "tracking_error": 0.05676794003850714,
+      "t": 0.13825594086871926,
+      "t_newey_west": 0.14937744156169583,
+      "sharpe_of_excess": 0.0532147364517467,
+      "se_a_year": 0.021849990308381757,
+      "se_month": 0.0018208325256984796,
+      "share_months_above": 0.48148148148148145,
+      "share_months_equal": 0.0
+     }
+    }
+   }
+  }
+ },
+ "monthly": [
+  {
+   "month_end": "2013-04-30",
+   "current": 0.02466679064868993,
+   "wide": 0.02466679064868993,
+   "quarterly": 0.02466679064868993,
+   "current turnover": 0.49685969135902647,
+   "wide turnover": 0.49685969135902647,
+   "quarterly turnover": 0.49685969135902647
+  },
+  {
+   "month_end": "2013-05-31",
+   "current": 0.006987922907594868,
+   "wide": 0.009922988691838608,
+   "quarterly": 0.018362513833915406,
+   "current turnover": 0.16338320884809707,
+   "wide turnover": 0.0756666302830114,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2013-06-30",
+   "current": -0.027995861837366687,
+   "wide": -0.0347997386129969,
+   "quarterly": -0.0380520292534442,
+   "current turnover": 0.4164917745614753,
+   "wide turnover": 0.23611418820676916,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2013-07-31",
+   "current": 0.06863442214727278,
+   "wide": 0.061039173784993794,
+   "quarterly": 0.07018125120188468,
+   "current turnover": 0.08530131435511083,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.49489640449542
+  },
+  {
+   "month_end": "2013-08-31",
+   "current": -0.016037892057766623,
+   "wide": -0.02031315030354075,
+   "quarterly": -0.009745313503814579,
+   "current turnover": 0.15610319614296456,
+   "wide turnover": 0.15536006978308353,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2013-09-30",
+   "current": 0.04457597705536909,
+   "wide": 0.040995014328910395,
+   "quarterly": 0.06687507936103732,
+   "current turnover": 0.41892124852912566,
+   "wide turnover": 0.3415263578395931,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2013-10-31",
+   "current": 0.04380715091320053,
+   "wide": 0.04849842616684419,
+   "quarterly": 0.04259161770130526,
+   "current turnover": 0.07349177981715652,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.431915711985344
+  },
+  {
+   "month_end": "2013-11-30",
+   "current": 0.0254482361427133,
+   "wide": 0.03857489477230458,
+   "quarterly": 0.03876512142940003,
+   "current turnover": 0.2516391852996331,
+   "wide turnover": 0.16414277600730456,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2013-12-31",
+   "current": 0.04954404773717069,
+   "wide": 0.043272647799443176,
+   "quarterly": 0.03973671760118802,
+   "current turnover": 0.4112451870691641,
+   "wide turnover": 0.1703037939103522,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-01-31",
+   "current": 0.01269324819900386,
+   "wide": 0.022665372206188694,
+   "quarterly": 0.016959050741691684,
+   "current turnover": 0.08540306783584242,
+   "wide turnover": 0.07448981157916174,
+   "quarterly turnover": 0.3228681199528269
+  },
+  {
+   "month_end": "2014-02-28",
+   "current": 0.014188529516591553,
+   "wide": 0.01645964292178914,
+   "quarterly": 0.017958896529299162,
+   "current turnover": 0.23798703165170115,
+   "wide turnover": 0.07352284899679307,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-03-31",
+   "current": -0.01101137501356797,
+   "wide": -0.020829300552818952,
+   "quarterly": -0.013012993314563959,
+   "current turnover": 0.22902632981709375,
+   "wide turnover": 0.38645903555994676,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-04-30",
+   "current": 0.024279902823246102,
+   "wide": 0.02555605101068692,
+   "quarterly": 0.014039626481358258,
+   "current turnover": 0.16570722554112605,
+   "wide turnover": 0.07577487087569491,
+   "quarterly turnover": 0.47731902251498026
+  },
+  {
+   "month_end": "2014-05-31",
+   "current": 0.030087768482762955,
+   "wide": 0.026979452390173853,
+   "quarterly": 0.011135784408698335,
+   "current turnover": 0.35644392571197225,
+   "wide turnover": 0.21062973904207094,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-06-30",
+   "current": 0.015692602314380855,
+   "wide": 0.021735183091210253,
+   "quarterly": 0.013526525617081564,
+   "current turnover": 0.31799498948248994,
+   "wide turnover": 0.2386847401350366,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-07-31",
+   "current": 0.021113800298668606,
+   "wide": 0.005972086350444661,
+   "quarterly": 0.022354550764292158,
+   "current turnover": 0.35768514432636994,
+   "wide turnover": 0.27712662704075114,
+   "quarterly turnover": 0.5079920809463618
+  },
+  {
+   "month_end": "2014-08-31",
+   "current": -0.02225809062578077,
+   "wide": -0.02112058388382032,
+   "quarterly": -0.010982958730131887,
+   "current turnover": 0.08616146978467673,
+   "wide turnover": 0.14981161325122544,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-09-30",
+   "current": 0.0009106836800809592,
+   "wide": 0.0005548532872241552,
+   "quarterly": 0.002318876582961149,
+   "current turnover": 0.1674247255481559,
+   "wide turnover": 0.1445369486827244,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-10-31",
+   "current": 0.007740658734629147,
+   "wide": 0.008782600601248358,
+   "quarterly": 0.0037362816469921345,
+   "current turnover": 0.07924441164152891,
+   "wide turnover": 0.09471340973380923,
+   "quarterly turnover": 0.16347222162583916
+  },
+  {
+   "month_end": "2014-11-30",
+   "current": 0.041688214328373885,
+   "wide": 0.0319297909055396,
+   "quarterly": 0.032180004664616346,
+   "current turnover": 0.32974008977375185,
+   "wide turnover": 0.10106485349062068,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2014-12-31",
+   "current": 0.03580967772778787,
+   "wide": 0.037065039312324854,
+   "quarterly": 0.03724568118341476,
+   "current turnover": 0.32775775536591323,
+   "wide turnover": 0.29474824282611334,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-01-31",
+   "current": 0.04880997790605446,
+   "wide": 0.05373191400651178,
+   "quarterly": 0.06423515228945043,
+   "current turnover": 0.3197546806413017,
+   "wide turnover": 0.1503414628615564,
+   "quarterly turnover": 0.5399980867497111
+  },
+  {
+   "month_end": "2015-02-28",
+   "current": 0.022597737015431774,
+   "wide": 0.024930072653792656,
+   "quarterly": 0.03242202589499632,
+   "current turnover": 0.33179610849402186,
+   "wide turnover": 0.3100694961810703,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-03-31",
+   "current": 0.005709293662977899,
+   "wide": 0.009992903159578903,
+   "quarterly": 0.011740626895326844,
+   "current turnover": 0.23257156223797115,
+   "wide turnover": 0.13756567021599403,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-04-30",
+   "current": -0.034290809317028326,
+   "wide": -0.04026549571485194,
+   "quarterly": -0.04305157402247717,
+   "current turnover": 0.06762910663853615,
+   "wide turnover": 0.060153002791381596,
+   "quarterly turnover": 0.36158545450914936
+  },
+  {
+   "month_end": "2015-05-31",
+   "current": 0.025312679588915588,
+   "wide": 0.03557277675264281,
+   "quarterly": 0.01793808956693632,
+   "current turnover": 0.17502164355046163,
+   "wide turnover": 0.08843047318451049,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-06-30",
+   "current": -0.022654217187205616,
+   "wide": -0.017956746907864196,
+   "quarterly": -0.037922930399935106,
+   "current turnover": 0.40155693535135845,
+   "wide turnover": 0.23086997660035113,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-07-31",
+   "current": 0.0318274714140343,
+   "wide": 0.041453716965437204,
+   "quarterly": 0.02731561337985089,
+   "current turnover": 0.16604438914688827,
+   "wide turnover": 0.0737188550655376,
+   "quarterly turnover": 0.295701199824546
+  },
+  {
+   "month_end": "2015-08-31",
+   "current": -0.03818710756076371,
+   "wide": -0.034138309496094976,
+   "quarterly": -0.029968826360248557,
+   "current turnover": 0.08783231997471985,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-09-30",
+   "current": -0.015351696469119713,
+   "wide": -0.013386156794449655,
+   "quarterly": -0.02116449770390072,
+   "current turnover": 0.29562863606303447,
+   "wide turnover": 0.31190272247820716,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-10-31",
+   "current": 0.08326347173909987,
+   "wide": 0.09020954332592068,
+   "quarterly": 0.09320677087269646,
+   "current turnover": 0.15626930204804418,
+   "wide turnover": 0.2515575800338974,
+   "quarterly turnover": 0.4837591273499532
+  },
+  {
+   "month_end": "2015-11-30",
+   "current": 0.013800548713390537,
+   "wide": 0.017136454040008964,
+   "quarterly": 0.025160314696049735,
+   "current turnover": 0.25942999853185567,
+   "wide turnover": 0.1624668541544121,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2015-12-31",
+   "current": 0.041797959546060026,
+   "wide": 0.029453688004177803,
+   "quarterly": 0.02963064545862082,
+   "current turnover": 0.13273370042854915,
+   "wide turnover": 0.07042789736005169,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-01-31",
+   "current": -0.07461901934812798,
+   "wide": -0.08220427889006876,
+   "quarterly": -0.08106028911167162,
+   "current turnover": 0.07617196185621329,
+   "wide turnover": 0.12847621403574147,
+   "quarterly turnover": 0.2755847310947725
+  },
+  {
+   "month_end": "2016-02-29",
+   "current": 0.014168056336981039,
+   "wide": 0.01351799268653231,
+   "quarterly": 0.024117545990827383,
+   "current turnover": 0.2161512811312851,
+   "wide turnover": 0.28455841296506035,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-03-31",
+   "current": 0.037847269081017876,
+   "wide": 0.03824481726967166,
+   "quarterly": 0.03753204665632692,
+   "current turnover": 0.16075913537965233,
+   "wide turnover": 0.14684578805406037,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-04-30",
+   "current": -0.011107786156261845,
+   "wide": -0.01247365174395576,
+   "quarterly": -0.011902700572035796,
+   "current turnover": 0.06625856929088655,
+   "wide turnover": 0.07158805148437565,
+   "quarterly turnover": 0.32074996764311076
+  },
+  {
+   "month_end": "2016-05-31",
+   "current": 0.0565275022216567,
+   "wide": 0.060694893342795764,
+   "quarterly": 0.04820409014598881,
+   "current turnover": 0.2397065971566159,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-06-30",
+   "current": -0.02861074272760855,
+   "wide": -0.02049213936899763,
+   "quarterly": -0.014988791240474475,
+   "current turnover": 0.1612757767655568,
+   "wide turnover": 0.07642175022469926,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-07-31",
+   "current": 0.05960415022235188,
+   "wide": 0.05262942452419406,
+   "quarterly": 0.06725926424920625,
+   "current turnover": 0.1538800198193053,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.252372219651764
+  },
+  {
+   "month_end": "2016-08-31",
+   "current": -0.015920952722139003,
+   "wide": -0.01570373450525331,
+   "quarterly": -0.013696763881757223,
+   "current turnover": 0.3297872589631181,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-09-30",
+   "current": -0.00951541985298554,
+   "wide": 0.011444126723464842,
+   "quarterly": 0.0034829458982490458,
+   "current turnover": 0.06778499141686403,
+   "wide turnover": 0.14529222720712429,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-10-31",
+   "current": -0.03769225500878515,
+   "wide": -0.03019102688362052,
+   "quarterly": -0.038872117372615755,
+   "current turnover": 0.3317003722258813,
+   "wide turnover": 0.16695031107818847,
+   "quarterly turnover": 0.45066208668873864
+  },
+  {
+   "month_end": "2016-11-30",
+   "current": -0.00064070439917574,
+   "wide": 0.0011409262021198074,
+   "quarterly": -0.01182005335478542,
+   "current turnover": 0.2484984259253362,
+   "wide turnover": 0.24598980353224714,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2016-12-31",
+   "current": 0.021161735771827228,
+   "wide": 0.025815311415379183,
+   "quarterly": 0.013437417198022716,
+   "current turnover": 0.22767088988216455,
+   "wide turnover": 0.16396199811460488,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-01-31",
+   "current": 0.0004031492049187957,
+   "wide": 0.01767537513791484,
+   "quarterly": -0.0005699060113583121,
+   "current turnover": 0.35627716215830857,
+   "wide turnover": 0.08866483441310095,
+   "quarterly turnover": 0.7407019237872282
+  },
+  {
+   "month_end": "2017-02-28",
+   "current": 0.024028703060220202,
+   "wide": 0.01769141539495722,
+   "quarterly": 0.011794219856739785,
+   "current turnover": 0.24777557764198974,
+   "wide turnover": 0.07568204351360125,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-03-31",
+   "current": 0.05993108425859739,
+   "wide": 0.06977093611622309,
+   "quarterly": 0.019208266090745996,
+   "current turnover": 0.3336141802567115,
+   "wide turnover": 0.24399556101769443,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-04-30",
+   "current": 0.08983300428161156,
+   "wide": 0.08311608124400216,
+   "quarterly": 0.07832768070359841,
+   "current turnover": 0.16604283994252547,
+   "wide turnover": 0.08958517841148883,
+   "quarterly turnover": 0.37537429637563274
+  },
+  {
+   "month_end": "2017-05-31",
+   "current": 0.0075463995658429095,
+   "wide": 0.015194900983354076,
+   "quarterly": 0.025004698177727436,
+   "current turnover": 0.3524575955158428,
+   "wide turnover": 0.09135541325442996,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-06-30",
+   "current": -0.011622623080996375,
+   "wide": -0.006335778369235157,
+   "quarterly": -0.021826808288266664,
+   "current turnover": 0.24281195004127612,
+   "wide turnover": 0.07080921263469911,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-07-31",
+   "current": -0.014128609678903059,
+   "wide": -0.05701545021108523,
+   "quarterly": -0.024289401587030746,
+   "current turnover": 0.08407884358322264,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.23926672492400441
+  },
+  {
+   "month_end": "2017-08-31",
+   "current": 0.0004552901044123647,
+   "wide": -0.016102776214125147,
+   "quarterly": 0.007508836999512658,
+   "current turnover": 0.3133038359872784,
+   "wide turnover": 0.1604222079926254,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-09-30",
+   "current": 0.046905826239934445,
+   "wide": 0.05627207174949822,
+   "quarterly": 0.044800575509140295,
+   "current turnover": 0.1580644545071482,
+   "wide turnover": 0.17269785407121213,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-10-31",
+   "current": 0.028323231404022264,
+   "wide": 0.030801557381369582,
+   "quarterly": 0.030322236044055373,
+   "current turnover": 0.09129350591421952,
+   "wide turnover": 0.08052417344414788,
+   "quarterly turnover": 0.5079875569280984
+  },
+  {
+   "month_end": "2017-11-30",
+   "current": -0.03755281852180492,
+   "wide": -0.03086626776280932,
+   "quarterly": -0.00492044734538466,
+   "current turnover": 0.234291271611255,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2017-12-31",
+   "current": -0.0002639771619918907,
+   "wide": 0.010738127456979996,
+   "quarterly": 0.02449539888594021,
+   "current turnover": 0.0766110667225772,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-01-31",
+   "current": 0.011191991531445789,
+   "wide": 0.01780072585983783,
+   "quarterly": 0.0036092419300137735,
+   "current turnover": 0.1624019149062977,
+   "wide turnover": 0.08291484722675413,
+   "quarterly turnover": 0.4873080491042253
+  },
+  {
+   "month_end": "2018-02-28",
+   "current": -0.008764146690654062,
+   "wide": -0.0037186914316610364,
+   "quarterly": -0.009947628392200425,
+   "current turnover": 0.31682775861202156,
+   "wide turnover": 0.15518208966218203,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-03-31",
+   "current": -0.014269707153762301,
+   "wide": -0.014176640773661542,
+   "quarterly": -0.028474177826806946,
+   "current turnover": 0.2428817939987265,
+   "wide turnover": 0.2544581916809766,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-04-30",
+   "current": 0.01494718554877661,
+   "wide": 0.008162118556603648,
+   "quarterly": 0.020698746716550698,
+   "current turnover": 0.3296801146148671,
+   "wide turnover": 0.16027412915959133,
+   "quarterly turnover": 0.48087272340633513
+  },
+  {
+   "month_end": "2018-05-31",
+   "current": 0.034180210365032826,
+   "wide": 0.034538094972827116,
+   "quarterly": 0.009993744460299991,
+   "current turnover": 0.490686932721656,
+   "wide turnover": 0.24083627084087622,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-06-30",
+   "current": -0.024871751473828918,
+   "wide": -0.02224468314521233,
+   "quarterly": 0.008140665328803864,
+   "current turnover": 0.238192299763543,
+   "wide turnover": 0.41637451363254907,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-07-31",
+   "current": 0.036011187575333725,
+   "wide": 0.049412754607697895,
+   "quarterly": 0.03574008270476403,
+   "current turnover": 0.14940631576767802,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.3836813568595224
+  },
+  {
+   "month_end": "2018-08-31",
+   "current": 0.022619187001201357,
+   "wide": 0.023267346603545125,
+   "quarterly": 0.008224345525510657,
+   "current turnover": 0.3306914385225771,
+   "wide turnover": 0.41395753720062,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-09-30",
+   "current": 0.01863483539173738,
+   "wide": -0.002661698467816054,
+   "quarterly": -0.003640246898496402,
+   "current turnover": 0.16161120437014198,
+   "wide turnover": 0.0768276709745422,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-10-31",
+   "current": -0.0783150179644787,
+   "wide": -0.07758277073590603,
+   "quarterly": -0.08691394377640149,
+   "current turnover": 0.16456197430264852,
+   "wide turnover": 0.15293305471155572,
+   "quarterly turnover": 0.3787711699047723
+  },
+  {
+   "month_end": "2018-11-30",
+   "current": 0.005960567469578404,
+   "wide": -0.0157864401629092,
+   "quarterly": -0.0037141257275440376,
+   "current turnover": 0.4134891847920633,
+   "wide turnover": 0.07379501615370557,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2018-12-31",
+   "current": 0.0010074007097375937,
+   "wide": 0.005118956477416781,
+   "quarterly": -0.0022122444273210418,
+   "current turnover": 0.33429986750297885,
+   "wide turnover": 0.24867693572098457,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-01-31",
+   "current": 0.009065852337443836,
+   "wide": 0.026949731585506065,
+   "quarterly": 0.03673720856103935,
+   "current turnover": 0.2135445682307897,
+   "wide turnover": 0.13545258536757834,
+   "quarterly turnover": 0.5093792900525197
+  },
+  {
+   "month_end": "2019-02-28",
+   "current": 0.011263203057706006,
+   "wide": 0.03295268245485006,
+   "quarterly": 0.029071552510868903,
+   "current turnover": 0.2957419525748679,
+   "wide turnover": 0.06450008606139421,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-03-31",
+   "current": 0.04542384940133837,
+   "wide": 0.048249766663138516,
+   "quarterly": 0.04195619679236784,
+   "current turnover": 0.3484914320833217,
+   "wide turnover": 0.07037504905463766,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-04-30",
+   "current": -0.017480064942027362,
+   "wide": -0.013650543709876173,
+   "quarterly": -0.012779217017436895,
+   "current turnover": 0.15391910529103978,
+   "wide turnover": 0.15591919783003425,
+   "quarterly turnover": 0.5119687579013623
+  },
+  {
+   "month_end": "2019-05-31",
+   "current": 0.04472604073761799,
+   "wide": 0.047724927836147346,
+   "quarterly": 0.041728484736481164,
+   "current turnover": 0.1473828306673679,
+   "wide turnover": 0.16153455101591177,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-06-30",
+   "current": 0.021505008926050895,
+   "wide": 0.024053113679403992,
+   "quarterly": 0.020356425188819305,
+   "current turnover": 0.17379386816932813,
+   "wide turnover": 0.2551887310217274,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-07-31",
+   "current": 0.03993200796364982,
+   "wide": 0.04143865013417014,
+   "quarterly": 0.039341350194861846,
+   "current turnover": 0.2463984152224782,
+   "wide turnover": 0.07498296518017347,
+   "quarterly turnover": 0.36986351807337187
+  },
+  {
+   "month_end": "2019-08-31",
+   "current": 0.05536124387221575,
+   "wide": 0.03838206621213924,
+   "quarterly": 0.08090056088333952,
+   "current turnover": 0.4003619675197938,
+   "wide turnover": 0.29409870781665365,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-09-30",
+   "current": -0.021860292027678474,
+   "wide": -0.020636711977643052,
+   "quarterly": -0.015452256370100947,
+   "current turnover": 0.29898583040025767,
+   "wide turnover": 0.2273718886123339,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-10-31",
+   "current": -0.018543589608353006,
+   "wide": -0.0034701946074185974,
+   "quarterly": -0.026048466550463334,
+   "current turnover": 0.5083388920219227,
+   "wide turnover": 0.3184198167151766,
+   "quarterly turnover": 0.5533908548834788
+  },
+  {
+   "month_end": "2019-11-30",
+   "current": 0.036340223066234634,
+   "wide": 0.033820679984792434,
+   "quarterly": 0.046386968530045314,
+   "current turnover": 0.25397724076009454,
+   "wide turnover": 0.2823943380122836,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2019-12-31",
+   "current": 0.017099021640532674,
+   "wide": 0.03058069000973984,
+   "quarterly": 0.02822139575071292,
+   "current turnover": 0.4117729000027068,
+   "wide turnover": 0.22951638702573463,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-01-31",
+   "current": 0.054975788652877,
+   "wide": 0.051842942777590384,
+   "quarterly": 0.05441398135019604,
+   "current turnover": 0.18118587765973357,
+   "wide turnover": 0.28750721579370586,
+   "quarterly turnover": 0.6764602250760552
+  },
+  {
+   "month_end": "2020-02-29",
+   "current": -0.07317932949471462,
+   "wide": -0.08669910008665083,
+   "quarterly": -0.08675061365550574,
+   "current turnover": 0.246735240076785,
+   "wide turnover": 0.19448185339567478,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-03-31",
+   "current": -0.08152859795374656,
+   "wide": -0.08271305532406703,
+   "quarterly": -0.09757900398195896,
+   "current turnover": 0.3491622129814239,
+   "wide turnover": 0.3442737365148658,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-04-30",
+   "current": 0.06586791019652583,
+   "wide": 0.07846879333599577,
+   "quarterly": 0.07988837933554516,
+   "current turnover": 0.3874937059250525,
+   "wide turnover": 0.3142145550116056,
+   "quarterly turnover": 0.5471033664454019
+  },
+  {
+   "month_end": "2020-05-31",
+   "current": 0.024827318476905003,
+   "wide": 0.042183143531916656,
+   "quarterly": 0.047714177703741756,
+   "current turnover": 0.3224666316314973,
+   "wide turnover": 0.31240357087089293,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-06-30",
+   "current": 0.02510513206245779,
+   "wide": 0.03491474110119985,
+   "quarterly": 0.02169642201556754,
+   "current turnover": 0.17785927866787918,
+   "wide turnover": 0.1644233823357425,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-07-31",
+   "current": 0.05446748884555963,
+   "wide": 0.057008616266944534,
+   "quarterly": 0.05958695947335979,
+   "current turnover": 0.32284708111035737,
+   "wide turnover": 0.16946518938913446,
+   "quarterly turnover": 0.8250660299960818
+  },
+  {
+   "month_end": "2020-08-31",
+   "current": 0.03768465946908717,
+   "wide": 0.03776735845973622,
+   "quarterly": 0.045902273446209785,
+   "current turnover": 0.4270524179284957,
+   "wide turnover": 0.258297678867418,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-09-30",
+   "current": 0.07735684327482062,
+   "wide": 0.06819959667429631,
+   "quarterly": 0.07868842038096968,
+   "current turnover": 0.23436393238058534,
+   "wide turnover": 0.22312739949461613,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-10-31",
+   "current": -0.022593469090642193,
+   "wide": -0.02831492577942063,
+   "quarterly": -0.04206639045569438,
+   "current turnover": 0.19031181144391668,
+   "wide turnover": 0.18050004043808265,
+   "quarterly turnover": 0.6072193839390811
+  },
+  {
+   "month_end": "2020-11-30",
+   "current": 0.03259300708504731,
+   "wide": 0.030900567619534414,
+   "quarterly": 0.04271919504340005,
+   "current turnover": 0.23420036118989435,
+   "wide turnover": 0.3126753233835639,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2020-12-31",
+   "current": 0.023320559887181513,
+   "wide": 0.0259145225474835,
+   "quarterly": 0.04381448444486402,
+   "current turnover": 0.31285150329925554,
+   "wide turnover": 0.18129920185855403,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-01-31",
+   "current": -0.038401412198637574,
+   "wide": -0.01941136857681769,
+   "quarterly": -0.03999136032791495,
+   "current turnover": 0.315346624876442,
+   "wide turnover": 0.1590976803306368,
+   "quarterly turnover": 0.39646283728873233
+  },
+  {
+   "month_end": "2021-02-28",
+   "current": 0.015767092173938346,
+   "wide": 0.030603202388007622,
+   "quarterly": -0.00698471836017156,
+   "current turnover": 0.25739587184422763,
+   "wide turnover": 0.4271073752871559,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-03-31",
+   "current": 0.024237531051411354,
+   "wide": 0.04644594705289551,
+   "quarterly": 0.03276604227447533,
+   "current turnover": 0.28164877602999,
+   "wide turnover": 0.19638500348145416,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-04-30",
+   "current": 0.03527734685303918,
+   "wide": 0.04875843715253536,
+   "quarterly": 0.046484366682588485,
+   "current turnover": 0.7227631810676439,
+   "wide turnover": 0.5587025996155873,
+   "quarterly turnover": 0.8012004663686886
+  },
+  {
+   "month_end": "2021-05-31",
+   "current": 0.0637372364577633,
+   "wide": 0.060892776204506616,
+   "quarterly": 0.04659800574456652,
+   "current turnover": 0.15579336109918437,
+   "wide turnover": 0.15980758083378874,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-06-30",
+   "current": -0.030602791219745407,
+   "wide": -0.023066074099376555,
+   "quarterly": 0.006382242380938319,
+   "current turnover": 0.4548615208118774,
+   "wide turnover": 0.4320201314730007,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-07-31",
+   "current": 0.08608425392344832,
+   "wide": 0.09662272716642684,
+   "quarterly": 0.11073131581514195,
+   "current turnover": 0.27366557334412206,
+   "wide turnover": 0.08948041515043072,
+   "quarterly turnover": 0.5410447836997151
+  },
+  {
+   "month_end": "2021-08-31",
+   "current": -0.017325322364505236,
+   "wide": -0.01782086464279875,
+   "quarterly": 0.02002636336156227,
+   "current turnover": 0.4898897055641234,
+   "wide turnover": 0.6587105285614817,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-09-30",
+   "current": -0.07934854536516622,
+   "wide": -0.09210419513507329,
+   "quarterly": -0.08619012594973574,
+   "current turnover": 0.1556650021829562,
+   "wide turnover": 0.16903570231925824,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-10-31",
+   "current": 0.05243720659137052,
+   "wide": 0.05359146242865087,
+   "quarterly": 0.042695614439083984,
+   "current turnover": 0.5730361403785961,
+   "wide turnover": 0.40573072957805617,
+   "quarterly turnover": 0.7551219530606181
+  },
+  {
+   "month_end": "2021-11-30",
+   "current": -0.010104268755072976,
+   "wide": -0.003288433471837271,
+   "quarterly": -0.017189736413109058,
+   "current turnover": 0.30452933300516544,
+   "wide turnover": 0.3064319682382478,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2021-12-31",
+   "current": 0.02585226360824855,
+   "wide": 0.027357900181491868,
+   "quarterly": 0.049175927603627656,
+   "current turnover": 0.2577310591218608,
+   "wide turnover": 0.2596040884739785,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-01-31",
+   "current": -0.0010833052371810314,
+   "wide": -0.009075579458484584,
+   "quarterly": -0.0580243668042566,
+   "current turnover": 0.22741515483251257,
+   "wide turnover": 0.0676095875291587,
+   "quarterly turnover": 0.5768381974128767
+  },
+  {
+   "month_end": "2022-02-28",
+   "current": -0.023707946287493065,
+   "wide": -0.025025830498856094,
+   "quarterly": -0.03154108177215076,
+   "current turnover": 0.2447726963263591,
+   "wide turnover": 0.1789940920396995,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-03-31",
+   "current": 0.05626268031431847,
+   "wide": 0.03402305767673597,
+   "quarterly": 0.03483826768648246,
+   "current turnover": 0.14031463496854527,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-04-30",
+   "current": -0.003582474525026469,
+   "wide": -0.002069463023568141,
+   "quarterly": -0.004854325998299824,
+   "current turnover": 0.090500842026201,
+   "wide turnover": 0.15136148414202383,
+   "quarterly turnover": 0.2787322299227613
+  },
+  {
+   "month_end": "2022-05-31",
+   "current": -0.04777679604807894,
+   "wide": -0.0365762641675389,
+   "quarterly": -0.03143849007524835,
+   "current turnover": 0.42347419584408696,
+   "wide turnover": 0.168555240073878,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-06-30",
+   "current": -0.05172318483955718,
+   "wide": -0.08751519052257228,
+   "quarterly": -0.06336652406917886,
+   "current turnover": 0.4282283047787725,
+   "wide turnover": 0.3134994718321315,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-07-31",
+   "current": 0.017949298172724504,
+   "wide": 0.01733691856434616,
+   "quarterly": 0.02654268422169692,
+   "current turnover": 0.0674989529998876,
+   "wide turnover": 0.13155108966054924,
+   "quarterly turnover": 0.6749484203877374
+  },
+  {
+   "month_end": "2022-08-31",
+   "current": -0.053501964444999994,
+   "wide": -0.04814175405343435,
+   "quarterly": -0.05766728286523959,
+   "current turnover": 0.0,
+   "wide turnover": 0.06408956556858966,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-09-30",
+   "current": -0.04988123470632322,
+   "wide": -0.06062222044778687,
+   "quarterly": -0.04663773010415284,
+   "current turnover": 0.13688730406994665,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-10-31",
+   "current": 0.00524885424194621,
+   "wide": -0.0010080088276553933,
+   "quarterly": 0.015672477699822718,
+   "current turnover": 0.0593373313818457,
+   "wide turnover": 0.05641882957907358,
+   "quarterly turnover": 0.2275449705479032
+  },
+  {
+   "month_end": "2022-11-30",
+   "current": 0.04236853222529979,
+   "wide": 0.04528938838448715,
+   "quarterly": 0.04520405306322495,
+   "current turnover": 0.0,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2022-12-31",
+   "current": -0.011216249849308246,
+   "wide": -0.02116403717115789,
+   "quarterly": -0.029587910345720725,
+   "current turnover": 0.39903128847263314,
+   "wide turnover": 0.14439708068389934,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-01-31",
+   "current": 0.05866087484866833,
+   "wide": 0.05998266114169559,
+   "quarterly": 0.062377599955782737,
+   "current turnover": 0.23110629065742927,
+   "wide turnover": 0.10682185391295092,
+   "quarterly turnover": 0.2930751183482322
+  },
+  {
+   "month_end": "2023-02-28",
+   "current": 0.09948418174617268,
+   "wide": 0.10157783120589103,
+   "quarterly": 0.09123800080505196,
+   "current turnover": 0.0,
+   "wide turnover": 0.17820447114157015,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-03-31",
+   "current": -0.010421298307620175,
+   "wide": 0.000845332546393518,
+   "quarterly": 0.007018414768261039,
+   "current turnover": 0.06999412651917543,
+   "wide turnover": 0.06692093643034581,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-04-30",
+   "current": 0.053090139799512714,
+   "wide": 0.05917364885357257,
+   "quarterly": 0.053938611569463335,
+   "current turnover": 0.1659039729843953,
+   "wide turnover": 0.050314414475065336,
+   "quarterly turnover": 0.23062937793794333
+  },
+  {
+   "month_end": "2023-05-31",
+   "current": 0.0013567382551775697,
+   "wide": -0.02074555251180621,
+   "quarterly": -0.002835852396761873,
+   "current turnover": 0.3343825699988671,
+   "wide turnover": 0.2684724773097344,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-06-30",
+   "current": -0.017331954234355407,
+   "wide": -0.011231130371458065,
+   "quarterly": -0.0005133096480697263,
+   "current turnover": 0.3009370276054497,
+   "wide turnover": 0.2045474703421949,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-07-31",
+   "current": -0.051429945491992424,
+   "wide": -0.04696795317556712,
+   "quarterly": -0.036606510220982824,
+   "current turnover": 0.40954724414966437,
+   "wide turnover": 0.23327060158067248,
+   "quarterly turnover": 0.6183980069432361
+  },
+  {
+   "month_end": "2023-08-31",
+   "current": -0.0276171037355889,
+   "wide": -0.02914482109164329,
+   "quarterly": -0.008967316513658452,
+   "current turnover": 0.38992025904209227,
+   "wide turnover": 0.29964051013262466,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-09-30",
+   "current": -0.0006437284903444418,
+   "wide": 0.0006578681770579298,
+   "quarterly": -0.018986215015908692,
+   "current turnover": 0.15926261659404078,
+   "wide turnover": 0.10575043426536486,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-10-31",
+   "current": -0.012590097406160794,
+   "wide": -0.011058743839560403,
+   "quarterly": -0.000731488337802344,
+   "current turnover": 0.16341076139450286,
+   "wide turnover": 0.24854777132155012,
+   "quarterly turnover": 0.31414755808901496
+  },
+  {
+   "month_end": "2023-11-30",
+   "current": 0.09806910922094314,
+   "wide": 0.08786423391004816,
+   "quarterly": 0.09648185163105327,
+   "current turnover": 0.33230848118431106,
+   "wide turnover": 0.1522317631969829,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2023-12-31",
+   "current": 0.03377374448103043,
+   "wide": 0.04018976868428781,
+   "quarterly": 0.05429818756009075,
+   "current turnover": 0.07216476086982483,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-01-31",
+   "current": -0.0025796637740177486,
+   "wide": 0.005882878210848208,
+   "quarterly": -0.006744605482830512,
+   "current turnover": 0.08214610077250976,
+   "wide turnover": 0.260759866964199,
+   "quarterly turnover": 0.30914238967028773
+  },
+  {
+   "month_end": "2024-02-29",
+   "current": 0.11356925429482301,
+   "wide": 0.11568852856235035,
+   "quarterly": 0.1197367771075013,
+   "current turnover": 0.33180775930212236,
+   "wide turnover": 0.2740423197716045,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-03-31",
+   "current": 0.08130412580557489,
+   "wide": 0.06836046782417471,
+   "quarterly": 0.05798671518407561,
+   "current turnover": 0.25162937429564214,
+   "wide turnover": 0.10071489976881394,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-04-30",
+   "current": -0.0037797565451561654,
+   "wide": 0.02421550649033133,
+   "quarterly": 0.02377124053533297,
+   "current turnover": 0.1805550867316551,
+   "wide turnover": 0.2441726365344094,
+   "quarterly turnover": 0.3353200380014037
+  },
+  {
+   "month_end": "2024-05-31",
+   "current": 0.018549450882255014,
+   "wide": 0.01768804906378718,
+   "quarterly": 0.030338555805634604,
+   "current turnover": 0.23763953498177498,
+   "wide turnover": 0.17287765585372677,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-06-30",
+   "current": -0.0218692616034335,
+   "wide": -0.014993175585326646,
+   "quarterly": 0.003990386358138087,
+   "current turnover": 0.32115241632549396,
+   "wide turnover": 0.25417561119372156,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-07-31",
+   "current": 0.04319419841752681,
+   "wide": 0.0707083193490694,
+   "quarterly": 0.04189537686302325,
+   "current turnover": 0.3939100591877264,
+   "wide turnover": 0.07958770728222832,
+   "quarterly turnover": 0.42754010610060766
+  },
+  {
+   "month_end": "2024-08-31",
+   "current": 0.035428286275346554,
+   "wide": 0.029556041866394933,
+   "quarterly": 0.020488790483648156,
+   "current turnover": 0.31142331120677225,
+   "wide turnover": 0.31381614880887254,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-09-30",
+   "current": 0.017677279745511365,
+   "wide": 0.023732657241255062,
+   "quarterly": 0.005700273838089354,
+   "current turnover": 0.33453895712452325,
+   "wide turnover": 0.16420399209102457,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-10-31",
+   "current": -0.007756252764279936,
+   "wide": -0.021607921084369708,
+   "quarterly": -0.013252402716599887,
+   "current turnover": 0.2645646953073751,
+   "wide turnover": 0.1507626432897239,
+   "quarterly turnover": 0.5496451567930809
+  },
+  {
+   "month_end": "2024-11-30",
+   "current": -0.02387288630103601,
+   "wide": -0.026600100200123933,
+   "quarterly": -0.030816734717518335,
+   "current turnover": 0.33568692391899707,
+   "wide turnover": 0.16477392689367168,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2024-12-31",
+   "current": 0.005983463320329951,
+   "wide": 0.0019005255414077382,
+   "quarterly": 0.009759700851625697,
+   "current turnover": 0.38483629017687854,
+   "wide turnover": 0.2234944660261573,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-01-31",
+   "current": 0.02479482609708472,
+   "wide": 0.016843116176202377,
+   "quarterly": 0.01716807390588415,
+   "current turnover": 0.2505087269275564,
+   "wide turnover": 0.16818297277198851,
+   "quarterly turnover": 0.5082788458854548
+  },
+  {
+   "month_end": "2025-02-28",
+   "current": 0.003718462206868889,
+   "wide": -0.0192314770529195,
+   "quarterly": 0.010277538590727886,
+   "current turnover": 0.3849629310425355,
+   "wide turnover": 0.21941978090239425,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-03-31",
+   "current": 0.026962856669903834,
+   "wide": 0.004661468846580696,
+   "quarterly": 0.0008628834086528148,
+   "current turnover": 0.43863478676794526,
+   "wide turnover": 0.24577476878233756,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-04-30",
+   "current": 0.061058749117158806,
+   "wide": 0.05548433960913535,
+   "quarterly": 0.03780710513430696,
+   "current turnover": 0.06626291411705049,
+   "wide turnover": 0.07415727006439765,
+   "quarterly turnover": 0.5461300126929557
+  },
+  {
+   "month_end": "2025-05-31",
+   "current": 0.052541910688318705,
+   "wide": 0.05232330573282362,
+   "quarterly": 0.02953475138252437,
+   "current turnover": 0.09558587795890885,
+   "wide turnover": 0.23068300399913613,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-06-30",
+   "current": 0.0018924237532929045,
+   "wide": 0.008375422339995442,
+   "quarterly": 0.004650215022895976,
+   "current turnover": 0.0602538715755586,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-07-31",
+   "current": -0.015907865776842223,
+   "wide": 0.006178632031319742,
+   "quarterly": -0.012091451323356317,
+   "current turnover": 0.07410087089250994,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.14704146721193015
+  },
+  {
+   "month_end": "2025-08-31",
+   "current": -0.009803982247318155,
+   "wide": -0.0047869671257931845,
+   "quarterly": 0.016543586985139136,
+   "current turnover": 0.4370836534888601,
+   "wide turnover": 0.17572463121151516,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-09-30",
+   "current": 0.00017346594444345165,
+   "wide": 0.0042886131586363785,
+   "quarterly": -0.0020033648008991323,
+   "current turnover": 0.1665782366882442,
+   "wide turnover": 0.07499477259849092,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-10-31",
+   "current": -0.009385565049139899,
+   "wide": 0.00011514961010994362,
+   "quarterly": 0.00737221957315537,
+   "current turnover": 0.2536861770207425,
+   "wide turnover": 0.19733122925981056,
+   "quarterly turnover": 0.5258348097533699
+  },
+  {
+   "month_end": "2025-11-30",
+   "current": 0.025403598034589026,
+   "wide": 0.027824328283341915,
+   "quarterly": 0.03207480165122312,
+   "current turnover": 0.3073749943068436,
+   "wide turnover": 0.12940563694147242,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2025-12-31",
+   "current": 0.03920764421761769,
+   "wide": 0.06008821514824736,
+   "quarterly": 0.06538528041456315,
+   "current turnover": 0.24852165952066613,
+   "wide turnover": 0.0,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-01-31",
+   "current": 0.024545008902483012,
+   "wide": -0.004043077900902303,
+   "quarterly": 0.026709454559547652,
+   "current turnover": 0.2451344306269254,
+   "wide turnover": 0.1760729374128875,
+   "quarterly turnover": 0.47682850017970346
+  },
+  {
+   "month_end": "2026-02-28",
+   "current": 0.07186824486319243,
+   "wide": 0.07510834209362782,
+   "quarterly": 0.07518284276059717,
+   "current turnover": 0.20532880354600969,
+   "wide turnover": 0.04621600512628826,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-03-31",
+   "current": -0.0389328681081067,
+   "wide": -0.0353833445950682,
+   "quarterly": -0.05130758673151403,
+   "current turnover": 0.3167345383441291,
+   "wide turnover": 0.37882912923087436,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-04-30",
+   "current": -0.012391820033494372,
+   "wide": -0.007923851487595446,
+   "quarterly": -0.015653763241299967,
+   "current turnover": 0.473875551435911,
+   "wide turnover": 0.3258422820361056,
+   "quarterly turnover": 0.4972563155363329
+  },
+  {
+   "month_end": "2026-05-31",
+   "current": -0.00963143864635152,
+   "wide": 0.008721155532280589,
+   "quarterly": 0.0011216363102355409,
+   "current turnover": 0.08178135403640616,
+   "wide turnover": 0.08393576525224654,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-06-30",
+   "current": 0.039602059237530796,
+   "wide": 0.03949074675593822,
+   "quarterly": 0.043409059419896145,
+   "current turnover": 0.2513985760407298,
+   "wide turnover": 0.17687035122999373,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-07-31",
+   "current": -0.025968463533718178,
+   "wide": -0.02211260657854741,
+   "quarterly": -0.021201363776951032,
+   "current turnover": 0.08819649067360982,
+   "wide turnover": 0.08216955932301596,
+   "quarterly turnover": 0.23163419051926779
+  },
+  {
+   "month_end": "2026-08-31",
+   "current": -0.029323797124157336,
+   "wide": -0.034033398535842196,
+   "quarterly": -0.0207979622417368,
+   "current turnover": 0.28872444251271256,
+   "wide turnover": 0.28366429386975267,
+   "quarterly turnover": 0.0
+  },
+  {
+   "month_end": "2026-09-30",
+   "current": 0.001864882036403115,
+   "wide": -0.004273516662242627,
+   "quarterly": -0.015395865839062384,
+   "current turnover": 0.30136925613590737,
+   "wide turnover": 0.07763454323292814,
+   "quarterly turnover": 0.0
+  }
+ ]
+}
