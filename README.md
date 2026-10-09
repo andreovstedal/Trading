@@ -41,7 +41,12 @@ nordic-signals web                     # http://127.0.0.1:8000, or --host/--port
 
 Each stock links to a page with its score, themes, key figures, announcements, insider trades and open short positions.
 
-How a recommendation is made (model v3, explained in the app under **Slik ble dette beregnet**): every stock gets a percentile rank within its own country on momentum, value, quality and low volatility; small capped adjustments are added for insider trading, buybacks and short interest. Filters remove unprofitable, illiquid and very small companies, penny stocks and duplicate share classes, and the top-ranked stocks get equal weights in whole shares. Since v2 the filters also remove windfalls: a P/E below 4 (usually a one-off gain, changes in the value of holdings, or a short-lived peak) and a rise of more than 300 % in 12 months (an event, not momentum). The low-volatility theme only counts once the price history is loaded (**Hent historikk**). Since v3 a buyback counts as new only when the notice announces a programme: most buyback notices are the weekly reports of programmes already running ("transactions in week 40", "status etter uke 40"), and v2 counted those as new too. The short-term sleeve follows new buyback programmes and clusters of insider buying, and stays on paper by default, so its track record builds up before any money goes in.
+How a recommendation is made (model v4, explained in the app under **Slik ble dette beregnet**): every stock gets a percentile rank within its own country on momentum, value, quality and low volatility; small capped adjustments are added for Norwegian insider notices, Swedish insider selling and short interest. Filters remove unprofitable, illiquid and very small companies, penny stocks and duplicate share classes, and the top-ranked stocks get equal weights in whole shares. Since v2 the filters also remove windfalls: a P/E below 4 (usually a one-off gain, changes in the value of holdings, or a short-lived peak) and a rise of more than 300 % in 12 months (an event, not momentum). The low-volatility theme only counts once the price history is loaded (**Hent historikk**). Since v3 a buyback counts as new only when the notice announces a programme: most buyback notices are the weekly reports of programmes already running ("transactions in week 40", "status etter uke 40"), and v2 counted those as new too. v4 follows the published evidence and our own backtests (`research/RESULTS-2026-10.md`):
+- **Value** is sales/price (two thirds) and book/price (one third). Earnings yield has earned little in Norwegian large caps since 2009 and dividend yield lost money in Norway in 2010–25; earnings now count once, in quality (return on equity), so a cyclical company at peak earnings no longer scores high on value and quality at once.
+- **No bonus for buybacks or Swedish insider buying:** the event study found none after costs, at 5, 20 or 250 days.
+- **At most 3 of the long-term positions from one sector**, Yahoo's sector for each stock (collected monthly, `yahoo-sektor`). A stock whose sector is not known yet is not capped.
+
+The short-term sleeve follows new buyback programmes on paper by default: the event study found no gain after costs over 5 days, so they are followed, not funded. Several Swedish insiders buying at once was a signal until v4; it lost 0.84 % a trade after costs.
 
 Set `APP_PASSWORD` to require a login, and `SECRET_KEY` so sessions survive restarts. On Railway the app refuses to serve pages until `APP_PASSWORD` is set.
 
@@ -57,17 +62,26 @@ nordic-signals evaluate                        # score past recommendations agai
 
 The **Lekepenger** page runs the advice the way a Nordnet customer in Norway would trade it, with 500,000 NOK of play money, so the model can be calibrated on realistic results before any real money is involved. Nothing is traded. Code: `src/nordic_signals/advisor/paper.py`.
 
-What it follows: the advisor's own default policy, 90 % in the long-term part and 10 % in the short-term part (no cash part), at most 12 positions of at least 20,000 NOK. Both parts trade, since it is all play money.
+The rules come in versions (`VERSIONS`), each a fresh account of 500,000 NOK from its first evening. The one before stops deciding then; the page shows its result at the close of its last trading day, against the indexes.
+
+| Version | From | Rules |
+|---|---|---|
+| `lekepenger-1` | 5 October 2026 | 90 % long-term and 10 % in the short-term signals, model v2 to v4 |
+| `lekepenger-2` | 2 November 2026 | all of it long-term, model v4, only shares an ASK can hold; the short-term signals followed on paper only |
+
+What it follows: at most 12 positions of at least 20,000 NOK, no cash part.
 - **Long-term part.** Rebalanced on the first trading evening of each month, from that evening's recommendation, which is logged like any other so the track record measures it too:
   - Holdings the advisor still ranks among the best 24 eligible stocks stay.
   - The rest are sold.
   - The best-ranked stocks it doesn't hold are bought until it holds 12.
 
   This is the research report's buy/hold spread: stricter to enter than to stay, which keeps turnover and courtage down.
-- **Short-term part.** Every evening it buys the advisor's event signals (a new buyback programme, several insiders buying):
+  - At most 3 from one sector.
+- **Short-term part** (`lekepenger-1` only). Every evening it bought the advisor's event signals:
   - at most 2 new ones an evening
-  - as many at once as its 50,000 NOK allows (two slots of 25,000)
+  - as many at once as its 50,000 NOK allowed (two slots of 25,000)
   - each sold after 5 trading days, the signals' horizon
+- **Signals on paper.** Every evening's short-term signals are logged (`paper_signals`), bought or not, and followed on paper (`advisor/paper_signals.py`): bought at the opening of the stock's next trading day and sold at the close of its market's 5th trading day, after Nordnet's costs for 25,000 NOK, against the market's index over the same days. The same stock and signal within 7 days of its first evening is one event. The page shows each and the average; the export has them all.
 
 How it trades:
 - **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
@@ -243,6 +257,7 @@ nordic-signals collect fi-short                # Swedish short positions (named 
 nordic-signals collect no-short                # Norwegian short positions
 nordic-signals collect mfn --slug nibe-industrier --days 30
 nordic-signals collect yahoo --symbol EQNR.OL --symbol VOLV-B.ST --range 1y
+nordic-signals collect yahoo-sektor --universe NO --universe SE [--limit 200]   # each share's sector, monthly
 nordic-signals collect intraday                # today's NewsWeb announcements and FI insider trades
 nordic-signals collect daily                   # nordnet, newsweb, fi-insider, fi-short, no-short, SEK/NOK rate, OSEBX and OMX Stockholm Benchmark
 nordic-signals collect backfill                # one-off history load for a new database (1-2 hours)
@@ -262,6 +277,7 @@ The database is `--db` if given, else the `DATABASE_URL` environment variable (P
 | Finanstilsynet short-sale register | `no-short` | `ssr.finanstilsynet.no/api/v2/instruments` | `no_short_totals`, `no_short_positions` |
 | MFN press releases | `mfn` | `feed.mfn.se/v1/feed/{entity}` (entity IDs read from `mfn.se/all/a/{slug}`) | `mfn_items`, `mfn_entities` |
 | Yahoo Finance | `yahoo` | `query1.finance.yahoo.com/v8/finance/chart/{symbol}` | `price_bars`, `dividends`, `splits` |
+| Yahoo Finance search | `yahoo-sektor` | `query2.finance.yahoo.com/v1/finance/search?q={symbol}` | `sectors` |
 | Nordnet stock list | `nordnet` | `www.nordnet.no/api/2/instrument_search/query/stocklist` | `instruments`, `nordnet_observations` |
 | Firi order books, and Yahoo daily closes for the coins | `krypto` | `api.firi.com/v2/markets/{market}/depth`, Yahoo's chart API | `crypto_quotes`, `price_bars` |
 
@@ -283,6 +299,7 @@ The web service runs the collection itself, in two background threads (`src/nord
 | lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks, SEK/NOK and the two indexes, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
 | prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
+| sektorer | `nordic-signals collect yahoo-sektor --universe NO --universe SE --limit 200` | right after the prices, on weekdays: each share's sector and industry, up to 200 a night not looked up in the last 30 days (about 13 minutes; the first fill takes 7 weeknights) |
 
 How it behaves:
 - **Nothing runs twice.** A job is due when the `runs` log shows it hasn't run recently. Whatever already ran, from the schedule, a button on the Data page or a separate cron service, is not repeated.

@@ -15,7 +15,8 @@ needed. Two background threads:
   * nightly from 20:30: the daily set, then outcomes for past recommendations, then the play-money account's
     orders for the next opening (``advisor.paper``; tried again an hour later if the closing prices are missing)
   * MFN from 21:00: Swedish press releases
-  * prices from 21:30: Yahoo end-of-day prices for every share, about 90 minutes
+  * prices from 21:30: Yahoo end-of-day prices for every share, about 90 minutes; then each share's sector, up to
+    200 a night that were not looked up in the last 30 days
 
   These wait while a job started from the web page is running.
 
@@ -50,6 +51,7 @@ log = logging.getLogger(__name__)
 
 TICK = 30.0  # seconds between checks
 RETRY_AFTER = timedelta(hours=1)
+SECTORS_A_NIGHT = 200  # about 13 minutes at Yahoo's 4 s: the first fill of ~1,260 shares takes 7 weeknights
 INTERRUPTED_AFTER = timedelta(hours=3)  # no run takes this long; an unfinished one was cut off
 CLEANUP_EVERY = timedelta(hours=1)
 INTERRUPTED = "Avbrutt (tjenesten startet på nytt)"
@@ -287,4 +289,7 @@ JOBS = [
         _source("mfn", universe=["SE"], days=3, max_pages=1)),
     Job("prices", "nordic", daily(time(21, 30), done=universe_prices),
         _source("yahoo", universe=["NO", "SE"], range_="5d")),
+    # After the prices, in the same lane: each share's sector, at most SECTORS_A_NIGHT not looked up this month.
+    Job("sektorer", "nordic", daily(time(21, 30), done=ran("yahoo-sektor")),
+        _source("yahoo-sektor", universe=["NO", "SE"], limit=SECTORS_A_NIGHT)),
 ]

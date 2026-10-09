@@ -26,6 +26,7 @@ SOURCES = {
     "krypto": "Kryptokontoens kurser: Firis ordrebøker hvert kvarter og daglige sluttkurser (Yahoo)",
     "lekepenger": "Lekepengekontoens beslutninger etter børsslutt (henter ingenting selv)",
     "lekepenger-kurser": "Lekepengekontoens aksjer hver halvtime mens børsene er åpne, og en time etter (Yahoo)",
+    "yahoo-sektor": "Hver aksjes sektor og bransje, slått opp på nytt etter 30 dager (Yahoo)",
 }
 
 

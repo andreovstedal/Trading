@@ -1,6 +1,6 @@
 """Collectors end to end against a fake server serving recorded responses."""
 
-from datetime import date
+from datetime import date, datetime, timezone
 
 import httpx
 import pytest
@@ -143,6 +143,29 @@ def test_mfn_resolves_slugs_once_and_caches_misses(server, store):
     server.requests.clear()
     run("mfn", server, store, slugs=["nibe-industrier", "no-such-company"])
     assert [r.url.host for r in server.requests] == ["feed.mfn.se"]  # both slugs answered from the cache
+
+
+SEARCH = "https://query2.finance.yahoo.com/v1/finance/search"
+
+
+def test_sectors_from_yahoos_search_once_a_month(server, store):
+    answers = {
+        "FRO.OL": {"quotes": [{"symbol": "FRO", "sector": "Energy"},  # the US listing comes first
+                              {"symbol": "FRO.OL", "sector": "Energy", "industry": "Oil & Gas Midstream"}]},
+        "OET.OL": {"quotes": [{"symbol": "OET.OL", "sector": "Industrials", "industry": "Marine Shipping"}]},
+        "GONE.OL": {"quotes": []},
+    }
+    server.add("GET", SEARCH, lambda request: httpx.Response(200, json=answers[request.url.params["q"]]))
+    now = datetime(2026, 10, 9, 22, tzinfo=timezone.utc)
+
+    summary = run("yahoo-sektor", server, store, symbols=["FRO.OL", "OET.OL", "GONE.OL"], limit=2, now=now)
+
+    rows = {r["symbol"]: (r["sector"], r["industry"]) for r in store.query(store.table("sectors").select())}
+    assert rows == {"FRO.OL": ("Energy", "Oil & Gas Midstream"), "OET.OL": ("Industrials", "Marine Shipping")}
+    assert summary.fetches == 2  # the limit
+    run("yahoo-sektor", server, store, symbols=["FRO.OL", "OET.OL", "GONE.OL"], now=now)
+    rows = {r["symbol"]: r["sector"] for r in store.query(store.table("sectors").select())}
+    assert rows == {"FRO.OL": "Energy", "OET.OL": "Industrials", "GONE.OL": None}  # looked up once: not listed
 
 
 def test_yahoo_warns_on_bad_symbol_and_continues(server, store):

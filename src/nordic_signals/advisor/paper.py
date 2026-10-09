@@ -1,8 +1,7 @@
 """A play-money Nordnet account that trades on the advisor's recommendations, to calibrate them.
 
-Nothing here trades. The account starts with 500 000 NOK and follows the advisor's own rules (the default
-policy: 90 % in the long-term part, 10 % in the short-term part, up to 12 positions of at least 20 000 NOK),
-the way a customer of Nordnet in Norway would trade them:
+Nothing here trades. The account starts with 500 000 NOK and follows the advisor's own rules (up to 12 positions
+of at least 20 000 NOK), the way a customer of Nordnet in Norway would trade them on an ASK:
 
 * **When.** Orders are decided in the evening, once both markets have closed and the nightly data is in
   (``decide``), and fill at the opening price of the stock's next trading day: the opening auction, where every
@@ -24,15 +23,16 @@ the way a customer of Nordnet in Norway would trade them:
 
 The long-term part is rebalanced once a month, on the first trading evening: holdings the advisor still ranks
 among the best 2 × 12 eligible stocks stay, the rest are sold, and the best-ranked stocks it does not hold are
-bought until it holds 12 (the research report's buy/hold spread: stricter to enter than to stay, so turnover
-and courtage stay low). That evening's recommendation is logged like any other, so the track record measures it
-too. The short-term part buys the advisor's event signals (a new buyback programme, several insiders buying)
-every evening, at most 2 a day and as many at once as its 50 000 NOK allows, and sells each after 5 trading
-days, the signals' horizon.
+bought until it holds 12, at most 3 from one sector (the research report's buy/hold spread: stricter to enter than
+to stay, so turnover and courtage stay low). That evening's recommendation is logged like any other, so the track
+record measures it too. Every evening's short-term signals are logged (``paper_signals``) and followed on paper
+whether bought or not (``paper_signals.record``); the first account also bought them, at most 2 a day and as many
+at once as its 50 000 NOK allowed, selling each after 5 trading days.
 
-The account is a replay (``account``): the orders are stored, and the fills, fees, dividends and value are
-worked out from the prices each time, so late data corrects the history. Change ``ACCOUNT`` when the rules
-change, and the account starts again from scratch.
+The rules come in versions (``VERSIONS``), each a fresh account of 500 000 NOK from its first evening; the one
+before it stops deciding then and keeps its record. The account is a replay (``account``): the orders are
+stored, and the fills, fees, dividends and value are worked out from the prices each time, so late data
+corrects the history. A change to the rules is a new version.
 """
 
 from __future__ import annotations
@@ -54,14 +54,46 @@ from . import recommend
 from .allocation import MAX_SHORT_POSITIONS, SHORT_HORIZON_DAYS, Policy, short_sleeve
 from .features import build_features, trading_day
 from .recommend import FX_PAIRS, load_fx
-from .scoring import MODEL_VERSION, score_stocks
+from .scoring import MODEL_VERSION, PARAMS, score_stocks
 
-ACCOUNT = "lekepenger-1"  # a new name starts a new account
 ORIGIN = "lekepenger"  # recommendations.origin of the account's monthly recommendations
 START = 500_000.0  # NOK
-POLICY: dict[str, Any] = {"long_pct": 90.0, "short_pct": 10.0, "cash_pct": 0.0, "max_positions": 12,
-                          "min_position": 20_000.0, "short_paper_only": False, "ask_only": False,
-                          "countries": ("NO", "SE")}
+
+
+@dataclass(frozen=True)
+class Version:
+    """One set of the account's rules, run as its own account from ``first_evening`` until the next version's."""
+    name: str  # paper_orders.account and paper_days.account
+    first_evening: date
+    policy: dict[str, Any]
+    hold_rank: int = 2  # long-term holdings stay while ranked among the best hold_rank × positions
+    rebalance_months: tuple[int, ...] | None = None  # the months the long-term part is rebalanced; None: every month
+    about: str = ""
+
+
+VERSIONS = (
+    Version("lekepenger-1", date(2026, 10, 5),
+            {"long_pct": 90.0, "short_pct": 10.0, "cash_pct": 0.0, "max_positions": 12, "min_position": 20_000.0,
+             "short_paper_only": False, "ask_only": False, "countries": ("NO", "SE")},
+            about="90 % langsiktig og 10 % i kortsiktige signaler, modell v2 til v4"),
+    # The backtests (research/RESULTS-2026-10.md): no short-term signal earned its costs, so they are only
+    # followed on paper; the account holds shares an ASK can hold, as the dividends already assume.
+    Version("lekepenger-2", date(2026, 11, 2),
+            {"long_pct": 100.0, "short_pct": 0.0, "cash_pct": 0.0, "max_positions": 12, "min_position": 20_000.0,
+             "short_paper_only": True, "ask_only": True, "countries": ("NO", "SE")},
+            about="hele beløpet langsiktig, modell v4, kortsiktige signaler bare på papir"),
+)
+
+
+def version_on(day: date) -> Version:
+    """The version deciding on the evening of ``day``: the latest to have started (the first, before any had)."""
+    started = [v for v in VERSIONS if v.first_evening <= day]
+    return started[-1] if started else VERSIONS[0]
+
+
+def _next(version: Version) -> Version | None:
+    later = [v for v in VERSIONS if v.first_evening > version.first_evening]
+    return later[0] if later else None
 
 # Nordnet Norway, class Mini, Nordic shares; automatic currency exchange (nordnet.no/kundeservice/prisliste).
 COURTAGE = 0.0015
@@ -69,7 +101,6 @@ COURTAGE_MIN = 29.0  # NOK
 FX_SPREAD = 0.0025  # on each exchange
 SE_DIVIDEND_TAX = 0.15
 
-HOLD_RANK = 2  # long-term holdings stay while ranked among the best HOLD_RANK × positions
 SHORT_HOLD = SHORT_HORIZON_DAYS  # trading days a short-term position is held
 MAX_NEW_SHORT = 2  # new short-term trades an evening
 ORDER_DAYS = 5  # an order lapses if its stock has not traded within this many of its market's trading days
@@ -215,12 +246,13 @@ class Lot:
     opened_on: date
 
 
-def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
-    """Every order filled at its opening price in turn, dividends credited, and the value at each day's close."""
-    now = now or utcnow()
-    orders = _orders(store)
+def account(store: Store, now: datetime | None = None, version: Version | None = None) -> dict[str, Any]:
+    """Every order filled at its opening price in turn, dividends credited, and the value at each day's close; for
+    ``version``, or the one deciding on the evening of ``now``."""
+    version = version or version_on(evening_of(now or utcnow()))
+    orders = _orders(store, version.name)
     if not orders:
-        return _summary(START, {}, [], [], [], [], [], [], _closes({}), {}, [])
+        return _summary(version, START, {}, [], [], [], [], [], [], _closes({}), {}, [])
     since = min(o["decided_on"] for o in orders)
     stocks = {o["instrument_id"]: o for o in orders}
     prices = _prices(store, stocks, since)
@@ -280,8 +312,8 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                 if shares == 0:
                     lapsed.append({**o, "status": "Ikke kjøpt: ikke nok penger"})
                     continue
-                if shares < CUT_KEEPS * o["shares"] and shares * price * rate < POLICY["min_position"]:
-                    smallest = f"{POLICY['min_position']:,.0f}".replace(",", " ")
+                if shares < CUT_KEEPS * o["shares"] and shares * price * rate < version.policy["min_position"]:
+                    smallest = f"{version.policy['min_position']:,.0f}".replace(",", " ")
                     lapsed.append({**o, "status": f"Ikke kjøpt: pengene som var igjen ved åpningen, ga en posisjon "
                                                   f"under {smallest} NOK"})
                     continue
@@ -295,7 +327,7 @@ def account(store: Store, now: datetime | None = None) -> dict[str, Any]:
                     for i, lot in holdings.items())
         history.append((day, cash + worth, cash))
         yardstick.close(day, holdings, close, cash + worth)
-    return _summary(cash, holdings, trades, received, history, pending, lapsed, orders, close, fx,
+    return _summary(version, cash, holdings, trades, received, history, pending, lapsed, orders, close, fx,
                     yardstick.history)
 
 
@@ -306,8 +338,8 @@ def _turn(o: dict[str, Any]) -> tuple:
     return o["side"] != "sell", o["sleeve"] != "short", o["decided_at"], o["id"]
 
 
-def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list, history: list, pending: list,
-             lapsed: list, orders: list, close: Callable[[int, date], float], fx: dict,
+def _summary(version: Version, cash: float, holdings: dict[int, Lot], trades: list, received: list, history: list,
+             pending: list, lapsed: list, orders: list, close: Callable[[int, date], float], fx: dict,
              yardstick: list[tuple[date, float]]) -> dict[str, Any]:
     latest = history[-1][0] if history else None
     positions = []
@@ -324,7 +356,8 @@ def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list
     equity = cash + worth
     sales = [t for t in trades if t["side"] == "sell"]
     return {
-        "account": ACCOUNT, "start": START, "cash": cash, "positions_value": worth, "equity": equity,
+        "account": version.name, "version": version, "start": START, "cash": cash, "positions_value": worth,
+        "equity": equity,
         "result": equity / START - 1, "valued_on": latest,
         "positions": sorted(positions, key=lambda p: (p["sleeve"] != "long", -p["value"])),
         "trades": trades, "dividends": received, "pending": pending, "lapsed": lapsed, "orders": orders,
@@ -337,8 +370,9 @@ def _summary(cash: float, holdings: dict[int, Lot], trades: list, received: list
     }
 
 
-def _versus(yardstick: list[tuple[date, float]], history: list) -> dict[str, Any] | None:
-    """The yardstick at its latest day, and the account against it on that day."""
+def _versus(yardstick: list[tuple[date, float]], history: list, until: date | None = None) -> dict[str, Any] | None:
+    """The yardstick at its latest day (up to ``until``), and the account against it on that day."""
+    yardstick = [(d, v) for d, v in yardstick if until is None or d <= until]
     if not yardstick:
         return None
     day, value = yardstick[-1]
@@ -482,10 +516,30 @@ def _rate(fx: dict[str, list[tuple[date, float]]], currency: str | None, day: da
 
 # Reading the stored data
 
-def _orders(store: Store) -> list[dict[str, Any]]:
+def _orders(store: Store, name: str) -> list[dict[str, Any]]:
     t = store.table("paper_orders")
     return [{**r, "decided_at": _utc(r["decided_at"])}
-            for r in store.query(select(t).where(t.c.account == ACCOUNT).order_by(t.c.decided_at, t.c.id))]
+            for r in store.query(select(t).where(t.c.account == name).order_by(t.c.decided_at, t.c.id))]
+
+
+def finished(store: Store, now: datetime | None = None) -> list[dict[str, Any]]:
+    """The versions before the current one, each at the close of its last trading day: value, and the yardstick."""
+    now = now or utcnow()
+    current = version_on(evening_of(now))
+    out = []
+    for version in VERSIONS:
+        later = _next(version)
+        if version is current or later is None or later.first_evening > current.first_evening:
+            continue
+        state = account(store, now, version)
+        days = [(d, e) for d, e, _ in state["history"] if d < later.first_evening]
+        if not days:
+            continue
+        day, equity = days[-1]
+        out.append({"name": version.name, "about": version.about, "first_evening": version.first_evening,
+                    "until": day, "equity": equity, "result": equity / START - 1,
+                    "yardstick": _versus((state["yardstick"] or {}).get("history", []), state["history"], day)})
+    return out
 
 
 def _prices(store: Store, stocks: dict[int, dict[str, Any]], since: date) -> dict[int, dict[date, tuple]]:
@@ -555,6 +609,7 @@ class Pick:
     exclusion: str | None = None
     signal_type: str | None = None
     reason: str | None = None
+    sector: str | None = None  # Yahoo's, for the cap on one sector
 
 
 @dataclass
@@ -578,7 +633,8 @@ def scan(store: Store, policy: Policy, rebalance: bool) -> Scan:
         signals, _ = short_sleeve(scored, policy)
         return Scan(None, [], [Pick(s.stock.instrument_id, s.stock.symbol, s.stock.name, s.stock.country,
                                     s.stock.currency, s.stock.price, s.scored.fx, score=s.scored.score,
-                                    rank=s.scored.rank, signal_type=s.signal, reason=s.description)
+                                    rank=s.scored.rank, signal_type=s.signal, reason=s.description,
+                                    sector=s.stock.features.get("sector"))
                                for s in signals if s.direction > 0])
     rec_id = recommend.create(store, policy, origin=ORIGIN)
     recommend.run(store, rec_id)
@@ -588,7 +644,7 @@ def scan(store: Store, policy: Policy, rebalance: bool) -> Scan:
     s, sig = store.table("scores"), store.table("short_signals")
     picks = {r["instrument_id"]: Pick(r["instrument_id"], r["symbol"], r["name"], r["country"], r["currency"],
                                       r["ref_price"], r["fx_rate"], bool(r["eligible"]), r["rank"], r["score"],
-                                      r["exclusion"])
+                                      r["exclusion"], sector=(r["features"] or {}).get("sector"))
              for r in store.query(select(s).where(s.c.recommendation_id == rec_id))}
     signals = [replace(picks[r["instrument_id"]], signal_type=r["signal_type"], reason=r["description"])
                for r in store.query(select(sig).where(sig.c.recommendation_id == rec_id, sig.c.direction > 0))
@@ -603,24 +659,25 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
     again later (tonight's closing prices are not in yet)."""
     now = now or utcnow()
     today = evening_of(now)
-    if store.get("paper_days", account=ACCOUNT, decided_on=today):
+    version = version_on(today)
+    if store.get("paper_days", account=version.name, decided_on=today):
         return {"ok": True, "note": "Allerede bestemt i kveld"}
     if not any(trading_hours(country, today) for country in MARKETS):
         return {"ok": True, "note": "Børsene var stengt i dag"}
     if not _closed_today(store, today):
         return {"ok": False, "note": "Mangler sluttkurser fra i dag"}
-    state = account(store, now)
-    rebalance = _rebalance_due(store, today)
-    policy = Policy(account_value=state["equity"], **POLICY)
+    state = account(store, now, version)
+    rebalance = _rebalance_due(store, today, version)
+    policy = Policy(account_value=state["equity"], **version.policy)
     tonight = scanner(store, policy, rebalance)
-    orders, notes = _plan(state, policy, tonight, rebalance)
-    _save(store, today, now, rebalance, tonight, state, orders, notes)
-    return {"ok": True, "rebalance": rebalance, "orders": len(orders), "recommendation_id": tonight.recommendation_id,
-            "notes": notes}
+    orders, notes = _plan(state, policy, tonight, rebalance, version.hold_rank)
+    _save(store, version, today, now, rebalance, tonight, state, orders, notes)
+    return {"ok": True, "account": version.name, "rebalance": rebalance, "orders": len(orders),
+            "recommendation_id": tonight.recommendation_id, "notes": notes}
 
 
-def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
-          rebalance: bool) -> tuple[list[dict[str, Any]], list[str]]:
+def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
+          hold_rank: int = VERSIONS[0].hold_rank) -> tuple[list[dict[str, Any]], list[str]]:
     # Orders still waiting for their opening (a market holiday, a stock that did not trade) are counted as done:
     # their sales are not ordered again, their money is spoken for, and their short-term buys take their slots.
     selling_already = {o["instrument_id"] for o in state["pending"] if o["side"] == "sell"}
@@ -678,24 +735,41 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
         ranked = {p.instrument_id: p for p in tonight.picks}
         eligible = sorted((p for p in tonight.picks if p.eligible and p.rank), key=lambda p: p.rank)
         kept = pending_long
+        sectors: dict[str, int] = defaultdict(int)  # the long-term positions' sectors, for the cap
+        for o in state["pending"]:
+            if o["side"] == "buy" and o["sleeve"] == "long" and (pick := ranked.get(o["instrument_id"])) \
+                    and pick.sector:
+                sectors[pick.sector] += 1
         for p in (p for p in held.values() if p["sleeve"] == "long"):
             pick = ranked.get(p["instrument_id"])
-            if pick and pick.eligible and pick.rank and pick.rank <= HOLD_RANK * n:
+            if pick and pick.eligible and pick.rank and pick.rank <= hold_rank * n:
                 kept += 1
+                if pick.sector:
+                    sectors[pick.sector] += 1
             elif pick and pick.eligible and pick.rank:
-                sell(p, f"Falt til plass {pick.rank}; beholdes bare til og med plass {HOLD_RANK * n}", pick)
+                sell(p, f"Falt til plass {pick.rank}; beholdes bare til og med plass {hold_rank * n}", pick)
             else:
                 sell(p, f"Ikke lenger kvalifisert: {pick.exclusion}" if pick and pick.exclusion
                      else "Ikke med i rådgiverens univers", pick)
         # The short-term part's money stays free for its own trades (its waiting buys' is already taken out).
         reserve = max(0.0, policy.short_capital - sum(p["value"] for p in short_kept) - short_spoken_for)
         cash -= reserve
+        capped = 0
         for pick in eligible:
             if kept >= n:
                 break
-            if pick.instrument_id not in taken and buy(pick, "long", policy.target_position,
-                                                       f"Plass {pick.rank} av {len(eligible)} i rangeringen"):
+            if pick.instrument_id in taken:
+                continue
+            if pick.sector and sectors[pick.sector] >= PARAMS["max_per_sector"]:
+                capped += 1
+                continue
+            if buy(pick, "long", policy.target_position, f"Plass {pick.rank} av {len(eligible)} i rangeringen"):
                 kept += 1
+                if pick.sector:
+                    sectors[pick.sector] += 1
+        if capped:
+            notes.append(f"{capped} høyere rangerte aksjer ble hoppet over: sektoren deres hadde allerede "
+                         f"{PARAMS['max_per_sector']} av de langsiktige posisjonene.")
         cash += reserve
         if kept < n:
             notes.append(f"{kept} av {n} langsiktige posisjoner: for lite penger eller for få kvalifiserte aksjer.")
@@ -709,22 +783,33 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan,
                                                    pick.reason or "Kortsiktig signal"):
             free, new = free - 1, new + 1
     skipped = [p for p in tonight.signals if p.instrument_id not in taken]
-    if skipped:
+    if skipped and slots == 0:
+        notes.append(f"{len(skipped)} kortsiktige signaler ført opp på papir.")
+    elif skipped:
         notes.append(f"{len(skipped)} kortsiktige signaler ble ikke kjøpt: ingen ledig plass eller for lite penger.")
     return orders, notes
 
 
-def _save(store: Store, today: date, now: datetime, rebalance: bool, tonight: Scan, state: dict[str, Any],
-          orders: list[dict[str, Any]], notes: list[str]) -> None:
+def _save(store: Store, version: Version, today: date, now: datetime, rebalance: bool, tonight: Scan,
+          state: dict[str, Any], orders: list[dict[str, Any]], notes: list[str]) -> None:
+    bought = {o["instrument_id"] for o in orders if o["side"] == "buy" and o["sleeve"] == "short"}
     with store.engine.begin() as conn:
         conn.execute(insert(store.table("paper_days")).values(
-            account=ACCOUNT, decided_on=today, decided_at=now, rebalance=rebalance,
+            account=version.name, decided_on=today, decided_at=now, rebalance=rebalance,
             recommendation_id=tonight.recommendation_id, model_version=MODEL_VERSION, equity=state["equity"],
             cash=state["cash"], orders=len(orders), notes=notes))
         if orders:
             conn.execute(insert(store.table("paper_orders")), [
-                {**o, "account": ACCOUNT, "decided_on": today, "decided_at": now,
+                {**o, "account": version.name, "decided_on": today, "decided_at": now,
                  "recommendation_id": tonight.recommendation_id} for o in orders])
+        signals = {(p.instrument_id, p.signal_type): p for p in tonight.signals if p.signal_type}
+        if signals:  # every one, bought or not, so the short-term signals keep a record of their own
+            conn.execute(insert(store.table("paper_signals")), [
+                {"account": version.name, "decided_on": today, "decided_at": now, "instrument_id": p.instrument_id,
+                 "signal_type": p.signal_type, "symbol": p.symbol, "name": p.name, "country": p.country,
+                 "currency": p.currency, "ref_price": p.price, "fx_rate": p.fx, "score": p.score, "rank": p.rank,
+                 "reason": p.reason, "model_version": MODEL_VERSION, "bought": p.instrument_id in bought}
+                for p in signals.values()])
 
 
 def _closed_today(store: Store, today: date) -> bool:
@@ -740,16 +825,23 @@ def _closed_today(store: Store, today: date) -> bool:
                for country in MARKETS if trading_hours(country, today))
 
 
-def _rebalance_due(store: Store, today: date) -> bool:
+def _rebalance_due(store: Store, today: date, version: Version) -> bool:
+    """A new version starts with a rebalance; then the first trading evening of each month it rebalances in."""
     d = store.table("paper_days")
-    last = store.scalar(select(func.max(d.c.decided_on)).where(d.c.account == ACCOUNT, d.c.rebalance.is_(True)))
-    return last is None or (last.year, last.month) != (today.year, today.month)
+    last = store.scalar(select(func.max(d.c.decided_on))
+                        .where(d.c.account == version.name, d.c.rebalance.is_(True)))
+    if last is None:
+        return True
+    if (last.year, last.month) == (today.year, today.month):
+        return False
+    return version.rebalance_months is None or today.month in version.rebalance_months
 
 
-def days(store: Store, limit: int = 30) -> list[dict[str, Any]]:
-    """The latest evenings' decisions, newest first."""
+def days(store: Store, limit: int | None = 30, version: Version | None = None) -> list[dict[str, Any]]:
+    """The latest evenings' decisions, newest first, of ``version`` (the one deciding tonight by default)."""
+    version = version or version_on(evening_of(utcnow()))
     d = store.table("paper_days")
-    return [dict(r) for r in store.query(select(d).where(d.c.account == ACCOUNT)
+    return [dict(r) for r in store.query(select(d).where(d.c.account == version.name)
                                          .order_by(d.c.decided_on.desc()).limit(limit))]
 
 

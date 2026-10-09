@@ -146,6 +146,7 @@ TABLES: dict[str, TableSpec] = {
         "open high low close adjclose volume",
     ),
     "dividends": _spec("symbol ts:int ex_date:date amount:float currency", "symbol ts", "amount"),
+    "sectors": _spec("symbol sector industry", "symbol", "sector industry"),  # Yahoo's, per Yahoo symbol
     "splits": _spec(
         "symbol ts:int ex_date:date numerator:float denominator:float", "symbol ts", "numerator denominator"
     ),
@@ -305,9 +306,28 @@ def _advice_tables(metadata: MetaData) -> None:
 
 
 def _paper_tables(metadata: MetaData) -> None:
-    """The play-money account (``advisor.paper``): what it decided each evening, and the orders. Fills, fees and
-    the account's value are worked out from the prices, so they are not stored."""
+    """The play-money account (``advisor.paper``): what it decided each evening, the orders, and the short-term
+    signals it saw. Fills, fees and the account's value are worked out from the prices, so they are not stored."""
     json = _TYPES["json"]
+    Table(
+        "paper_signals", metadata,
+        Column("account", Text, primary_key=True),
+        Column("decided_on", Date, primary_key=True),
+        Column("instrument_id", BigInteger, primary_key=True),
+        Column("signal_type", Text, primary_key=True),
+        Column("decided_at", DateTime(timezone=True), nullable=False),
+        Column("symbol", Text),
+        Column("name", Text),
+        Column("country", Text),
+        Column("currency", Text),
+        Column("ref_price", Float),  # that evening's close, in the stock's currency
+        Column("fx_rate", Float),
+        Column("score", Float),
+        Column("rank", Integer),
+        Column("reason", Text),
+        Column("model_version", Text),
+        Column("bought", Boolean),  # whether the account bought it that evening
+    )
     Table(
         "paper_days", metadata,
         Column("account", Text, primary_key=True),

@@ -19,6 +19,20 @@ v3 counts a buyback as new only when the notice announces a programme
 (features.buyback_start). v2 also counted the weekly reports of programmes
 already running, which are most buyback notices, so a bank buying back shares
 every week looked like a fresh announcement every week.
+
+v4 follows the published evidence and our own backtests (research/RESULTS-2026-10.md):
+- Value is sales/price (two thirds) and book/price (one third). Earnings yield
+  has earned little in Norwegian large caps since 2009, and dividend yield
+  lost money in Norway in 2010-25; earnings already count once, in quality
+  (return on equity = book/price over earnings/price), so a cyclical company at
+  peak earnings no longer scores high on value and quality at once.
+- No bonus for buybacks, active or new: the event study found none at 5, 20 or
+  250 days. Swedish insider buying gets no bonus either: clusters lost 0.84 %
+  a trade over 5 days after costs and trailed the index over 20 days. Selling
+  by Swedish insiders, Norwegian insider notices and short interest stay as
+  they were (untested, or not significant either way).
+- At most 3 of the long-term positions from one sector (Yahoo's), so one
+  industry cannot fill the portfolio as shipping and oil did in October 2026.
 """
 
 from __future__ import annotations
@@ -30,7 +44,7 @@ from typing import Any
 from .. import text
 from .features import Stock
 
-MODEL_VERSION = "v3"
+MODEL_VERSION = "v4"
 
 THEMES = ("value", "quality", "momentum", "low_vol")
 
@@ -41,11 +55,9 @@ PARAMS: dict[str, Any] = {
     "model_version": MODEL_VERSION,
     "themes": THEMES,
     "overlay_cap": OVERLAY_CAP,
-    "insider_buy": 0.03,
-    "insider_cluster_buy": 0.05,
+    "insider_buy": 0.03,  # v4: Norwegian notices only
+    "insider_cluster_buy": 0.05,  # v4: Norwegian notices only
     "insider_cluster_sell": -0.05,
-    "buyback_active": 0.02,
-    "buyback_new": 0.03,
     "short_2pct": -0.05,
     "short_5pct": -0.10,
     "short_increase": -0.05,
@@ -55,6 +67,8 @@ PARAMS: dict[str, Any] = {
     "min_pe": 4.0,  # v2: lower usually means one-off or temporary earnings
     "max_ret_1y": 3.0,  # v2: a rise of more than 300 % in 12 months is an event, not momentum
     "low_vol_min_coverage": 0.5,
+    "value_weights": {"sales_to_price": 2, "book_to_price": 1},  # v4
+    "max_per_sector": 3,  # v4: long-term positions from one sector (Yahoo's)
 }
 
 
@@ -146,18 +160,17 @@ def _one_share_class_per_issuer(scored: list[Scored]) -> None:
 def _themes(group: list[Scored]) -> None:
     if not group:
         return
-    ey = percentile_ranks({id(s): s.stock.features["earnings_yield"] for s in group})
-    bp = percentile_ranks({id(s): s.stock.features.get("book_to_price") for s in group})
-    dy = percentile_ranks({id(s): s.stock.features.get("dividend_yield") for s in group})
+    value = {name: (weight, percentile_ranks({id(s): s.stock.features.get(name) for s in group}))
+             for name, weight in PARAMS["value_weights"].items()}
     roe = percentile_ranks({id(s): s.stock.features.get("roe") for s in group})
     mom = percentile_ranks({id(s): s.stock.features["momentum"] for s in group})
     vol = percentile_ranks({id(s): s.stock.features.get("volatility") for s in group})
     use_vol = len(vol) >= PARAMS["low_vol_min_coverage"] * len(group)
     for s in group:
         key = id(s)
-        value_parts = [r[key] for r in (ey, bp, dy) if key in r]
+        parts = [(weight, ranks[key]) for weight, ranks in value.values() if key in ranks]
         s.themes = {
-            "value": mean(value_parts) if value_parts else None,
+            "value": sum(w * r for w, r in parts) / sum(w for w, _ in parts) if parts else None,
             "quality": roe.get(key),
             "momentum": mom.get(key),
             "low_vol": (1 - vol[key]) if use_vol and key in vol else None,
@@ -187,13 +200,9 @@ def percentile_ranks(values: dict[Any, float | None]) -> dict[Any, float]:
 def _overlays(stock: Stock) -> dict[str, float]:
     f, p = stock.features, PARAMS
     out: dict[str, float] = {}
-    if stock.country == "SE":
+    if stock.country == "SE":  # v4: buying earns nothing (see the docstring); selling still counts
         net = f.get("insider_net_bps") or 0
-        if f.get("insider_buyers", 0) >= 2 and net >= 5:
-            out["insider"] = p["insider_cluster_buy"]
-        elif f.get("insider_buyers", 0) >= 1 and net > 0:
-            out["insider"] = p["insider_buy"]
-        elif f.get("insider_sellers", 0) >= 2 and net <= -5:
+        if f.get("insider_sellers", 0) >= 2 and net <= -5:
             out["insider"] = p["insider_cluster_sell"]
     else:
         net = f.get("insider_buy_notices", 0) - f.get("insider_sell_notices", 0)
@@ -203,10 +212,6 @@ def _overlays(stock: Stock) -> dict[str, float]:
             out["insider"] = p["insider_buy"]
         elif net <= -2:
             out["insider"] = p["insider_cluster_sell"]
-    if f.get("buyback_start"):
-        out["buyback"] = p["buyback_new"]
-    elif f.get("buyback_notices"):
-        out["buyback"] = p["buyback_active"]
     short = f.get("short_pct") or 0
     if short >= 5:
         out["short"] = p["short_5pct"]
@@ -223,10 +228,9 @@ def _reasons(item: Scored) -> list[str]:
     if (t.get("momentum") or 0) >= 0.8 and f.get("ret_1y") is not None:
         out.append(f"Sterk momentum: {text.percent(f['ret_1y'], 0, signed=True)} siste 12 mnd.")
     if (t.get("value") or 0) >= 0.8:
-        parts = [f"P/E {text.number(f['pe'], 1)}"]
-        if f.get("dividend_yield"):
-            parts.append(f"utbytte {text.percent(f['dividend_yield'])}")
-        out.append("Lav prising: " + ", ".join(parts))
+        parts = [f"P/S {text.number(f['ps'], 1)}" if f.get("ps") else None,
+                 f"P/B {text.number(f['pb'], 1)}" if f.get("pb") else None]
+        out.append("Lav prising: " + ", ".join(p for p in parts if p))
     if (t.get("quality") or 0) >= 0.8 and f.get("roe"):
         roe = f"over {text.percent(1, 0)}" if f["roe"] > 1 else f"ca. {text.percent(f['roe'], 0)}"
         out.append(f"Høy egenkapitalavkastning ({roe})")
@@ -234,18 +238,9 @@ def _reasons(item: Scored) -> list[str]:
         out.append("Lav volatilitet")
     o = item.overlays
     if o.get("insider", 0) > 0:
-        if item.stock.country == "SE":
-            people = f["insider_buyers"]
-            out.append(f"Innsidere kjøpte for {text.number(f['insider_buy_value'])} SEK siste 90 dager"
-                       f" ({people} {'person' if people == 1 else 'personer'})")
-        else:
-            out.append(f"{f['insider_buy_notices']} meldinger om innsidekjøp siste 90 dager")
+        out.append(f"{f['insider_buy_notices']} meldinger om innsidekjøp siste 90 dager")
     if o.get("insider", 0) < 0:
         out.append("Innsidere har solgt")
-    if f.get("buyback_start"):
-        out.append("Nytt tilbakekjøpsprogram")
-    elif f.get("buyback_notices"):
-        out.append("Tilbakekjøp pågår")
     if o.get("short", 0) < 0:
         short = f"Shortandel {text.points(f['short_pct'])}"
         if f.get("short_new"):

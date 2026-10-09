@@ -9,6 +9,7 @@
     <h1>Lekepenger</h1>
     <p class="muted">{{ a.start | nok }} i lekepenger handler etter rådgiverens egne regler, med Nordnets kurtasje og
       børsenes åpningstider. Slik ser vi hvordan rådene ville gått i praksis, før ekte penger står på spill.</p>
+    <p class="small muted">Konto {{ version.name }}, fra {{ version.first_evening | day }}: {{ version.about }}.</p>
   </div>
   <p class="markets" aria-label="Børsene nå">
     {%- for m in markets %}
@@ -22,10 +23,19 @@
 <div class="card">
   <h2>Kontoen er klar</h2>
   <p>Første beslutning tas {% if first_evening %}{{ first_evening | when }}{% else %}neste handelsdag om kvelden{% endif %},
-    når kveldens innsamling er ferdig. Kontoen kjøper da de {{ policy.max_positions }} aksjene rådgiveren rangerer høyest,
-    og kortsiktige signaler hvis det er noen. Ordrene utføres til åpningskurs neste handelsdag.</p>
+    når kveldens innsamling er ferdig. Kontoen kjøper da de {{ policy.max_positions }} aksjene rådgiveren rangerer høyest{% if policy.short_pct %},
+    og kortsiktige signaler hvis det er noen{% endif %}. Ordrene utføres til åpningskurs neste handelsdag.</p>
 </div>
 {% endif %}
+
+{% for f in finished %}
+<div class="card">
+  <h2>Forrige konto: {{ f.name }}</h2>
+  <p>{{ f.about | capitalize }}, fra {{ f.first_evening | day }} til sluttkurs {{ f.until | day }}: {{ f.equity | nok }},
+    {{ arrow(f.result) }}{{ f.result | pct(2, True) }}{% if f.yardstick %}, mot {{ f.yardstick.result | pct(2, True) }} for
+    indeksene, {{ arrow(f.yardstick.excess) }}{{ (f.yardstick.excess * 100) | num(2, True) }}&nbsp;poeng{% endif %}.</p>
+</div>
+{% endfor %}
 
 <div class="tiles">
   <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ a.equity | nok }}</div>
@@ -163,15 +173,22 @@
 <details class="card">
   <summary><strong>Slik handler kontoen</strong></summary>
   <ul>
-    <li><strong>Fordeling.</strong> {{ policy.long_pct | int }}&nbsp;% langsiktig og {{ policy.short_pct | int }}&nbsp;%
-      kortsiktig, ingen kontantdel. Inntil {{ policy.max_positions }} langsiktige aksjer, hver på minst
-      {{ policy.min_position | nok }}, som i rådgiverens standardoppsett.</li>
-    <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag hver måned: aksjer som fortsatt er blant de
+    <li><strong>Fordeling.</strong> {% if policy.short_pct %}{{ policy.long_pct | int }}&nbsp;% langsiktig og
+      {{ policy.short_pct | int }}&nbsp;% kortsiktig{% else %}Hele beløpet langsiktig{% endif %}, ingen kontantdel.
+      Inntil {{ policy.max_positions }} langsiktige aksjer, hver på minst {{ policy.min_position | nok }}{% if policy.ask_only %},
+      bare aksjer en aksjesparekonto kan eie{% endif %}.</li>
+    <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag {% if version.rebalance_months %}i
+      {{ version.rebalance_months | join(", ") }}. måned{% else %}hver måned{% endif %}: aksjer som fortsatt er blant de
       {{ rules.hold_rank }} beste, beholdes, resten selges, og de høyest rangerte den ikke eier, kjøpes til den har
-      {{ policy.max_positions }}. Strengere krav for å komme inn enn for å bli holder handelen og kurtasjen nede.</li>
-    <li><strong>Kortsiktig del.</strong> Kjøper rådgiverens hendelsessignaler (nytt tilbakekjøpsprogram, flere
-      innsidere som kjøper), høyst {{ rules.max_new_short }} nye om dagen og så mange samtidig som pengene rekker, og
-      selger hver etter {{ rules.short_hold }} handelsdager.</li>
+      {{ policy.max_positions }}, høyst {{ rules.max_per_sector }} fra samme sektor. Strengere krav for å komme inn enn
+      for å bli holder handelen og kurtasjen nede.</li>
+    {% if policy.short_pct %}
+    <li><strong>Kortsiktig del.</strong> Kjøper rådgiverens hendelsessignaler, høyst {{ rules.max_new_short }} nye om
+      dagen og så mange samtidig som pengene rekker, og selger hver etter {{ rules.short_hold }} handelsdager.</li>
+    {% else %}
+    <li><strong>Kortsiktige signaler</strong> kjøpes ikke: i testen fra 2016–17 til 2026 tjente ingen av dem inn
+      kurtasjen. De føres opp på papir hver kveld og følges i {{ rules.short_hold }} handelsdager.</li>
+    {% endif %}
     <li><strong>Åpningstider.</strong> Oslo Børs handler 09:00–16:25 og Nasdaq Stockholm 09:00–17:30, med egne
       helligdager. Beslutningene tas om kvelden og utføres til åpningskurs neste dag aksjen handles. En ordre som ikke
       er utført etter {{ rules.order_days }} handelsdager, faller bort.</li>
@@ -191,9 +208,38 @@
 </details>
 
 <div class="card">
+  <h2>Signalene på papiret</h2>
+  <p class="small muted">Hvert kortsiktige signal kontoene har sett, kjøpt eller ikke: kjøpt til åpningskurs neste
+    handelsdag og solgt til sluttkurs på {{ rules.short_hold }}. handelsdag, etter Nordnets kurtasje, mot børsens indeks
+    de samme dagene. Samme aksje og signal innen en uke regnes som ett signal.</p>
+  {% if signals.total.n %}
+  <p>{{ signals.total.n }} ferdige signaler: i snitt {{ arrow(signals.total.mean) }}{{ signals.total.mean | pct(2, True) }}
+    mot indeksen per handel{% if signals.total.se %} (± {{ signals.total.se | pct(2) }}){% endif %},
+    {{ signals.total.won }} av {{ signals.total.n }} over indeksen.{% if signals.total.n < 30 %} For få til å si
+    noe ennå.{% endif %}</p>
+  {% endif %}
+  {% if signal_rows %}
+  <div class="table-wrap"><table>
+    <thead><tr><th>Kveld</th><th>Aksje</th><th>Signal</th><th>Kjøpt av kontoen</th><th class="num">Etter kostnader</th>
+      <th class="num">Mot indeksen</th></tr></thead>
+    <tbody>{% for e in signal_rows %}
+      <tr><td class="nowrap">{{ e.decided_on | day }}</td><td>{{ e.name }}<div class="ticker">{{ e.symbol }}</div></td>
+        <td class="small">{{ signal_names.get(e.signal_type, e.signal_type) }}</td><td>{{ "ja" if e.bought else "nei" }}</td>
+        {% if e.status == "ferdig" %}
+        <td class="num">{{ arrow(e.net) }}{{ e.net | pct(2, True) }}</td>
+        <td class="num">{% if e.excess is not none %}{{ arrow(e.excess) }}{{ e.excess | pct(2, True) }}{% else %}–{% endif %}</td>
+        {% else %}<td class="small muted" colspan="2">{{ e.status }}</td>{% endif %}</tr>
+    {% endfor %}</tbody>
+  </table></div>
+  {% else %}
+  <p class="muted">Ingen signaler ennå.</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h2>Last ned loggen</h2>
   <p>Alt kontoen har gjort: beslutningene hver kveld, ordrene og hva som ble av dem, handlene med kurtasje og
-    veksling, beholdningen, utbyttet og verdien dag for dag.</p>
+    veksling, beholdningen, utbyttet og verdien dag for dag, og signalene på papiret.</p>
   <p class="actions"><a class="button" href="/lekepenger/export.json">Logg (JSON)</a>
     <a class="button secondary" href="/lekepenger/export.csv">Handler (CSV)</a></p>
   <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger.</p>

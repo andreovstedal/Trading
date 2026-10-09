@@ -130,6 +130,12 @@ def _parser() -> argparse.ArgumentParser:
     p.add_argument("--range", dest="range_", default="5d", help="e.g. 5d, 1mo, 1y, 10y, max")
     p.add_argument("--interval", default="1d", help="e.g. 1m, 5m, 1h, 1d")
 
+    p = sources.add_parser("yahoo-sektor", help="Yahoo's sector and industry per share (monthly)")
+    p.add_argument("--symbol", action="append", default=[], dest="symbols", help="a Yahoo symbol, e.g. FRO.OL")
+    p.add_argument("--universe", action="append", choices=COUNTRIES, default=[],
+                   help="all tradable shares in the stored Nordnet universe")
+    p.add_argument("--limit", type=int, help="at most this many shares not looked up in the last 30 days")
+
     p = sources.add_parser("nordnet", help="Nordnet stock list: universe, owners, key ratios")
     p.add_argument("--country", action="append", choices=COUNTRIES, dest="countries")
 

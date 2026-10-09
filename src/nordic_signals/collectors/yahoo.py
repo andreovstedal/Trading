@@ -1,7 +1,9 @@
-"""Yahoo Finance chart API: daily and intraday prices, dividends and splits.
+"""Yahoo Finance chart API: daily and intraday prices, dividends and splits; and each share's sector.
 
     GET https://query1.finance.yahoo.com/v8/finance/chart/{symbol}
         ?range=5d|1mo|1y|10y|max&interval=1m|5m|15m|1h|1d&events=div,splits
+    GET https://query2.finance.yahoo.com/v1/finance/search?q={symbol}&quotesCount=5&newsCount=0
+        -> {"quotes": [{"symbol": "FRO.OL", "sector": "Energy", "industry": "Oil & Gas Midstream", ...}]}
 
 Verified live 2026-10-02 for .OL and .ST symbols without a cookie or crumb.
 Intraday history is short (1-minute bars cover about a week, 5-minute to
@@ -14,15 +16,17 @@ personal use only, so never redistribute the data.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
 
-from ..store import Store
+from ..store import Store, utcnow
 from .base import NORDIC_TZ, Collector, RunSummary
 
 CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
+SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
+SECTOR_MAX_AGE = timedelta(days=30)  # sectors rarely change: a share is looked up again after this
 
 EXCHANGE_SUFFIX = {"NO": ".OL", "SE": ".ST", "DK": ".CO", "FI": ".HE"}
 
@@ -77,6 +81,14 @@ def parse_chart(payload: dict[str, Any]) -> tuple[list[dict], list[dict], list[d
     return bars, dividends, splits
 
 
+def parse_sector(payload: dict[str, Any], symbol: str) -> tuple[str | None, str | None] | None:
+    """Yahoo's sector and industry for ``symbol`` from a search answer; None if the answer does not list it."""
+    for quote in payload.get("quotes") or []:
+        if (quote.get("symbol") or "").upper() == symbol.upper():
+            return quote.get("sector") or None, quote.get("industry") or None
+    return None
+
+
 def _at(values: list | None, i: int) -> Any:
     return values[i] if values is not None and i < len(values) else None
 
@@ -103,6 +115,29 @@ class YahooCollector(Collector):
             self.save("price_bars", bars, fetch_id)
             self.save("dividends", dividends, fetch_id)
             self.save("splits", splits, fetch_id)
+        return self.summary
+
+
+class SectorCollector(Collector):
+    """Each share's sector and industry, from Yahoo's search, so the advisor can cap how many of its picks come from
+    one sector. A share is looked up again only after ``SECTOR_MAX_AGE``, and at most ``limit`` a run, so the
+    first fill spreads over a few nights. A share Yahoo does not list is stored without a sector, and tried again
+    after the same time."""
+    source = "yahoo-sektor"
+
+    def run(self, *, symbols: Iterable[str], limit: int | None = None, now: datetime | None = None) -> RunSummary:
+        now = now or utcnow()
+        t = self.store.table("sectors")
+        fresh = {r["symbol"] for r in self.store.query(select(t.c.symbol).where(t.c.last_seen_at >= now - SECTOR_MAX_AGE))}
+        todo = [s for s in dict.fromkeys(symbols) if s not in fresh]
+        for symbol in todo[:limit] if limit else todo:
+            resp, fetch_id = self.fetch("GET", SEARCH_URL, params={"q": symbol, "quotesCount": 5, "newsCount": 0},
+                                        allow_status=(404,))
+            found = parse_sector(resp.json(), symbol) if resp.status == 200 else None
+            if found is None:
+                self.warn(f"{symbol}: ikke i Yahoos søk")
+            sector, industry = found or (None, None)
+            self.save("sectors", [{"symbol": symbol, "sector": sector, "industry": industry}], fetch_id)
         return self.summary
 
 

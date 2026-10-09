@@ -144,11 +144,51 @@ def test_windfalls_stay_out_of_the_long_term_sleeve(store):
 
 def test_overlays(store):
     scored = scored_universe(store)
-    assert scored["SEC"].overlays["insider"] == 0.05  # two insiders, net buying above 5 bps of market cap
-    assert scored["AAA"].overlays["insider"] == 0.03
+    assert "insider" not in scored["SEC"].overlays  # v4: Swedish insiders buying earns no bonus
+    assert scored["AAA"].overlays["insider"] == 0.03  # a Norwegian purchase notice still does
     assert scored["AAA"].overlays["short"] == pytest.approx(-0.10)  # above 2% and just increased
-    assert scored["BBB"].overlays["buyback"] == 0.03
+    assert "buyback" not in scored["BBB"].overlays  # v4: nor does a buyback
     assert "Shortandel 2,2\u00a0%, nylig økt" in scored["AAA"].reasons
+
+
+def test_value_is_sales_and_book_to_price_without_earnings(store):
+    """Model v4: earnings count once, in quality; value is two thirds sales/price, one third book/price."""
+    now = seed_universe(store)
+    stocks = features_by_symbol(store, now)
+    for symbol, ps in (("SEA B", 0.5), ("SEB", 1.0), ("SEC", 4.0)):
+        stocks[symbol].features.update(ps=ps, sales_to_price=1 / ps)
+
+    def score() -> dict:
+        return {s.stock.symbol: s for s in score_stocks(list(stocks.values()), {"NOK": 1.0, "SEK": 0.95},
+                                                        target_position=20_000)}
+
+    scored = score()
+    book = percentile_ranks({sym: scored[sym].stock.features["book_to_price"] for sym in ("SEA B", "SEB", "SEC")})
+    sales = {"SEA B": 1.0, "SEB": 0.5, "SEC": 0.0}  # the highest sales/price ranks first
+    for sym in ("SEA B", "SEB", "SEC"):
+        assert scored[sym].themes["value"] == pytest.approx((2 * sales[sym] + book[sym]) / 3)
+
+    # Peak earnings: a much lower P/E lifts SEC's quality, and leaves its value where it was.
+    pb = stocks["SEC"].features["pb"]
+    stocks["SEC"].features.update(pe=5.0, earnings_yield=1 / 5.0, roe=pb / 5.0)
+    again = score()
+    assert again["SEC"].themes["value"] == pytest.approx(scored["SEC"].themes["value"])
+    assert again["SEC"].themes["quality"] > scored["SEC"].themes["quality"]
+
+
+def test_at_most_three_positions_from_one_sector(store):
+    scored = list(scored_universe(store).values())
+    eligible = sorted((s for s in scored if s.eligible), key=lambda s: s.rank)
+    for item in eligible[:4]:
+        item.stock.features["sector"] = "Energy"
+    for item in eligible[4:]:
+        item.stock.features["sector"] = None
+
+    positions, notes = allocate_long(scored, Policy(account_value=200_000, max_positions=5, min_position=20_000))
+
+    assert [p.stock.symbol for p in positions] == [s.stock.symbol for s in [*eligible[:3], *eligible[4:6]]]
+    assert any(eligible[3].stock.symbol in n and "sektoren" in n for n in notes)
+    assert any("mangler sektor" in n for n in notes)
 
 
 def test_allocation_in_whole_shares(store):
@@ -178,10 +218,10 @@ def test_short_sleeve_candidates_and_avoid_flags(store):
 
     by_type = {(s.stock.symbol, s.signal) for s in signals}
     assert ("BBB", "buyback_start") in by_type
-    assert ("SEC", "insider_cluster") in by_type
+    assert ("SEC", "insider_cluster") not in by_type  # v4: no longer a signal
     assert ("AAA", "short_increase") in by_type
     first = signals[0]
-    assert first.signal == "buyback_start" and first.paper and first.shares > 0  # buybacks rank first
+    assert first.signal == "buyback_start" and first.paper and first.shares > 0
     assert any(n.startswith("Kun på papir") for n in notes)
 
 
@@ -245,7 +285,7 @@ def test_outcomes_and_track_record(store):
     assert long_20["recommendations"] == 1
     assert long_20["ic"] is None  # fewer than 10 stocks is too few for a rank correlation
     assert long_20["excess"] > 0  # the four picks are the four best-ranked
-    assert {r["signal_type"] for r in record["short"]} == {"buyback_start", "insider_cluster", "short_increase"}
+    assert {r["signal_type"] for r in record["short"]} == {"buyback_start", "short_increase"}
 
 
 def test_outcomes_use_closing_prices_only(store):

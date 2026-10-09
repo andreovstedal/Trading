@@ -104,10 +104,17 @@
 
 <div class="card">
   <h2>Kortsiktig del</h2>
+  {% if rec.model_version not in ("v1", "v2", "v3") %}
+  <p class="small muted">Nye tilbakekjøpsprogrammer, holdt i omtrent fem handelsdager med kjøp i neste
+    åpningsauksjon. Vår test av alle slike meldinger på Oslo Børs fra 2017 til 2026 fant ingen gevinst etter kurtasje:
+    kursen har som regel steget før man rekker å kjøpe. Signalene står derfor på papir og følges opp, og flere
+    innsidere som kjøper samtidig er ikke lenger et signal.</p>
+  {% else %}
   <p class="small muted">Hendelsessignaler med forskning bak seg: nye tilbakekjøpsprogrammer og flere innsidere som kjøper
     samtidig. Holdes i omtrent fem handelsdager, med kjøp i neste åpningsauksjon. De fleste kortsiktige fortrinn er
     mindre enn det et kjøp og salg koster hos Nordnet, så denne delen står på papir til dens egne resultater viser noe
     annet.</p>
+  {% endif %}
   {% if candidates %}
   <div class="table-wrap"><table>
     <thead><tr><th>Aksje</th><th>Signal</th><th class="num">Antall</th><th class="num">Beløp</th><th>Modus</th></tr></thead>
@@ -163,12 +170,19 @@
 
 <details class="card">
   <summary><strong>Slik ble dette beregnet</strong></summary>
+  {% set v4 = rec.model_version not in ("v1", "v2", "v3") %}
   <p>Hver aksje får en persentilrangering innenfor sitt eget land på fire temaer, og snittet av dem blir poengsummen:
     <strong>momentum</strong> (avkastning siste 12 måneder, uten den siste måneden), <strong>verdi</strong>
-    (resultatavkastning, bok/kurs og direkteavkastning), <strong>kvalitet</strong> (egenkapitalavkastning, anslått som
-    P/B ÷ P/E) og <strong>lav volatilitet</strong> (når minst halvparten av aksjene har 60 dager med kurshistorikk). Små
-    justeringer, begrenset til −0,15 og +0,08, legges til for innsidekjøp eller -salg, tilbakekjøpsprogrammer og
-    offentliggjorte shortposisjoner.</p>
+    ({% if v4 %}salg/kurs med to tredjedeler og bok/kurs med en tredjedel{% else %}resultatavkastning, bok/kurs og
+    direkteavkastning{% endif %}), <strong>kvalitet</strong> (egenkapitalavkastning, anslått som P/B ÷ P/E) og
+    <strong>lav volatilitet</strong> (når minst halvparten av aksjene har 60 dager med kurshistorikk). Små
+    justeringer, begrenset til −0,15 og +0,08, legges til for {% if v4 %}innsidesalg i Sverige, meldinger om
+    innsidehandel i Norge{% else %}innsidekjøp eller -salg, tilbakekjøpsprogrammer{% endif %} og offentliggjorte
+    shortposisjoner.</p>
+  {% if v4 %}<p>Fra modell v4 teller resultatet bare én gang, i kvaliteten: resultatavkastning har gitt lite i store
+    norske selskaper siden 2009, og direkteavkastning tapte penger i Norge i 2010–25. Tilbakekjøp og svenske
+    innsidekjøp gir ikke lenger ekstrapoeng: vår egen test fra 2016–17 til 2026 fant ingen gevinst etter kostnader.
+    Høyst 3 av aksjene kan komme fra samme sektor.</p>{% endif %}
   <p>Filtre: bare lønnsomme selskaper, en markedsverdi på minst 500&nbsp;mill. NOK, en aksjekurs på minst 5&nbsp;NOK
     og nok daglig omsetning til at en posisjon utgjør høyst 2&nbsp;% av den. Én aksjeklasse per selskap.
     {% if rec.model_version != "v1" %}Fra modell v2 holdes også aksjer med P/E under 4 utenfor, fordi inntjeningen da

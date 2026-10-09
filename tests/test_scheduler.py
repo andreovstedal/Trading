@@ -49,7 +49,7 @@ def test_jobs_due_through_a_weekday(store):
     assert due(store, at(MONDAY, 3)) == PUMPFUN
     assert due(store, at(MONDAY, 12)) == [*PUMPFUN, "intraday", "lekepenger-kurser"]
     assert due(store, at(MONDAY, 20, 31)) == [*PUMPFUN, "nightly", "lekepenger"]
-    assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "lekepenger", "mfn", "prices"]
+    assert due(store, at(MONDAY, 21, 31)) == [*PUMPFUN, "nightly", "lekepenger", "mfn", "prices", "sektorer"]
     assert due(store, at(MONDAY + timedelta(days=5), 21, 31)) == PUMPFUN  # Saturday
 
 
@@ -62,6 +62,7 @@ def test_what_already_ran_is_not_repeated(store, monkeypatch):
     add_run(store, "lekepenger", at(MONDAY, 20, 35))
     add_run(store, "mfn", at(MONDAY, 21, 0))
     add_run(store, "yahoo", at(MONDAY, 21, 35), minutes=0.1)  # the quick SEK/NOK refresh is not the price job
+    add_run(store, "yahoo-sektor", at(MONDAY, 21, 36))
     assert due(store, now) == ["prices"]
 
     add_run(store, "yahoo", at(MONDAY, 21, 30), ok=None)  # prices for every share, still running

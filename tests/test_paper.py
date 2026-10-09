@@ -15,6 +15,14 @@ from nordic_signals.web.app import fmt_day
 
 MON, TUE, WED, THU, FRI = (date(2026, 10, d) for d in (5, 6, 7, 8, 9))
 NEXT_MON = date(2026, 10, 12)
+FIRST, SECOND = paper.VERSIONS[:2]
+
+
+@pytest.fixture(autouse=True)
+def first_version(monkeypatch):
+    """The first version's rules, whatever today's date: the switch to the next has tests of its own."""
+    monkeypatch.setattr(paper, "VERSIONS", (FIRST,))
+    monkeypatch.setattr(paper, "utcnow", lambda: datetime(2026, 10, 9, 10, tzinfo=ZoneInfo("UTC")))
 
 
 def oslo(day: date, hour: int, minute: int = 0) -> datetime:
@@ -44,7 +52,7 @@ def order(store, decided_on, instrument_id, side, shares, *, sleeve="long", coun
           symbol=None, signal_type=None):
     with store.engine.begin() as conn:
         conn.execute(store.table("paper_orders").insert().values(
-            account=paper.ACCOUNT, decided_on=decided_on, decided_at=oslo(decided_on, 22, 45),
+            account=FIRST.name, decided_on=decided_on, decided_at=oslo(decided_on, 22, 45),
             instrument_id=instrument_id, symbol=symbol or f"S{instrument_id}", name=f"Stock {instrument_id}",
             country=country, currency=currency, side=side, shares=shares, sleeve=sleeve, signal_type=signal_type,
             reason="test"))
@@ -94,7 +102,7 @@ def test_orders_fill_at_the_next_opening_with_nordnets_fees(store):
 
 def test_sales_pay_for_the_days_buys_and_a_buy_is_cut_to_the_cash(store, monkeypatch):
     monkeypatch.setattr(paper, "START", 20_000.0)
-    monkeypatch.setitem(paper.POLICY, "min_position", 10_000.0)  # a small account, so the cut buy is kept
+    monkeypatch.setitem(FIRST.policy, "min_position", 10_000.0)  # a small account, so the cut buy is kept
     for day in (MON, TUE, WED, THU):
         snapshot(store, 1, day, 100, 100)
         snapshot(store, 2, day, 50, 50)
@@ -239,10 +247,10 @@ def test_dividends_are_credited_on_the_ex_date(store):
 
 # The evening's decisions, with a stand-in for the advisor
 
-def pick(instrument_id, rank, *, eligible=True, price=100.0, signal=None, exclusion=None):
+def pick(instrument_id, rank, *, eligible=True, price=100.0, signal=None, exclusion=None, sector=None):
     return paper.Pick(instrument_id, f"S{instrument_id}", f"Stock {instrument_id}", "NO", "NOK", price, 1.0,
                       eligible, rank if eligible else None, 1 - rank / 100 if rank else None, exclusion,
-                      signal, "Nytt tilbakekjøpsprogram annonsert" if signal else None)
+                      signal, "Nytt tilbakekjøpsprogram annonsert" if signal else None, sector)
 
 
 class Advisor:
@@ -283,7 +291,7 @@ def test_the_first_evening_buys_the_top_twelve_and_two_short_term_signals(store)
     assert [o["instrument_id"] for o in short_term] == [200, 201]  # two slots of 25 000 NOK
     assert short_term[0]["shares"] == math.floor(25_000 / (100 * 1.0015))
     assert short_term[0]["signal_type"] == "buyback_start" and placed[0]["recommendation_id"] == 7
-    day = store.get("paper_days", account=paper.ACCOUNT, decided_on=MON)
+    day = store.get("paper_days", account=FIRST.name, decided_on=MON)
     assert day["rebalance"] and day["orders"] == 14 and day["recommendation_id"] == 7
     assert any("1 kortsiktige signaler" in note for note in day["notes"])
 
@@ -302,7 +310,7 @@ def test_a_retry_after_midnight_belongs_to_the_evening_before(store):
     advisor = Advisor()
     trading_day(store, MON, [1])
     summary = paper.decide(store, oslo(TUE, 1, 5), scanner=advisor)  # behind the nightly price job
-    assert summary["ok"] and store.get("paper_days", account=paper.ACCOUNT, decided_on=MON)
+    assert summary["ok"] and store.get("paper_days", account=FIRST.name, decided_on=MON)
     assert paper.evening_of(oslo(TUE, 5, 59)) == MON and paper.evening_of(oslo(TUE, 6)) == TUE
 
 
@@ -320,9 +328,9 @@ def test_orders_waiting_for_a_holiday_are_not_ordered_again(store):
 
     with store.engine.begin() as conn:  # Wednesday evening: no new snapshot of stock 1, so its sale still waits
         conn.execute(store.table("paper_days").insert().values(
-            account=paper.ACCOUNT, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True, equity=paper.START,
+            account=FIRST.name, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True, equity=paper.START,
             cash=paper.START, orders=2, notes=[]))
-    policy = paper.Policy(account_value=state["equity"], **paper.POLICY)
+    policy = paper.Policy(account_value=state["equity"], **FIRST.policy)
     orders, _ = paper._plan({**state, "positions": [{**p, "held_days": 5} for p in state["positions"]]}, policy,
                             paper.Scan(None, [], advisor.signals), False)
     # Stock 1's sale is already ordered; stock 2's is due; the pending buy of stock 3 holds the other slot.
@@ -352,7 +360,7 @@ def test_a_small_cut_from_a_higher_opening_is_kept(store, monkeypatch):
 
     (bought,) = paper.account(store)["trades"]
 
-    assert bought["shares"] == 198 and bought["value"] < paper.POLICY["min_position"]  # 2 shares short: kept
+    assert bought["shares"] == 198 and bought["value"] < FIRST.policy["min_position"]  # 2 shares short: kept
 
 
 def test_short_term_buys_fill_first_so_a_long_term_buy_takes_a_higher_opening(store, monkeypatch):
@@ -371,7 +379,7 @@ def test_short_term_buys_fill_first_so_a_long_term_buy_takes_a_higher_opening(st
 
 
 def test_the_evening_orders_no_position_below_the_smallest(store):
-    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    policy = paper.Policy(account_value=paper.START, **FIRST.policy)
     signals = [pick(300 + i, 50 + i, signal="buyback_start") for i in range(2)]
 
     placed, notes = paper._plan({"cash": 35_000.0, "positions": [], "pending": []}, policy,
@@ -388,7 +396,7 @@ def waiting_buy(instrument_id, sleeve, shares):
 
 
 def test_a_waiting_long_buy_counts_toward_the_twelve(store):
-    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    policy = paper.Policy(account_value=paper.START, **FIRST.policy)
     state = {"cash": 374 * 100.15 + 50_000 + 40_000,  # the waiting buy, the short-term part, and 40 000 more
              "positions": [{"instrument_id": 100 + i, "sleeve": "long", "value": 37_500.0} for i in range(11)],
              "pending": [waiting_buy(111, "long", 374)]}
@@ -399,7 +407,7 @@ def test_a_waiting_long_buy_counts_toward_the_twelve(store):
 
 
 def test_a_waiting_short_buys_money_is_not_held_back_twice(store):
-    policy = paper.Policy(account_value=paper.START, **paper.POLICY)
+    policy = paper.Policy(account_value=paper.START, **FIRST.policy)
     state = {"cash": 450_000 + 250 * 100.15,  # the long part's money, and the waiting short-term buy's
              "positions": [{"instrument_id": 50, "sleeve": "short", "value": 25_000.0, "held_days": 1}],
              "pending": [waiting_buy(51, "short", 250)]}
@@ -480,7 +488,7 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
         index_bar(store, "^OMXSBGI", day, 2 * level, 2 * level)
     with store.engine.begin() as conn:
         conn.execute(store.table("paper_days").insert().values(
-            account=paper.ACCOUNT, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True,
+            account=FIRST.name, decided_on=MON, decided_at=oslo(MON, 22, 45), rebalance=True,
             recommendation_id=None, model_version="v2", equity=paper.START, cash=paper.START, orders=2,
             notes=["Første kveld"]))
 
@@ -503,7 +511,8 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     assert "Mot indeksene" in page and "poeng" in page and 'class="yardstick"' in page
     assert spreadsheet.headers["content-disposition"].startswith('attachment; filename="lekepenger-')
     data = log.json()
-    assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity"]
+    assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity", "signals",
+                          "finished_accounts"]
     assert data["meta"]["fees"]["courtage_min_nok"] == 29.0 and len(data["equity"]) == 2
     assert data["meta"]["yardstick"]["indexes"]["NO"]["yahoo"] == "OSEBX.OL" and data["equity"][-1]["yardstick"] > 0
     assert [o["status"] for o in data["orders"]] == ["utført", "utført", "delvis utført", "venter"]  # by evening
@@ -530,10 +539,80 @@ def test_the_play_moneys_recommendations_stay_off_the_advice_page(store):
     from nordic_signals.web import queries
 
     mine = recommend.create(store, Policy(200_000))
-    recommend.create(store, Policy(paper.START, **paper.POLICY), origin=paper.ORIGIN)
+    recommend.create(store, Policy(paper.START, **FIRST.policy), origin=paper.ORIGIN)
     assert [r["id"] for r in queries.recent_recommendations(store)] == [mine]
     assert queries.last_policy(store)["account_value"] == 200_000
 
 
 def test_weekends_are_not_trading_days():
     assert paper.market_days("SE", FRI, NEXT_MON + timedelta(days=1)) == [NEXT_MON, NEXT_MON + timedelta(days=1)]
+
+
+# The second version, and the signals on paper
+
+def test_the_rebalance_takes_at_most_three_from_one_sector(store):
+    advisor = Advisor()
+    advisor.picks = [pick(100 + i, i + 1, sector="Energy" if i < 5 else None) for i in range(15)]
+    trading_day(store, MON, [100])
+
+    paper.decide(store, oslo(MON, 22, 45), scanner=advisor)
+
+    bought = [o["instrument_id"] for o in orders(store)]
+    assert bought == [100, 101, 102, *range(105, 114)]  # ranks 4 and 5 are a fourth and fifth from Energy
+    assert any("sektoren" in n for n in store.get("paper_days", account=FIRST.name, decided_on=MON)["notes"])
+
+
+def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, monkeypatch):
+    monkeypatch.setattr(paper, "VERSIONS", (FIRST, SECOND))
+    advisor = Advisor()
+    advisor.picks = [pick(100 + i, i + 1) for i in range(14)]
+    advisor.signals = [pick(300, 50, signal="buyback_start")]
+    last_friday, first_monday = date(2026, 10, 30), SECOND.first_evening
+    decided = []
+    for day in (last_friday - timedelta(days=1), last_friday, first_monday):  # each evening sees that day's prices
+        trading_day(store, day, [*range(100, 114), 300])
+        decided.append(paper.decide(store, oslo(day, 22, 45), scanner=advisor))
+    trading_day(store, first_monday + timedelta(days=1), [*range(100, 114), 300])
+    _, first, second = decided
+
+    assert (first["account"], second["account"]) == (FIRST.name, SECOND.name)
+    assert second["rebalance"]  # a new version starts with a rebalance
+    placed = [o for o in orders(store) if o["account"] == SECOND.name]
+    assert len(placed) == 12 and {o["sleeve"] for o in placed} == {"long"}  # all of it long-term; no signal bought
+    assert [o["sleeve"] for o in orders(store) if o["account"] == FIRST.name].count("short") == 1
+    days = store.get("paper_days", account=SECOND.name, decided_on=first_monday)
+    assert "1 kortsiktige signaler ført opp på papir." in days["notes"]
+    logged = store.query(store.table("paper_signals").select())
+    assert [(r["account"], r["bought"]) for r in logged] == [(FIRST.name, True), (FIRST.name, False),
+                                                            (SECOND.name, False)]
+
+    later = oslo(first_monday + timedelta(days=1), 12)
+    assert paper.account(store, later)["account"] == SECOND.name
+    (done,) = paper.finished(store, later)
+    assert done["name"] == FIRST.name and done["until"] == last_friday
+
+
+def test_signals_are_followed_on_paper_once_each(store):
+    from nordic_signals.advisor import paper_signals
+    days = paper.market_days("NO", FRI, date(2026, 10, 30))
+    for day, close in zip([FRI, *days[:6]], [100, 101, 102, 103, 104, 105, 106], strict=True):
+        snapshot(store, 7, day, close - 1 if day != FRI else 100, close)
+        index_bar(store, "OSEBX.OL", day, 1000, 1000 + (day - FRI).days)
+    with store.engine.begin() as conn:
+        for decided_on in (FRI, NEXT_MON, days[5]):  # the same signal on Monday is the same event; the 6th day a new one
+            conn.execute(store.table("paper_signals").insert().values(
+                account=FIRST.name, decided_on=decided_on, decided_at=oslo(decided_on, 22, 45), instrument_id=7,
+                signal_type="buyback_start", symbol="S7", name="Stock 7", country="NO", currency="NOK",
+                ref_price=100, fx_rate=1.0, bought=False))
+
+    record = paper_signals.record(store)
+
+    newer, older = record["events"]
+    assert newer["status"] == "venter" and older["status"] == "ferdig"
+    # Bought at Monday's opening (100), sold at the 5th trading day's close (105), against OSEBX from 1000 at that
+    # opening to Friday's close.
+    assert (older["entry_day"], older["exit_day"]) == (NEXT_MON, days[4])
+    assert older["ret"] == pytest.approx(105 / 100 - 1)
+    assert older["net"] == pytest.approx(0.05 - older["costs"]) and older["costs"] == pytest.approx(0.003, abs=1e-4)
+    assert older["excess"] == pytest.approx(older["net"] - ((1000 + (days[4] - FRI).days) / 1000 - 1))
+    assert record["total"]["n"] == 1 and record["types"][0]["label"] == "Nytt tilbakekjøpsprogram"

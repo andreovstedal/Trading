@@ -52,6 +52,7 @@ SETS: dict[str, list[tuple[str, dict[str, Any]]]] = {
         ("newsweb", {"days": 120, "detail_categories": [1102, 1007]}),
         ("yahoo", {"symbols": [*FX_SYMBOLS, *INDEX_SYMBOLS], "range_": "1y"}),
         ("yahoo", {"universe": ["NO", "SE"], "range_": "1y"}),
+        ("yahoo-sektor", {"universe": ["NO", "SE"]}),
     ],
 }
 
@@ -85,6 +86,11 @@ def options_for(store: Store, source: str, raw: dict[str, Any]) -> dict[str, Any
         if raw.get("universe"):
             symbols += universe_symbols(store, raw["universe"], raw.get("limit"))
         return {"symbols": symbols, "range_": raw.get("range_", "5d"), "interval": raw.get("interval", "1d")}
+    if source == "yahoo-sektor":
+        symbols = list(raw.get("symbols", []))
+        if raw.get("universe"):
+            symbols += universe_symbols(store, raw["universe"], None)
+        return {"symbols": symbols, "limit": raw.get("limit")}
     if source == "pumpfun":
         return {"sample": raw.get("sample", 50)}
     if source == "krypto":

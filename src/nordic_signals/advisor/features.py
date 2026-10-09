@@ -17,7 +17,7 @@ from typing import Any
 from sqlalchemy import and_, func, select
 
 from ..collectors.base import NORDIC_TZ
-from ..collectors.yahoo import yahoo_symbol
+from ..collectors.yahoo import EXCHANGE_SUFFIX, yahoo_symbol
 from ..store import Store
 
 # Look-back windows.
@@ -84,6 +84,7 @@ def build_features(store: Store, asof: datetime, countries: tuple[str, ...] = ("
     _add_newsweb(store, stocks, asof)
     _add_mfn_buybacks(store, stocks, asof)
     _add_shorts(store, stocks, asof)
+    _add_sectors(store, stocks)
     return stocks
 
 
@@ -114,6 +115,7 @@ def _load_universe(store: Store, asof: datetime, countries: tuple[str, ...]) -> 
             "turnover": r["turnover"] if traded else None,
             "pe": r["pe"],
             "pb": r["pb"],
+            "ps": r["ps"],
             "eps": r["eps"],
             "dividend_yield": (r["dividend_yield"] or 0.0) / 100,
             "ret_1m": _pct(r["yield_1m"]),
@@ -127,6 +129,7 @@ def _load_universe(store: Store, asof: datetime, countries: tuple[str, ...]) -> 
         pe, pb = f["pe"], f["pb"]
         f["earnings_yield"] = 1 / pe if pe and pe > 0 else None
         f["book_to_price"] = 1 / pb if pb and pb > 0 else None
+        f["sales_to_price"] = 1 / f["ps"] if f["ps"] and f["ps"] > 0 else None
         f["roe"] = pb / pe if pe and pe > 0 and pb and pb > 0 else None
         if f["ret_1y"] is not None and f["ret_1m"] is not None and f["ret_1m"] > -1:
             f["momentum"] = (1 + f["ret_1y"]) / (1 + f["ret_1m"]) - 1  # 12-1 month momentum
@@ -311,6 +314,16 @@ def _add_mfn_buybacks(store: Store, stocks: list[Stock], asof: datetime) -> None
             if published >= asof - EVENT_WINDOW and buyback_start(r["title"] or ""):
                 stock.features["buyback_start"] = True
                 stock.events.append({"type": "buyback_start", "at": published.isoformat(), "title": r["title"]})
+
+
+def _add_sectors(store: Store, stocks: list[Stock]) -> None:
+    """Yahoo's sector and industry (the ``yahoo-sektor`` collector); None where it has not been looked up."""
+    t = store.table("sectors")
+    known = {r["symbol"]: r for r in store.query(select(t.c.symbol, t.c.sector, t.c.industry))}
+    for stock in stocks:
+        row = known.get(yahoo_symbol(stock.symbol, stock.country)) if stock.country in EXCHANGE_SUFFIX else None
+        stock.features["sector"] = row["sector"] if row else None
+        stock.features["industry"] = row["industry"] if row else None
 
 
 def _add_shorts(store: Store, stocks: list[Stock], asof: datetime) -> None:
