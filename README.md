@@ -62,7 +62,7 @@ nordic-signals evaluate                        # score past recommendations agai
 
 The **Lekepenger** page runs the advice the way a Nordnet customer in Norway would trade it, with 500,000 NOK of play money, so the model can be calibrated on realistic results before any real money is involved. Nothing is traded. Code: `src/nordic_signals/advisor/paper.py`.
 
-The rules come in versions (`VERSIONS`), each a fresh account of 500,000 NOK from its first evening. The one before stops deciding then; the page shows its result at the close of its last trading day, against the indexes.
+The rules come in versions (`VERSIONS`), each a fresh account of 500,000 NOK from its first evening. The one before stops deciding then: its last evening orders nothing, since those orders would fill after the switch, and it ends at the close of its last trading day, holdings and all. The page shows its result then, against the indexes, and links to its own page (`/lekepenger?konto=lekepenger-1`) and logs.
 
 | Version | From | Rules |
 |---|---|---|
@@ -81,7 +81,7 @@ What it follows: at most 12 positions of at least 20,000 NOK, no cash part.
   - at most 2 new ones an evening
   - as many at once as its 50,000 NOK allowed (two slots of 25,000)
   - each sold after 5 trading days, the signals' horizon
-- **Signals on paper.** Every evening's short-term signals are logged (`paper_signals`), bought or not, and followed on paper (`advisor/paper_signals.py`): bought at the opening of the stock's next trading day and sold at the close of its market's 5th trading day, after Nordnet's costs for 25,000 NOK, against the market's index over the same days. The same stock and signal within 7 days of its first evening is one event. The page shows each and the average; the export has them all.
+- **Signals on paper.** Every evening's short-term signals are logged (`paper_signals`), bought or not, and followed on paper (`advisor/paper_signals.py`): bought at the opening of the stock's next trading day and sold at the close of its market's 5th trading day, with any dividend in between (Swedish after withholding tax), after Nordnet's costs for 25,000 NOK, against the market's index over the same days. Only days whose close is in count, so an event finishes after 18:00 on its last day, once the index has that close too. The same stock and signal within 7 days of its first evening is one event, ordered if the account ordered it on any of those evenings. The page shows each and the average; the export has them all.
 
 How it trades:
 - **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
@@ -99,10 +99,10 @@ How it trades:
 - **Orders still waiting** for their opening, after a holiday on one exchange or a day the stock did not trade, are counted as done the next evening: a sale is not ordered again, their money is spoken for, and a buy takes its place among the 12 long-term or the short-term slots.
 - **Not modelled:** a large order moving the price, and the delay between seeing a signal and trading. The orders are small next to the stocks' turnover, since the advisor only picks liquid stocks.
 
-The account is a replay: only the orders are stored (`paper_orders`, and each evening's decision in `paper_days`). Fills, fees, dividends and the daily value are worked out from the prices every time, so late data corrects the history. Change `ACCOUNT` when the rules change, and a new account starts from scratch.
+The account is a replay: only the orders are stored (`paper_orders`, and each evening's decision in `paper_days`). Fills, fees, dividends and the daily value are worked out from the prices every time, so late data corrects the history. A change to the rules is a new entry in `VERSIONS`, and a new account that starts from scratch.
 
-The page has two downloads:
-- `/lekepenger/export.json`: everything, for analysis. It has each evening's decisions, the orders and what became of them, the trades, holdings, dividends and the daily value.
+The page has two downloads, for the account it shows (`?konto=` picks an earlier one; the file name says which):
+- `/lekepenger/export.json`: everything, for analysis. It has each evening's decisions, the orders and what became of them, the trades, holdings, dividends and the daily value; and every account's signals on paper, and the finished accounts' results.
 - `/lekepenger/export.csv`: the trades, for Excel with Norwegian settings.
 
 ## Krypto: a play-money crypto account

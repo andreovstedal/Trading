@@ -84,14 +84,17 @@
 {% if runners_up %}
 <div class="card">
   <h2>Neste i køen</h2>
-  <p class="small muted">Bruk disse hvis du ikke kan eller vil kjøpe en av posisjonene over.</p>
+  <p class="small muted">Bruk disse hvis du ikke kan eller vil kjøpe en av posisjonene over.{% if runners_up | selectattr("full_sector") | list %}
+    En aksje fra en sektor som allerede har {{ max_per_sector }} posisjoner, kan bare erstatte en av dem, så taket
+    holder.{% endif %}</p>
   <div class="table-wrap"><table>
     <thead><tr><th class="num">Plass</th><th>Aksje</th><th class="num">Kurs</th><th class="num">Poeng</th><th>Hvorfor</th></tr></thead>
     <tbody>
     {% for line in runners_up %}
       <tr>
         <td class="num">{{ line.rank }}</td>
-        <td><a href="/stocks/{{ line.instrument_id }}">{{ line.name }}</a><div class="ticker">{{ line.symbol }} · {{ line.segments | join(", ") or line.country }}</div></td>
+        <td><a href="/stocks/{{ line.instrument_id }}">{{ line.name }}</a><div class="ticker">{{ line.symbol }} · {{ line.segments | join(", ") or line.country }}</div>
+          {%- if line.full_sector %}<div class="small muted">Bare i stedet for en {{ line.full_sector }}-aksje over</div>{% endif %}</td>
         <td class="num nowrap">{{ line.ref_price | num(2) }} {{ line.currency }}</td>
         <td class="num">{{ line.score | num(2) }}</td>
         <td><div class="chips">{% for reason in line.reasons %}<span class="chip">{{ reason }}</span>{% endfor %}</div></td>

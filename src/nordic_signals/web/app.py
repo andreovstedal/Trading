@@ -15,6 +15,7 @@ import os
 import secrets
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -36,6 +37,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from .. import crypto, jobs, pumpfun, scheduler, text
 from ..advisor import MODEL_VERSION, Policy, recommend
 from ..advisor import evaluate as evaluation
+from ..advisor.scoring import PARAMS
 from ..http import PoliteClient
 from ..store import Store
 from . import crypto_page, exports, paper_page, pumpfun_page, queries
@@ -199,9 +201,15 @@ def create_app(db: str | None = None) -> FastAPI:
         picks = [line for line in lines if line["long_shares"]]
         eligible = [line for line in lines if line["eligible"]]
         runners_up = [line for line in eligible if not line["long_shares"]][:8]
+        if rec["model_version"] not in ("v1", "v2", "v3"):  # from v4, at most 3 picks from one sector
+            chosen = Counter((line["features"] or {}).get("sector") for line in picks)
+            for line in runners_up:
+                sector = (line["features"] or {}).get("sector")
+                line["full_sector"] = sector if sector and chosen[sector] >= PARAMS["max_per_sector"] else None
         return render(request, "recommendation.html", rec=rec, picks=picks, runners_up=runners_up,
                       signals=queries.short_signal_lines(store, rec_id) if lines else [],
-                      exclusions=queries.exclusion_counts(lines), universe=len(lines), eligible=len(eligible))
+                      exclusions=queries.exclusion_counts(lines), universe=len(lines), eligible=len(eligible),
+                      max_per_sector=PARAMS["max_per_sector"])
 
     @app.get("/recommendations/{rec_id}/export.csv")
     def recommendation_csv(rec_id: int) -> PlainTextResponse:
@@ -234,20 +242,30 @@ def create_app(db: str | None = None) -> FastAPI:
     def track_record(request: Request) -> HTMLResponse:
         return render(request, "track_record.html", record=evaluation.track_record(store))
 
+    # ?konto= shows an earlier version of the account; without it, the current one.
     @app.get("/lekepenger", response_class=HTMLResponse)
-    def paper_view(request: Request) -> HTMLResponse:
-        return render(request, "lekepenger.html", **paper_page.context(store))
+    def paper_view(request: Request, konto: str | None = None) -> HTMLResponse:
+        version = paper_page.find(konto)
+        if version is None:
+            return render_error(request, "Fant ikke kontoen", "Det finnes ingen lekepengekonto med det navnet.", 404)
+        return render(request, "lekepenger.html", **paper_page.context(store, version=version))
 
     @app.get("/lekepenger/export.csv")
-    def paper_csv() -> StreamingResponse:
-        name = exports.filename("csv", queries.utcnow(), "lekepenger")
-        return StreamingResponse(paper_page.export_csv(store), media_type="text/csv; charset=utf-8",
+    def paper_csv(konto: str | None = None) -> Response:
+        version = paper_page.find(konto)
+        if version is None:
+            return PlainTextResponse("Fant ikke kontoen", status_code=404)
+        name = exports.filename("csv", queries.utcnow(), version.name)
+        return StreamingResponse(paper_page.export_csv(store, version=version), media_type="text/csv; charset=utf-8",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/lekepenger/export.json")
-    def paper_json() -> StreamingResponse:
-        name = exports.filename("json", queries.utcnow(), "lekepenger")
-        return StreamingResponse(paper_page.export_json(store), media_type="application/json",
+    def paper_json(konto: str | None = None) -> Response:
+        version = paper_page.find(konto)
+        if version is None:
+            return PlainTextResponse("Fant ikke kontoen", status_code=404)
+        name = exports.filename("json", queries.utcnow(), version.name)
+        return StreamingResponse(paper_page.export_json(store, version=version), media_type="application/json",
                                  headers={"Content-Disposition": f'attachment; filename="{name}"'})
 
     @app.get("/krypto", response_class=HTMLResponse)

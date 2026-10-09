@@ -10,6 +10,10 @@
     <p class="muted">{{ a.start | nok }} i lekepenger handler etter rådgiverens egne regler, med Nordnets kurtasje og
       børsenes åpningstider. Slik ser vi hvordan rådene ville gått i praksis, før ekte penger står på spill.</p>
     <p class="small muted">Konto {{ version.name }}, fra {{ version.first_evening | day }}: {{ version.about }}.</p>
+    {% if earlier %}
+    <p class="notice">En avsluttet konto{% if until %}, til sluttkurs {{ until | day }}{% endif %}.
+      <a href="/lekepenger">Til kontoen nå, {{ current.name }}</a>.</p>
+    {% endif %}
   </div>
   <p class="markets" aria-label="Børsene nå">
     {%- for m in markets %}
@@ -19,10 +23,10 @@
   </p>
 </div>
 
-{% if not a.orders %}
+{% if not a.orders and not earlier %}
 <div class="card">
   <h2>Kontoen er klar</h2>
-  <p>Første beslutning tas {% if first_evening %}{{ first_evening | when }}{% else %}neste handelsdag om kvelden{% endif %},
+  <p>Første beslutning tas {% if first_tonight %}i kveld{% elif first_evening %}{{ first_evening | when }}{% else %}neste handelsdag om kvelden{% endif %},
     når kveldens innsamling er ferdig. Kontoen kjøper da de {{ policy.max_positions }} aksjene rådgiveren rangerer høyest{% if policy.short_pct %},
     og kortsiktige signaler hvis det er noen{% endif %}. Ordrene utføres til åpningskurs neste handelsdag.</p>
 </div>
@@ -34,6 +38,9 @@
   <p>{{ f.about | capitalize }}, fra {{ f.first_evening | day }} til sluttkurs {{ f.until | day }}: {{ f.equity | nok }},
     {{ arrow(f.result) }}{{ f.result | pct(2, True) }}{% if f.yardstick %}, mot {{ f.yardstick.result | pct(2, True) }} for
     indeksene, {{ arrow(f.yardstick.excess) }}{{ (f.yardstick.excess * 100) | num(2, True) }}&nbsp;poeng{% endif %}.</p>
+  <p class="actions"><a class="button secondary" href="/lekepenger?konto={{ f.name }}">Se kontoen</a>
+    <a class="button secondary" href="/lekepenger/export.json?konto={{ f.name }}">Logg (JSON)</a>
+    <a class="button secondary" href="/lekepenger/export.csv?konto={{ f.name }}">Handler (CSV)</a></p>
 </div>
 {% endfor %}
 
@@ -99,7 +106,7 @@
   {% if a.positions %}
   <div class="table-wrap"><table>
     <thead><tr><th>Aksje</th><th>Del</th><th class="num">Antall</th><th>Kjøpt</th><th class="num">Kostpris</th>
-      <th class="num">Verdi nå</th><th class="num">Resultat</th></tr></thead>
+      <th class="num">{% if earlier %}Verdi til slutt{% else %}Verdi nå{% endif %}</th><th class="num">Resultat</th></tr></thead>
     <tbody>{% for p in a.positions %}
       <tr><td><a href="/stocks/{{ p.instrument_id }}">{{ p.name }}</a><div class="ticker">{{ p.symbol }} · {{ p.currency }}</div></td>
         <td>{{ sleeves[p.sleeve] }}{% if p.sleeve == "short" %}<div class="ticker">dag {{ p.held_days }} av {{ rules.short_hold }}</div>{% endif %}</td>
@@ -220,7 +227,7 @@
   {% endif %}
   {% if signal_rows %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Kveld</th><th>Aksje</th><th>Signal</th><th>Kjøpt av kontoen</th><th class="num">Etter kostnader</th>
+    <thead><tr><th>Kveld</th><th>Aksje</th><th>Signal</th><th>Bestilt av kontoen</th><th class="num">Etter kostnader</th>
       <th class="num">Mot indeksen</th></tr></thead>
     <tbody>{% for e in signal_rows %}
       <tr><td class="nowrap">{{ e.decided_on | day }}</td><td>{{ e.name }}<div class="ticker">{{ e.symbol }}</div></td>
@@ -238,10 +245,11 @@
 
 <div class="card">
   <h2>Last ned loggen</h2>
-  <p>Alt kontoen har gjort: beslutningene hver kveld, ordrene og hva som ble av dem, handlene med kurtasje og
-    veksling, beholdningen, utbyttet og verdien dag for dag, og signalene på papiret.</p>
-  <p class="actions"><a class="button" href="/lekepenger/export.json">Logg (JSON)</a>
-    <a class="button secondary" href="/lekepenger/export.csv">Handler (CSV)</a></p>
+  <p>Alt {{ version.name }} har gjort: beslutningene hver kveld, ordrene og hva som ble av dem, handlene med kurtasje
+    og veksling, beholdningen, utbyttet og verdien dag for dag; og alle kontoenes signaler på papiret.{% if finished %}
+    Tidligere kontoer har sine egne logger, under «Forrige konto».{% endif %}</p>
+  <p class="actions"><a class="button" href="/lekepenger/export.json?konto={{ version.name }}">Logg (JSON)</a>
+    <a class="button secondary" href="/lekepenger/export.csv?konto={{ version.name }}">Handler (CSV)</a></p>
   <p class="small muted">CSV-filen åpnes rett i Excel med norske innstillinger.</p>
 </div>
 <script src="/static/charts.js" defer></script>

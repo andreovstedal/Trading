@@ -130,6 +130,27 @@ def test_recommendation_flow(store, make_client):
         assert "Siste anbefalinger" in client.get("/").text
 
 
+def test_a_runner_up_from_a_full_sector_only_stands_in_for_that_sector(store, make_client):
+    from sqlalchemy import select
+
+    from nordic_signals.advisor import Policy, recommend
+    from nordic_signals.collectors.yahoo import yahoo_symbol
+    from nordic_signals.http import FetchedResponse
+    now = seed_universe(store)
+    i = store.table("instruments")
+    fetch_id = store.record_fetch("test", FetchedResponse("GET", "https://example.test/", 200, "", b"", now))
+    store.upsert("sectors", [{"symbol": yahoo_symbol(r["symbol"], r["exchange_country"]), "sector": "Energy"}
+                             for r in store.query(select(i.c.symbol, i.c.exchange_country)) if r["symbol"]],
+                 fetch_id=fetch_id)
+    rec_id = recommend.create(store, Policy(account_value=200_000, long_pct=100, short_pct=0, max_positions=4,
+                                            min_position=20_000))
+    recommend.run(store, rec_id)
+    with make_client() as client:
+        page = " ".join(client.get(f"/recommendations/{rec_id}").text.split())
+    assert "hoppet over" in page and "Bare i stedet for en Energy-aksje over" in page
+    assert "kan bare erstatte en av dem, så taket holder" in page
+
+
 def test_invalid_input_comes_back_as_a_message(make_client):
     with make_client() as client:
         response = client.post("/recommendations", data={

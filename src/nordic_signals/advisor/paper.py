@@ -93,6 +93,12 @@ def version_on(day: date) -> Version:
     return started[-1] if started else VERSIONS[0]
 
 
+def named(name: str, now: datetime | None = None) -> Version | None:
+    """The version called ``name``, if it has started by the evening of ``now``."""
+    started = evening_of(now or utcnow())
+    return next((v for v in VERSIONS if v.name == name and v.first_evening <= started), None)
+
+
 def _next(version: Version) -> Version | None:
     later = [v for v in VERSIONS if v.first_evening > version.first_evening]
     return later[0] if later else None
@@ -250,14 +256,20 @@ class Lot:
 
 def account(store: Store, now: datetime | None = None, version: Version | None = None) -> dict[str, Any]:
     """Every order filled at its opening price in turn, dividends credited, and the value at each day's close; for
-    ``version``, or the one deciding on the evening of ``now``."""
-    version = version or version_on(evening_of(now or utcnow()))
+    ``version``, or the one deciding on the evening of ``now``. A version the next one has taken over from ends at
+    the close of its last trading day before that."""
+    tonight = evening_of(now or utcnow())
+    version = version or version_on(tonight)
+    later = _next(version)
+    ends = later.first_evening if later is not None and later.first_evening <= tonight else None
     orders = _orders(store, version.name)
     if not orders:
         return _summary(version, START, {}, [], [], [], [], [], [], _closes({}), {}, [])
     since = min(o["decided_on"] for o in orders)
     stocks = {o["instrument_id"]: o for o in orders}
     prices = _prices(store, stocks, since)
+    if ends is not None:
+        prices = {i: {d: p for d, p in series.items() if d < ends} for i, series in prices.items()}
     close = _closes(prices)
     latest = max((d for series in prices.values() for d in series), default=since)
     fx = _fx(store)
@@ -533,26 +545,30 @@ def finished(store: Store, now: datetime | None = None) -> list[dict[str, Any]]:
         later = _next(version)
         if version is current or later is None or later.first_evening > current.first_evening:
             continue
-        state = account(store, now, version)
-        days = [(d, e) for d, e, _ in state["history"] if d < later.first_evening]
-        if not days:
+        state = account(store, now, version)  # it ends at the close before the next version's first evening
+        if not state["history"]:
             continue
-        day, equity = days[-1]
+        day, equity, _ = state["history"][-1]
         out.append({"name": version.name, "about": version.about, "first_evening": version.first_evening,
                     "until": day, "equity": equity, "result": equity / START - 1,
                     "yardstick": _versus((state["yardstick"] or {}).get("history", []), state["history"], day)})
     return out
 
 
-def _prices(store: Store, stocks: dict[int, dict[str, Any]], since: date) -> dict[int, dict[date, tuple]]:
+def _prices(store: Store, stocks: dict[int, dict[str, Any]], since: date,
+            until: date | None = None) -> dict[int, dict[date, tuple]]:
     """(opening, closing) price per stock and trading day: Nordnet's snapshots after the close, as the advisor uses,
-    with Yahoo's daily bars for days without one (a missed evening) and for a missing opening price."""
+    with Yahoo's daily bars for days without one (a missed evening) and for a missing opening price. From ``since``,
+    and up to about ``until`` if given (a day or two more may come along)."""
     out: dict[int, dict[date, tuple]] = defaultdict(dict)
     t = store.table("nordnet_observations")
     start = datetime.combine(since, time(0), NORDIC_TZ)
+    end = datetime.combine(until + timedelta(days=2), time(0), NORDIC_TZ) if until else None
+    snapshots = [t.c.instrument_id.in_(list(stocks)), t.c.observed_at >= start, t.c.last > 0]
+    if end is not None:  # a day's snapshot can be taken after midnight
+        snapshots.append(t.c.observed_at < end)
     for r in store.query(select(t.c.instrument_id, t.c.observed_at, t.c.tick_at, t.c.open, t.c.last)
-                         .where(t.c.instrument_id.in_(list(stocks)), t.c.observed_at >= start, t.c.last > 0)
-                         .order_by(t.c.observed_at)):
+                         .where(*snapshots).order_by(t.c.observed_at)):
         day = trading_day(r["tick_at"], r["observed_at"])
         observed = _utc(r["observed_at"]).astimezone(NORDIC_TZ)
         if observed.date() > day or observed.time() >= AFTER_CLOSE:
@@ -560,9 +576,10 @@ def _prices(store: Store, stocks: dict[int, dict[str, Any]], since: date) -> dic
     symbols = {yahoo_symbol(s["symbol"], s["country"]): i for i, s in stocks.items()
                if s["symbol"] and s["country"] in EXCHANGE_SUFFIX}
     bars = store.table("price_bars")
-    for r in store.query(select(bars.c.symbol, bars.c.ts, bars.c.open, bars.c.close)
-                         .where(bars.c.symbol.in_(list(symbols)), bars.c.interval == "1d",
-                                bars.c.ts >= int(start.timestamp()))):
+    daily = [bars.c.symbol.in_(list(symbols)), bars.c.interval == "1d", bars.c.ts >= int(start.timestamp())]
+    if end is not None:
+        daily.append(bars.c.ts < int(end.timestamp()))
+    for r in store.query(select(bars.c.symbol, bars.c.ts, bars.c.open, bars.c.close).where(*daily)):
         instrument_id, day = symbols[r["symbol"]], datetime.fromtimestamp(r["ts"], NORDIC_TZ).date()
         seen = out[instrument_id].get(day)
         if seen is None and r["close"]:
@@ -673,6 +690,11 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
     policy = Policy(account_value=state["equity"], **version.policy)
     tonight = scanner(store, policy, rebalance)
     orders, notes = _plan(state, policy, tonight, rebalance, version.hold_rank)
+    later = _next(version)
+    if later is not None and not any(market_days(c, today, later.first_evening - timedelta(days=1)) for c in MARKETS):
+        # Its orders would fill after the next version took over, when this account no longer counts.
+        orders, notes = [], [f"Siste kveld for {version.name}: {later.name} tar over fra neste handelsdag, så "
+                                 f"ingen ordrer ble lagt inn. Signalene er ført opp på papiret."]
     _save(store, version, today, now, rebalance, tonight, state, orders, notes)
     return {"ok": True, "account": version.name, "rebalance": rebalance, "orders": len(orders),
             "recommendation_id": tonight.recommendation_id, "notes": notes}

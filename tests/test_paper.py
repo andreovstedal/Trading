@@ -576,6 +576,8 @@ def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, 
     _, first, second = decided
 
     assert (first["account"], second["account"]) == (FIRST.name, SECOND.name)
+    # Its last evening orders nothing: the orders would fill after the next version took over.
+    assert first["orders"] == 0 and first["notes"][0].startswith(f"Siste kveld for {FIRST.name}")
     assert second["rebalance"]  # a new version starts with a rebalance
     placed = [o for o in orders(store) if o["account"] == SECOND.name]
     assert len(placed) == 12 and {o["sleeve"] for o in placed} == {"long"}  # all of it long-term; no signal bought
@@ -593,10 +595,26 @@ def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, 
     assert paper.account(store, later)["account"] == SECOND.name
     (done,) = paper.finished(store, later)
     assert done["name"] == FIRST.name and done["until"] == last_friday
+    old = paper.account(store, later, FIRST)  # it ends at its last close, though its holdings were never sold
+    assert old["history"][-1][0] == last_friday and old["valued_on"] == last_friday and not old["pending"]
     monkeypatch.setattr(paper_page, "utcnow", lambda: later)
     with make_client() as client:
         page = client.get("/lekepenger").text
+        old_page = client.get(f"/lekepenger?konto={FIRST.name}").text
+        old_csv = client.get(f"/lekepenger/export.csv?konto={FIRST.name}")
+        old_log = client.get(f"/lekepenger/export.json?konto={FIRST.name}").json()
+        new_csv = client.get("/lekepenger/export.csv")
+        unknown = client.get("/lekepenger?konto=lekepenger-9").status_code
+        missing = client.get("/lekepenger/export.json?konto=lekepenger-9").status_code
     assert "januar, april, juli og oktober, og den første dagen kontoen var i gang" in " ".join(page.split())
+    assert f'href="/lekepenger/export.json?konto={FIRST.name}"' in page
+    assert "En avsluttet konto" in old_page and "Forrige konto" not in old_page
+    assert f'filename="{FIRST.name}-' in old_csv.headers["content-disposition"]
+    assert f'filename="{SECOND.name}-' in new_csv.headers["content-disposition"]
+    assert len(old_csv.text.strip().splitlines()) == 1 + len(old["trades"]) and old["trades"]
+    assert old_log["meta"]["account"] == FIRST.name and old_log["meta"]["finished"]
+    assert {d["decided_on"] for d in old_log["days"]} == {str(last_friday - timedelta(days=1)), str(last_friday)}
+    assert (unknown, missing) == (404, 404)
 
 
 def test_signals_are_followed_on_paper_once_each(store):
@@ -612,7 +630,7 @@ def test_signals_are_followed_on_paper_once_each(store):
                 signal_type="buyback_start", symbol="S7", name="Stock 7", country="NO", currency="NOK",
                 ref_price=100, fx_rate=1.0, bought=False))
 
-    record = paper_signals.record(store)
+    record = paper_signals.record(store, oslo(days[5], 18))
 
     newer, older = record["events"]
     assert newer["status"] == "venter" and older["status"] == "ferdig"
@@ -623,3 +641,50 @@ def test_signals_are_followed_on_paper_once_each(store):
     assert older["net"] == pytest.approx(0.05 - older["costs"]) and older["costs"] == pytest.approx(0.003, abs=1e-4)
     assert older["excess"] == pytest.approx(older["net"] - ((1000 + (days[4] - FRI).days) / 1000 - 1))
     assert record["total"]["n"] == 1 and record["types"][0]["label"] == "Nytt tilbakekjøpsprogram"
+
+
+def test_a_signal_counts_its_dividend_and_only_closed_days_and_waits_for_the_index(store):
+    from nordic_signals.advisor import paper_signals
+    days = paper.market_days("NO", FRI, date(2026, 10, 30))
+    exit_day = days[4]
+    for day in [FRI, *days[:5]]:
+        snapshot(store, 7, day, 100, 100 if day < days[2] else 95)  # 5 NOK paid out, ex-date the 3rd day
+    for day in [FRI, *days[:4]]:
+        index_bar(store, "OSEBX.OL", day, 1000, 1000)
+    with store.engine.begin() as conn:
+        conn.execute(store.table("dividends").insert().values(
+            symbol="S7.OL", ts=int(oslo(days[2], 9).timestamp()), ex_date=days[2], amount=5.0, currency="NOK"))
+        for decided_on, bought in ((FRI, False), (NEXT_MON, True)):  # ordered on the event's second evening
+            conn.execute(store.table("paper_signals").insert().values(
+                account=FIRST.name, decided_on=decided_on, decided_at=oslo(decided_on, 22, 45), instrument_id=7,
+                signal_type="buyback_start", symbol="S7", name="Stock 7", country="NO", currency="NOK",
+                ref_price=100, fx_rate=1.0, bought=bought))
+
+    (during,) = paper_signals.record(store, oslo(exit_day, 11))["events"]  # the exit day is not over
+    (evening,) = paper_signals.record(store, oslo(exit_day, 19))["events"]  # over, but the index's close is missing
+    index_bar(store, "OSEBX.OL", exit_day, 1000, 1000)
+    done = paper_signals.record(store, oslo(exit_day, 19))
+
+    assert during["status"] == "venter" and during["bought"]
+    assert evening["status"] == "venter på indeksen" and evening["excess"] is None
+    (event,) = done["events"]
+    assert event["status"] == "ferdig" and done["total"]["n"] == 1
+    assert event["ret"] == pytest.approx(0.0) and event["dividend"] == pytest.approx(0.05)  # 95 + 5 for 100
+    assert event["excess"] == pytest.approx(-event["costs"])
+
+
+def test_a_missing_index_opening_counts_from_the_close_before():
+    from nordic_signals.advisor import paper_signals
+    index = {FRI: (1000, 1000), NEXT_MON: (None, 1030), date(2026, 10, 16): (1030, 1030)}
+    assert paper_signals._index_return(index, NEXT_MON, date(2026, 10, 16)) == pytest.approx(0.03)
+    assert paper_signals._index_return(index, NEXT_MON, date(2026, 10, 15)) is None
+
+
+def test_a_new_account_says_its_first_decision_is_tonight_while_the_evening_runs(store, monkeypatch):
+    monkeypatch.setattr(paper, "VERSIONS", (FIRST, SECOND))
+    first_monday = SECOND.first_evening
+    at_noon = paper_page._first_evening(store, SECOND, oslo(first_monday, 12))
+    late = paper_page._first_evening(store, SECOND, oslo(first_monday, 22))
+    after_midnight = paper_page._first_evening(store, SECOND, oslo(first_monday + timedelta(days=1), 0, 30))
+    assert at_noon == (datetime.combine(first_monday, paper.EVENING, paper.timezone.utc), False)
+    assert late[1] and after_midnight[1]  # the nightly set may still run; the decision is made that same night
