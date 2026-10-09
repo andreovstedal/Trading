@@ -1,8 +1,8 @@
 # Backtest results, October 2026
 
-Three backtests were pre-registered on 8 October 2026 (`research/PREREGISTRATION.md`), then built, checked against the raw data by a second reviewer, corrected and re-run; details are in each folder's `results.md`. *Exploratory* marks anything not pre-registered: a lead to test, not a result. "±" is one standard error; t is the estimate divided by it, and t ≥ 2 is the usual bar.
+Three backtests were pre-registered on 8 October 2026 and a fourth, B4, on 9 October (`research/PREREGISTRATION.md`), then built, checked against the raw data by a second reviewer, corrected and re-run; details are in each folder's `results.md`. *Exploratory* marks anything not pre-registered: a lead to test, not a result. "±" is one standard error; t is the estimate divided by it, and t ≥ 2 is the usual bar.
 
-**In short:** no short-term signal makes money after costs; the stock score's price part matched the index after costs, momentum pointing the right way; no crypto trading rule beat holding after costs and tax, so the crypto account switches to buy and hold, pump.fun kept.
+**In short:** no short-term signal makes money after costs; the stock score's price part matched the index after costs, momentum pointing the right way; no crypto trading rule beat holding after costs and tax, so the crypto account switches to buy and hold, pump.fun kept. Checking the stock book quarterly instead of monthly (B4) kept the return and cut the costs, so the second stock account rebalances quarterly.
 
 ## 1. Headlines against the bars
 
@@ -13,6 +13,7 @@ Three backtests were pre-registered on 8 October 2026 (`research/PREREGISTRATION
 | B1: Oslo insider purchase (comparison) | same | −0.63 % ± 0.25 % (t −2.5; ≈ 5,900, 2013–26) | not met: loses |
 | B2: momentum + low volatility, top 12 | none (calibration) | +0.7 % ± 2.7 % a year over the index, after costs (t 0.26) | – |
 | B3: 8 crypto trading rules | beat holding in 3 tests after tax; DSR ≥ 0.95 | 0 of 8 (DSR passes for 7; returns fail) | not met |
+| B4: trade the B2 book less | beat monthly net, whole period and both halves | wide 15.54 %, quarterly 15.55 %, monthly 14.33 % a year | both met; quarterly by the tie-break |
 
 **B1.** Net excess = return from the opening after the evening decision to the 5th day's close, minus the round trip (0.30 % Oslo, 0.80 % Stockholm) and the index; errors clustered by month. Before costs the Swedish cluster matched the index (−0.04 %): costs are the whole loss. The price moves before the account can buy: previous close to buying opening +0.48 % (t 2.4) for buybacks, +0.30 % (t 5.0) for Swedish clusters, +0.54 % (t 5.4) for Oslo insider buys.
 
@@ -27,6 +28,8 @@ Three backtests were pre-registered on 8 October 2026 (`research/PREREGISTRATION
 | 150-day average | 40.5 / 40.3 | 42.1 / 41.9 | 37.2 / 36.8 | 276 / 275 |
 
 Only the 150-day rule beat holding anywhere (0.2 points from 2018), and it lost from 2020. Before tax, 200-day minus holding from 2018 is −2.8 ± 16.5 points a year: the data cannot tell them apart, and no rule's gap reaches two standard errors. The trend rules cut the worst fall (200-day −58 % against −81 %) but the 200-day rule cost 7.2 % a year against 1.6 %, and the rules pay tax yearly where holding pays once.
+
+**B4** (B2's book and 162 months; `research/b4_turnover/`). Checking only in January, April, July and October cut turnover from 300 % to 180 % a year and costs from 3.3 % to 2.0 %; keeping holdings while in the top 36 (wide) cut costs to 2.3 %. Before costs all three earn about the same (18.3, 18.3 and 17.9 %), so the gain is the costs saved. The two rules differ by 0.008 points a year; each is about +1.2 ± 1.0–1.4 points a year over monthly (t 1.1 and 0.85), and the worst fall deepens from −18 % to about −23 %. *Exploratory:* quarterly's result depends on the months: February/May/August/November would have failed the bar, March/June/September/December cleared it.
 
 ## 2. The crypto decision
 
@@ -53,7 +56,7 @@ Pre-registered reading: no signal's 5-day trade earns money, so the short-term p
 **Stock score**
 
 4. *Keep momentum and low volatility.* Momentum's direction is positive (pre-registered); low volatility's rank correlation was larger, 0.059 (t 5.0).
-5. *The score mostly avoids losers.* Score fifths, best first: 18.6, 17.0, 17.5, 14.3 and 5.1 % a year before costs (missing failures flatter the last). The top fifth barely beats the next two, so holding longer (keep while in the top 36, or rebalance quarterly) could cut costs at little loss. Untested.
+5. *The score mostly avoids losers.* Score fifths, best first: 18.6, 17.0, 17.5, 14.3 and 5.1 % a year before costs (missing failures flatter the last). The top fifth barely beats the next two, so holding longer (keep while in the top 36, or rebalance quarterly) could cut costs at little loss. Tested in B4: both kept the return before costs and cut the costs by 1.0–1.4 points a year; `lekepenger-2` rebalances quarterly.
 6. *Costs are the lever:* 3.3 of the 4.1 points of gross excess. Currency exchange (0.25 % each way on Swedish shares, 1.0 % a year) is worth checking against Nordnet's options for holding SEK.
 7. *The overlays get no support at longer horizons* (after the round trip; Newey–West t), at 20 and 250 days: Swedish clusters −1.0 % (t −3.1), −2.1 % (t −0.5); buyback starts +0.2 % (t 0.3), +4.0 % (t 0.9); Oslo insider buys −0.6 % (t −1.3), +7.7 % (t 1.4). The score's 90-day overlays were not tested directly; nothing supports a positive Swedish insider tilt. *Post hoc:* Oslo insider notices about share schemes, allotments or issues did worse (−1.18 %, t −2.4) than the rest (−0.46 %, t −1.6); worth testing without them.
 
@@ -77,7 +80,8 @@ From `/home/user/Trading`:
 .venv/bin/python research/b1_events/b1_events.py --offline   # about 45 s
 .venv/bin/python research/b2_prices/b2.py --offline          # about 4 min; --no-attribution is faster
 .venv/bin/python research/b3_crypto/b3.py --offline          # about 40 s
+.venv/bin/python research/b4_turnover/b4.py --offline        # uses B2's cache
 /root/.local/bin/ruff check research/
 ```
 
-Each writes `results.json` and `results.md` to its folder (or `--out DIR`); `--cache DIR` sets the cache, by default `/tmp/claude-0/-home-user-Trading/0a31d734-cb89-583d-8276-7cd774b8c998/scratchpad/data/<folder>/`, outside the repo. Without `--offline`, missing files download at about one request a second: about 9,300 files for B1 (hours), 1,700 for B2, 7 for B3. On 8 October 2026 all three re-ran from the cache with no requests and reproduced their results byte for byte.
+Each writes `results.json` and `results.md` to its folder (or `--out DIR`); `--cache DIR` sets the cache, by default `/tmp/claude-0/-home-user-Trading/0a31d734-cb89-583d-8276-7cd774b8c998/scratchpad/data/<folder>/`, outside the repo. Without `--offline`, missing files download at about one request a second: about 9,300 files for B1 (hours), 1,700 for B2, 7 for B3. On 8 October 2026 B1–B3 re-ran from the cache with no requests and reproduced their results byte for byte.
