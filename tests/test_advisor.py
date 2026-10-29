@@ -131,9 +131,17 @@ def test_a_notice_starting_a_programme_announced_before_is_not_a_new_start():
             "to the stock exchange announcement by Entra ASA (\"Entra\" or\nthe \"Company\") on 15 October 2026 "
             "regarding the Board of Directors' resolution\nto establish a share buy-back programme")
     assert buyback_start(title) and not buyback_start(title, body)
-    # A new programme that refers to the general meeting's authorisation is still new.
-    assert buyback_start("DNB Bank ASA: Share buy-back programme initiated",
-                         "Reference is made to the authorisation granted by the annual general meeting.")
+    assert not buyback_start(title, body.replace(" is made to", "  is\nmade  to"))  # wrapped or padded the same
+    # Still new: one that refers to the general meeting's authorisation, to an announcement about something else
+    # (Europris, 13 Jul 2018), or that ended the last programme and starts a new one (LINK Mobility, 12 Jun 2024).
+    new = "Company ASA initiates share buy-back program"
+    assert buyback_start(new, "Reference is made to the authorisation granted by the annual general meeting.")
+    assert buyback_start(new, "The board has resolved to initiate a share buy-back program. The shares will be used "
+                              "in the acquisition of Runsvengruppen; reference is made to the stock exchange "
+                              "announcement by Europris on 18 June 2018.")
+    assert buyback_start(new, "With reference to the stock announcement on 30 May 2024 regarding completion of the "
+                              "Company's share repurchase program, the Company has authorized a new share "
+                              "repurchase program.")
 
 
 def test_a_swedish_release_shows_a_start_in_either_language(store):

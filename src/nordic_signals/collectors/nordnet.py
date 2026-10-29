@@ -128,6 +128,8 @@ class NordnetCollector(Collector):
                 self.save("instruments", instruments, fetch_id)
                 self.save("nordnet_observations", observations, fetch_id)
                 if not payload.get("results"):
+                    if offset < total:  # cut short: fail, so the nightly set is tried again before the account decides
+                        raise RuntimeError(f"{country}: Nordnet ga en tom side ved {offset} av {total} aksjer")
                     break
                 offset += page_size
         return self.summary

@@ -55,7 +55,7 @@
     {%- if y %}
     <div class="value">{{ arrow(y.excess) }}{{ (y.excess * 100) | num(2, True) }}&nbsp;poeng</div>
     <div class="sub">indeksene {{ y.result | pct(2, True) }}, kontoen {{ y.account_result | pct(2, True) }}, {% if provisional and y.valued_on == today %}til siste kurs i dag{% else %}til sluttkurs {{ y.valued_on | day }}{% endif %}.
-      Vanlig utslag etter {{ noise_days }} handelsdager: ±{{ (noise * 100) | num(1) }}&nbsp;poeng.</div>
+      Vanlig utslag etter {{ noise_days }} handelsdag{{ "er" if noise_days != 1 else "" }}: ±{{ (noise * 100) | num(1) }}&nbsp;poeng.</div>
     {%- else %}
     <div class="value">–</div>
     <div class="sub">venter på indeksenes kurser</div>
@@ -71,7 +71,7 @@
   <details data-key="paper-table"><summary class="small">Vis tallene</summary>
     <div class="table-wrap"><table>
       <thead><tr><th>Handelsdag</th><th class="num">Kontoverdi</th></tr></thead>
-      <tbody>{% for when, value in history[-15:] | reverse %}<tr><td>{{ when | day }}</td><td class="num">{{ value | nok }}</td></tr>{% endfor %}</tbody>
+      <tbody>{% for when, value in history[-15:] | reverse %}<tr><td>{{ when | day }}{% if provisional and loop.first %} <span class="small muted">(foreløpig, til siste kurs)</span>{% endif %}</td><td class="num">{{ value | nok }}</td></tr>{% endfor %}</tbody>
     </table></div>
   </details>
   {% else %}
@@ -212,7 +212,7 @@
       skille seg fra flaks. Kontoen tester mekanikken (kursene, kurtasjen, åpningene); om modellen gir meravkastning,
       svarer tilbaketestene i <code>research/</code> bedre på.</li>
     <li><strong>Kildeskatt</strong> på utbytte regnes bare for aksjer notert i Stockholm. Andre lands kildeskatt er ikke
-      med, for eksempel Belgias 30&nbsp;% på utbyttedelen av CMB.TECHs utdeling i oktober (rundt 116&nbsp;kr).</li>
+      med, for eksempel Belgias 30&nbsp;% på utbytte fra CMB.TECH.</li>
     <li><strong>Utbytte</strong> godskrives på eksdagen; svensk utbytte etter {{ (fees.dividend_tax * 100) | int }}&nbsp;%
       kildeskatt. Ingen norsk skatt, som på en aksjesparekonto.</li>
     <li><strong>Ikke med:</strong> at en stor ordre kan flytte kursen, og forsinkelsen fra du ser et signal til du

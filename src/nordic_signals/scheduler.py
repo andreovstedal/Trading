@@ -12,9 +12,10 @@ needed. Two background threads:
   * intraday every 15 minutes from 05:00 to 18:59: new Oslo announcements and Swedish insider trades
   * the play-money account's stocks every 30 minutes while Oslo or Stockholm is open and for an hour after (Yahoo),
     so its orders fill at the opening price during the day (``advisor.paper.watched_symbols``)
-  * nightly from 20:30: the daily set, then outcomes for past recommendations, then the play-money account's
-    orders for the next opening (``advisor.paper``; tried again an hour later if the closing prices are missing)
-  * MFN from 21:00: Swedish press releases
+  * nightly from 20:30: the daily set, then outcomes for past recommendations
+  * MFN from 21:00: Swedish press releases; then the play-money account's orders for the next opening
+    (``advisor.paper``). If tonight's closing prices are not all in, it is tried again an hour later, which in the
+    one lane means after the prices and sectors, about 23:15; a failed nightly set is retried first
   * prices from 21:30: Yahoo end-of-day prices for every share, about 90 minutes; then each share's sector, up to
     200 a night that were not looked up in the last 30 days
 

@@ -51,13 +51,17 @@ _NOT_A_START = re.compile(
     r"aksjeprogram|incentive|authori[sz]|fullmakt|bemyndig|threshold|flagg|correction|rättelse|korreksjon|rettelse",
     re.IGNORECASE,
 )
-# A notice that opens by referring to an earlier announcement starts, ends or changes a programme announced before
-# ("Reference is made to the stock exchange announcement ... on 15 October"): 7 of the 261 starts in B1.
+# A notice that refers to an earlier announcement of the buyback itself, in the same sentence, starts, ends or
+# changes a programme announced before ("Reference is made to the stock exchange announcement ... on 15 October 2026
+# regarding the Board of Directors' resolution to establish a share buy-back programme"). A reference to an
+# announcement about something else (an acquisition) does not count. NewsWeb only: MFN items carry no text here.
 _EARLIER_ANNOUNCEMENT = re.compile(
-    r"(?:reference is made to|refer(?:s|ring)? to|det (?:vises|henvises) til|viser til)[^.]{0,80}?"
-    r"(?:announcement|børsmelding|melding|press release|pressemelding)",
+    r"\b(?:reference is made to|with reference to|refer(?:s|ring)? to|det (?:vises|henvises) til|viser til)\b"
+    r"[^.]{0,80}?\b(?:announcement|notice|release|børsmelding|melding|pressemelding)",
     re.IGNORECASE,
 )
+_SENTENCE_END = re.compile(r"\.\s+(?=[A-ZÆØÅ])")  # case-sensitive: "5. april" goes on
+_NEW = re.compile(r"\b(?:new|nytt?)\b", re.IGNORECASE)  # "... completion of the programme, ... a new programme"
 
 
 # Where the companies an aksjesparekonto may hold are resident: the EEA (the EU, Iceland, Liechtenstein, Norway).
@@ -303,12 +307,24 @@ def buyback_start(title: str, body: str | None = None) -> bool:
     """Whether a buyback notice's title announces a new programme, rather than reporting on one already running.
 
     Most notices are the weekly reports of programmes under way ("transactions in week 40", "status etter uke
-    40"), which say nothing new; the research's announcement effect is about the start. A notice whose text opens
-    by referring to an earlier announcement only starts buying under it (Entra, 27 Oct 2026), so it is not new
-    either."""
+    40"), which say nothing new; the research's announcement effect is about the start. A notice that refers to
+    an earlier announcement of the buyback only starts, ends or changes it (Entra's "Commencement", 27 Oct 2026),
+    so it is not new either."""
     if not _BUYBACK_START.search(title) or _NOT_A_START.search(title):
         return False
-    return not (body and _EARLIER_ANNOUNCEMENT.search(body[:700]))
+    return not (body and _refers_to_earlier_buyback(body))
+
+
+def _refers_to_earlier_buyback(body: str) -> bool:
+    """Whether the notice's opening (its first 700 characters, line breaks and runs of spaces as one) refers to an
+    earlier announcement of the buyback, in a sentence that announces nothing new."""
+    text = " ".join(body.split())[:700]
+    for match in _EARLIER_ANNOUNCEMENT.finditer(text):
+        end = _SENTENCE_END.search(text, match.end())
+        sentence = text[match.start():end.start() if end else len(text)]
+        if _BUYBACK_WORDS.search(sentence) and not _NEW.search(sentence):
+            return True
+    return False
 
 
 def insider_direction(text: str) -> int:

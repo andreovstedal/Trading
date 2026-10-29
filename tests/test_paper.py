@@ -332,7 +332,7 @@ def test_the_first_evening_buys_the_top_twelve_and_two_short_term_signals(store)
     assert short_term[0]["signal_type"] == "buyback_start" and placed[0]["recommendation_id"] == 7
     day = store.get("paper_days", account=FIRST.name, decided_on=MON)
     assert day["rebalance"] and day["orders"] == 14 and day["recommendation_id"] == 7
-    assert any("1 kortsiktige signaler" in note for note in day["notes"])
+    assert any("1 kortsiktig signal" in note for note in day["notes"])
     assert day["fx"] == {"SEK": 0.95}  # the evening's rate, kept with the decision
 
     assert paper.decide(store, oslo(MON, 23), scanner=advisor)["note"] == "Allerede bestemt i kveld"
@@ -440,7 +440,7 @@ def test_the_evening_orders_no_position_below_the_smallest(store):
 
     # The first signal gets its 25 000 NOK slot; the 10 000 NOK left would be half the smallest position.
     assert [(o["instrument_id"], o["shares"]) for o in placed] == [(300, 249)]
-    assert notes == ["1 kortsiktige signaler ble ikke kjøpt: ingen ledig plass eller for lite penger."]
+    assert notes == ["1 kortsiktig signal ble ikke kjøpt: ingen ledig plass eller for lite penger."]
 
 
 def waiting_buy(instrument_id, sleeve, shares):
@@ -642,7 +642,7 @@ def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, 
     thursday = store.get("paper_days", account=FIRST.name, decided_on=last_friday - timedelta(days=1))
     assert any("kontoen avsluttes før de rekker 5 handelsdager" in note for note in thursday["notes"])
     days = store.get("paper_days", account=SECOND.name, decided_on=first_monday)
-    assert "1 kortsiktige signaler ført opp på papir." in days["notes"]
+    assert "1 kortsiktig signal ført opp på papir." in days["notes"]
     logged = store.query(store.table("paper_signals").select())
     assert [(r["account"], r["bought"]) for r in logged] == [(FIRST.name, False), (FIRST.name, False),
                                                             (SECOND.name, False)]

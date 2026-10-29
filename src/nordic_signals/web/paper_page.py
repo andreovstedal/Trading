@@ -237,11 +237,14 @@ def _meta(account: dict[str, Any], now: datetime, provisional: bool, sector_cap_
             "excess": (account["yardstick"] or {}).get("excess"),
         },
         "notes": {
-            "provisional": "true while the latest day's closing prices are not in: valued_on is today and its values "
-                           "(meta, the last equity row, positions, yardstick) are from prices during the day.",
+            "provisional": "true while the latest day's closing prices are not in (before 18:00 Oslo time): "
+                           "valued_on is today and its values (meta, the last equity row, positions, yardstick, and "
+                           "today's fills' fx_rate, value and cash for Swedish shares) are from prices during the "
+                           "day.",
             "rules": "The rules in today's code for this version. The sector cap came with model v4 and acts on "
-                     "rebalance evenings; sector_cap_applied says whether it has acted on this account (lekepenger-1 "
-                     "rebalanced only on 5 Oct, under v2).",
+                     "rebalance evenings; sector_cap_applied is false when all of the account's rebalances ran "
+                     "under an older model (lekepenger-1 rebalanced only on 5 Oct, under v2), true otherwise, "
+                     "including before the first one.",
             "days": "One row per evening the account decided, after both markets had closed: whether it was a "
                     "rebalance (meta.rules.rebalance), the recommendation it followed then, its value and cash at "
                     "that close, and notes.",
@@ -252,14 +255,16 @@ def _meta(account: dict[str, Any], now: datetime, provisional: bool, sector_cap_
             "trades": "Fills at the opening price of the stock's next trading day (at_close: the opening price was "
                       "missing, so the closing price was used); planned is the order's shares, more than shares when "
                       "a buy was cut to the cash at the opening. fx_rate is that day's SEK/NOK: from 29 Oct 2026 the rate "
-                      "the evening's decision saw (stored with it), before that Yahoo's daily rate, which for a "
-                      "finished day is about the day's start. value, courtage and exchange are NOK; cash is what the trade did to the cash; a "
+                      "the evening's decision saw (stored with it; during the fill day itself, the latest rate); "
+                      "before that, Yahoo's daily bar stamped last that day: an evening quote (about 20:30 UTC) for "
+                      "6-26 Oct, and Yahoo's finished close, about the day's start, for 27-28 Oct. value, courtage and exchange are NOK; cash is what the trade did to the cash; a "
                       "sale's result is against the purchase, fees included.",
             "positions": "Open holdings at the latest close (for a finished account, its last close). held_days "
                          "counts the market's trading days, the buying day being the first.",
             "dividends": "Credited on the ex-date, from Yahoo's dividend events: Stockholm-listed shares' after 15 % "
-                         "Swedish withholding tax; other countries' withholding is not modelled (CMB.TECH's Belgian "
-                         "30 % on the dividend part of its October distribution, about 116 NOK, is missing). Yahoo "
+                         "Swedish withholding tax; other countries' withholding is not modelled (for example, "
+                         "lekepenger-1's CMB.TECH dividend in October 2026 lacks Belgium's 30 % on its dividend part, "
+                         "about 116 NOK). Yahoo "
                          "converts a dividend declared in another currency at the rate when it is fetched; the "
                          "amount stops changing two weeks after the ex-date.",
             "equity": "The account's value at each trading day's close: cash plus holdings at their closing prices "

@@ -838,13 +838,17 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
             free, new = free - 1, new + 1
     skipped = [p for p in tonight.signals if p.instrument_id not in taken]
     if skipped and slots == 0:
-        notes.append(f"{len(skipped)} kortsiktige signaler ført opp på papir.")
+        notes.append(f"{_signals(len(skipped))} ført opp på papir.")
     elif skipped and short_ends:
-        notes.append(f"{len(skipped)} kortsiktige signaler ført opp på papir: kontoen avsluttes før de rekker "
+        notes.append(f"{_signals(len(skipped))} ført opp på papir: kontoen avsluttes før de rekker "
                      f"{SHORT_HOLD} handelsdager.")
     elif skipped:
-        notes.append(f"{len(skipped)} kortsiktige signaler ble ikke kjøpt: ingen ledig plass eller for lite penger.")
+        notes.append(f"{_signals(len(skipped))} ble ikke kjøpt: ingen ledig plass eller for lite penger.")
     return orders, notes
+
+
+def _signals(n: int) -> str:
+    return "1 kortsiktig signal" if n == 1 else f"{n} kortsiktige signaler"
 
 
 def _save(store: Store, version: Version, today: date, now: datetime, rebalance: bool, tonight: Scan,

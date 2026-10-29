@@ -128,6 +128,20 @@ def test_nordnet_pages_through_each_country(server, store):
     assert store.table_counts()["nordnet_observations"] == 2
 
 
+def test_nordnet_fails_when_a_page_comes_back_empty_partway(server, store):
+    """A list cut short must fail the run, so the nightly set is tried again before the account decides."""
+    page = fixture_json("nordnet_stocklist.json")
+
+    def handler(request):
+        offset = int(request.url.params["offset"])
+        results = page["results"][:1] if offset == 0 else []
+        return httpx.Response(200, json={"total_hits": 2, "rows": len(results), "results": results})
+
+    server.add("GET", STOCKLIST, handler)
+    with pytest.raises(RuntimeError, match="tom side ved 1 av 2"):
+        run("nordnet", server, store, countries=["NO"], page_size=1)
+
+
 def test_mfn_resolves_slugs_once_and_caches_misses(server, store):
     page = fixture_bytes("mfn_company_page.html")
     server.add("GET", "https://mfn.se/all/a/nibe-industrier", httpx.Response(200, content=page))
