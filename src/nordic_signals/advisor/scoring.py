@@ -121,8 +121,8 @@ def _exclusion(item: Scored, *, target_position: float, ask_only: bool) -> str |
         return "Mangler kurs"
     if item.fx is None:
         return f"Mangler valutakurs {s.currency}/NOK"
-    if ask_only and not s.is_regulated_market:
-        return "Ikke notert på regulert marked (ikke tillatt på ASK)"
+    if ask_only and s.ask_exclusion:
+        return s.ask_exclusion
     if s.price * item.fx < PARAMS["min_price_nok"]:
         return f"Aksjekurs under {PARAMS['min_price_nok']:.0f} NOK"
     if not f.get("market_cap") or f["market_cap"] * item.fx < PARAMS["min_market_cap_nok"]:

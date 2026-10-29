@@ -78,7 +78,7 @@ def context(store: Store, now: datetime | None = None, version: paper.Version | 
 
 
 def _first_evening(store: Store, version: paper.Version, now: datetime) -> tuple[datetime | None, bool]:
-    """When a new account decides first, and whether that is tonight: from 20:45 UTC on a trading day the nightly
+    """When a new account decides first, and whether that is tonight: from 21:00 UTC on a trading day the evening's
     collection may still be running, and the decision is made once it is done."""
     tonight = paper.evening_of(now)
     starts = datetime.combine(tonight, paper.EVENING, timezone.utc)

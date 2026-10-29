@@ -283,10 +283,11 @@ JOBS = [
     Job("lekepenger-kurser", "nordic", every(paper.INTRADAY, source="lekepenger-kurser", weekdays=True, hours=(7, 18)),
         _paper_prices),
     Job("nightly", "nordic", daily(time(20, 30), done=ran("no-short")), _set("daily", then_evaluate=True)),
-    # Right after the nightly set, in the same lane: it needs that evening's closing prices.
-    Job("lekepenger", "nordic", daily(time(20, 30), done=ran("lekepenger")), _paper),
     Job("mfn", "nordic", daily(time(21, 0), done=ran("mfn")),
         _source("mfn", universe=["SE"], days=3, max_pages=1)),
+    # After the nightly set and the Swedish press releases, in the same lane: it needs that evening's closing
+    # prices, and a Swedish buyback start published today.
+    Job("lekepenger", "nordic", daily(time(21, 0), done=ran("lekepenger")), _paper),
     Job("prices", "nordic", daily(time(21, 30), done=universe_prices),
         _source("yahoo", universe=["NO", "SE"], range_="5d")),
     # After the prices, in the same lane: each share's sector, at most SECTORS_A_NIGHT not looked up this month.

@@ -125,6 +125,43 @@ def test_ask_accounts_only_get_regulated_markets(store):
     assert scored["GRW"].exclusion == "Ikke notert på regulert marked (ikke tillatt på ASK)"
 
 
+def test_a_swedish_release_shows_a_start_in_either_language(store):
+    """MFN sends a release in Swedish and English; it counts once, but the start can show in either title."""
+    from nordic_signals.advisor.features import Stock, _add_mfn_buybacks
+    now = datetime(2026, 10, 22, 20, tzinfo=NORDIC_TZ)
+    fetch_id = store.record_fetch("test", FetchedResponse("GET", "https://example.test/", 200, "", b"", now))
+    store.upsert("mfn_items", [
+        {"news_id": news_id, "isins": ["SE0000379190"], "tags": ["sub:ca:shares:repurchase"], "lang": lang,
+         "title": title, "publish_date": now - timedelta(hours=10)}
+        for news_id, lang, title in (("1-sv", "sv", "Castellum genomför återköp av egna aktier"),
+                                     ("1-en", "en", "Castellum initiates a buyback of own shares"))], fetch_id=fetch_id)
+    stock = Stock(1, None, "SE0000379190", "CAST", "Castellum AB", "SE", [], "ESH", "SEK", now, 100.0)
+
+    _add_mfn_buybacks(store, [stock], now)
+
+    assert stock.features["buyback_notices"] == 1 and stock.features["buyback_start"]
+    assert [e["title"] for e in stock.events] == ["Castellum initiates a buyback of own shares"]
+
+
+@pytest.mark.parametrize("symbol, name, isin, allowed", [
+    ("OET", "OKEANIS ECO TANKERS", "MHY641771016", False),  # Marshall Islands
+    ("BWLPG", "BW LPG", "SGXZ69436764", False),  # Singapore
+    ("BORR", "BORR DRILLING LIMITED", "BMG1466R1732", False),  # Bermuda
+    ("BAKKA", "BAKKAFROST", "FO0000000179", False),  # the Faroe Islands are outside the EEA
+    ("ALIV SDB", "Autoliv Inc. SDB", "SE0021309614", False),  # a Swedish receipt for an American company
+    ("ABB", "ABB Ltd", "CH0012221716", False),
+    ("FRO", "FRONTLINE PLC", "CY0200352116", True),  # Cyprus
+    ("CMBTO", "CMB.TECH NV", "BE0003816338", True),
+    ("NDA SE", "Nordea Bank Abp", "FI4000297767", True),
+    ("EQNR", "EQUINOR", "NO0010096985", True),
+    ("NONE", "No ISIN", None, False),
+])
+def test_an_ask_holds_only_companies_resident_in_the_eea(symbol, name, isin, allowed):
+    from nordic_signals.advisor.features import Stock
+    stock = Stock(1, None, isin, symbol, name, "NO", [], "ESH", "NOK", datetime(2026, 10, 29, tzinfo=NORDIC_TZ), 100.0)
+    assert (stock.ask_exclusion is None) == allowed
+
+
 def test_windfalls_stay_out_of_the_long_term_sleeve(store):
     """Model v2: a P/E below 4 or a rise of more than 300 % in a year (Hunter Group, October 2026)."""
     now = seed_universe(store)

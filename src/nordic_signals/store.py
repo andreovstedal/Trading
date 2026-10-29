@@ -340,6 +340,9 @@ def _paper_tables(metadata: MetaData) -> None:
         Column("cash", Float),
         Column("orders", Integer),
         Column("notes", json()),
+        # NOK per unit of each currency as the decision saw it: the replay values that day at this rate, so a
+        # later rewrite of Yahoo's daily bar (its finished close is about the start of the day) changes nothing.
+        Column("fx", json()),
     )
     Table(
         "paper_orders", metadata,

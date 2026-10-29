@@ -53,6 +53,11 @@ _NOT_A_START = re.compile(
 )
 
 
+# Where the companies an aksjesparekonto may hold are resident: the EEA (the EU, Iceland, Liechtenstein, Norway).
+EEA = frozenset("AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IS IT LI LT LU LV MT NL NO PL PT RO SE SI SK".split())
+_DEPOSITORY_RECEIPT = re.compile(r"\bSD[BR]\b")
+
+
 @dataclass
 class Stock:
     instrument_id: int
@@ -73,6 +78,22 @@ class Stock:
     def is_regulated_market(self) -> bool:
         """Nordnet marks MTF listings (First North, Spotlight, NGM, Euronext Growth) as ESHMTF."""
         return self.instrument_type == "ESH"
+
+    @property
+    def ask_exclusion(self) -> str | None:
+        """Why a Norwegian aksjesparekonto may not hold it, or None: it must be a share on a regulated market in a
+        company resident in the EEA (Skatteetaten; Nordnet checks the issuer's country). The ISIN's country stands
+        for the issuer's. A Swedish depository receipt (SDB, SDR) carries a Swedish ISIN for a foreign company, so
+        those are left out."""
+        if not self.is_regulated_market:
+            return "Ikke notert på regulert marked (ikke tillatt på ASK)"
+        if _DEPOSITORY_RECEIPT.search(f"{self.symbol} {self.name}"):
+            return "Depotbevis for et utenlandsk selskap (ikke tillatt på ASK)"
+        if not self.isin:
+            return "Mangler ISIN, så hjemlandet er ukjent (ikke tillatt på ASK)"
+        if self.isin[:2].upper() not in EEA:
+            return "Selskapet hører hjemme utenfor EØS (ikke tillatt på ASK)"
+        return None
 
 
 def build_features(store: Store, asof: datetime, countries: tuple[str, ...] = ("NO", "SE")) -> list[Stock]:
@@ -296,7 +317,10 @@ def _add_mfn_buybacks(store: Store, stocks: list[Stock], asof: datetime) -> None
     for stock in by_isin.values():
         stock.features.setdefault("buyback_notices", 0)
         stock.features.setdefault("buyback_start", False)
-    seen_titles: set[tuple[str, str]] = set()
+    # A release comes in Swedish and English: it counts once, but either title can show a start (the rule reads
+    # one language better than the other).
+    counted: set[tuple[str, str]] = set()
+    started: set[tuple[str, str]] = set()
     for r in rows:
         tags = r["tags"] or []
         if not any(tag.startswith("sub:ca:shares:repurchase") for tag in tags):
@@ -307,11 +331,11 @@ def _add_mfn_buybacks(store: Store, stocks: list[Stock], asof: datetime) -> None
                 continue
             published = _utc(r["publish_date"])
             day_key = (isin, published.date().isoformat())
-            if day_key in seen_titles:  # Swedish and English versions of the same release
-                continue
-            seen_titles.add(day_key)
-            stock.features["buyback_notices"] += 1
-            if published >= asof - EVENT_WINDOW and buyback_start(r["title"] or ""):
+            if day_key not in counted:
+                counted.add(day_key)
+                stock.features["buyback_notices"] += 1
+            if day_key not in started and published >= asof - EVENT_WINDOW and buyback_start(r["title"] or ""):
+                started.add(day_key)
                 stock.features["buyback_start"] = True
                 stock.events.append({"type": "buyback_start", "at": published.isoformat(), "title": r["title"]})
 

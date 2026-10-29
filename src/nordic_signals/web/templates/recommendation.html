@@ -6,7 +6,7 @@
   <div>
     <h1>Anbefaling nr. {{ rec.id }}</h1>
     <p class="muted">{{ rec.created_at | when }} · modell {{ rec.model_version }}
-      {% if rec.policy.ask_only %} · ASK (bare regulerte markeder){% endif %}</p>
+      {% if rec.policy.ask_only %} · ASK (bare EØS-selskaper på regulerte markeder){% endif %}</p>
   </div>
   {% if rec.status == "done" %}<a class="button secondary" href="/recommendations/{{ rec.id }}/export.csv">Last ned CSV</a>{% endif %}
 </div>

@@ -116,7 +116,7 @@ ORDER_DAYS = 5  # an order lapses if its stock has not traded within this many o
 # lapses; a small cut, from a higher opening price, leaves a position about the size the evening planned.
 CUT_KEEPS = 0.9
 AFTER_CLOSE = time(18, 0)  # Norwegian time: a snapshot from then on has the day's closing prices
-EVENING = time(20, 45)  # UTC: the account decides after the nightly collection, which starts at 20:30 UTC
+EVENING = time(21, 0)  # UTC: the account decides after the nightly collection and MFN's press releases
 EVENING_ENDS = time(6, 0)  # Norwegian time: until then, a decision belongs to the evening before
 WATCH_AFTER_CLOSE = timedelta(hours=1)  # the stocks are fetched until this long after a market closes
 INTRADAY = timedelta(minutes=30)  # how often the account's stocks are fetched while a market is open
@@ -469,12 +469,15 @@ class _Yardstick:
 
 
 def _indexes(store: Store) -> dict[str, dict[date, tuple[float | None, float]]]:
-    """(opening, closing) level per trading day of each market's index."""
+    """(opening, closing) level per trading day of each market's index. Yahoo sometimes answers for an index from
+    another feed that stamps today's bar at the time of the last trade; such a row keeps a level from mid-session
+    that no later fetch overwrites. So of a day's rows the one seen last wins: the bar every fetch refreshes."""
     bars = store.table("price_bars")
     out: dict[str, dict[date, tuple[float | None, float]]] = {}
     for country, symbol in INDEXES.items():
         rows = store.query(select(bars.c.ts, bars.c.open, bars.c.close)
-                           .where(bars.c.symbol == symbol, bars.c.interval == "1d", bars.c.close > 0))
+                           .where(bars.c.symbol == symbol, bars.c.interval == "1d", bars.c.close > 0)
+                           .order_by(bars.c.last_seen_at, bars.c.ts))
         series = {datetime.fromtimestamp(r["ts"], NORDIC_TZ).date(): (r["open"] or None, r["close"]) for r in rows}
         if series:
             out[country] = series
@@ -579,24 +582,35 @@ def _prices(store: Store, stocks: dict[int, dict[str, Any]], since: date,
     daily = [bars.c.symbol.in_(list(symbols)), bars.c.interval == "1d", bars.c.ts >= int(start.timestamp())]
     if end is not None:
         daily.append(bars.c.ts < int(end.timestamp()))
-    for r in store.query(select(bars.c.symbol, bars.c.ts, bars.c.open, bars.c.close).where(*daily)):
-        instrument_id, day = symbols[r["symbol"]], datetime.fromtimestamp(r["ts"], NORDIC_TZ).date()
+    yahoo: dict[tuple[int, date], tuple] = {}
+    for r in store.query(select(bars.c.symbol, bars.c.ts, bars.c.open, bars.c.close).where(*daily)
+                         .order_by(bars.c.last_seen_at, bars.c.ts)):  # of a day's rows, the one seen last
+        if r["close"]:
+            yahoo[symbols[r["symbol"]], datetime.fromtimestamp(r["ts"], NORDIC_TZ).date()] = (r["open"], r["close"])
+    for (instrument_id, day), (opening, closing) in yahoo.items():
         seen = out[instrument_id].get(day)
-        if seen is None and r["close"]:
-            out[instrument_id][day] = (r["open"] or None, r["close"])
-        elif seen is not None and seen[0] is None and r["open"]:
-            out[instrument_id][day] = (r["open"], seen[1])
+        if seen is None:
+            out[instrument_id][day] = (opening or None, closing)
+        elif seen[0] is None and opening:
+            out[instrument_id][day] = (opening, seen[1])
     return out
 
 
 def _fx(store: Store) -> dict[str, list[tuple[date, float]]]:
-    bars = store.table("price_bars")
+    """NOK per unit, one rate a day: the rate an evening's decision saw (``paper_days.fx``), or else Yahoo's daily
+    bar stamped last that day."""
+    bars, d = store.table("price_bars"), store.table("paper_days")
+    evenings: dict[date, dict[str, float]] = {}
+    for r in store.query(select(d.c.decided_on, d.c.fx).where(d.c.fx.is_not(None)).order_by(d.c.decided_at)):
+        evenings[r["decided_on"]] = r["fx"]
     out = {}
     for currency, symbol in FX_PAIRS.items():
         rows = store.query(select(bars.c.ts, bars.c.close).where(bars.c.symbol == symbol, bars.c.interval == "1d")
                            .order_by(bars.c.ts))
         # Yahoo stamps currency bars at midnight in London, which is the right day in Norwegian time too.
-        out[currency] = [(datetime.fromtimestamp(r["ts"], NORDIC_TZ).date(), r["close"]) for r in rows if r["close"]]
+        by_day = {datetime.fromtimestamp(r["ts"], NORDIC_TZ).date(): r["close"] for r in rows if r["close"]}
+        by_day.update({day: rates[currency] for day, rates in evenings.items() if (rates or {}).get(currency)})
+        out[currency] = sorted(by_day.items())
     return out
 
 
@@ -689,9 +703,14 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
     rebalance = _rebalance_due(store, today, version)
     policy = Policy(account_value=state["equity"], **version.policy)
     tonight = scanner(store, policy, rebalance)
-    orders, notes = _plan(state, policy, tonight, rebalance, version.hold_rank)
     later = _next(version)
-    if later is not None and not any(market_days(c, today, later.first_evening - timedelta(days=1)) for c in MARKETS):
+    # The trading days left before the next version takes over: a short-term trade needs SHORT_HOLD of them and
+    # an evening after to sell, so near the end its signals are only followed on paper.
+    left = None if later is None else max(len(market_days(c, today, later.first_evening - timedelta(days=1)))
+                                          for c in MARKETS)
+    orders, notes = _plan(state, policy, tonight, rebalance, version.hold_rank,
+                          short_ends=left is not None and left <= SHORT_HOLD)
+    if left == 0:
         # Its orders would fill after the next version took over, when this account no longer counts.
         orders, notes = [], [f"Siste kveld for {version.name}: {later.name} tar over fra neste handelsdag, så "
                                  f"ingen ordrer ble lagt inn. Signalene er ført opp på papiret."]
@@ -701,7 +720,7 @@ def decide(store: Store, now: datetime | None = None, *, scanner: Scanner = scan
 
 
 def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
-          hold_rank: int = VERSIONS[0].hold_rank) -> tuple[list[dict[str, Any]], list[str]]:
+          hold_rank: int = VERSIONS[0].hold_rank, short_ends: bool = False) -> tuple[list[dict[str, Any]], list[str]]:
     # Orders still waiting for their opening (a market holiday, a stock that did not trade) are counted as done:
     # their sales are not ordered again, their money is spoken for, and their short-term buys take their slots.
     selling_already = {o["instrument_id"] for o in state["pending"] if o["side"] == "sell"}
@@ -799,7 +818,7 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
             notes.append(f"{kept} av {n} langsiktige posisjoner: for lite penger eller for få kvalifiserte aksjer.")
 
     slots = min(MAX_SHORT_POSITIONS, math.floor(policy.short_capital / policy.min_position))
-    free, new = slots - len(short_kept) - pending_short, 0
+    free, new = (0 if short_ends else slots - len(short_kept) - pending_short), 0
     for pick in tonight.signals:
         if free <= 0 or new >= MAX_NEW_SHORT:
             break
@@ -809,6 +828,9 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
     skipped = [p for p in tonight.signals if p.instrument_id not in taken]
     if skipped and slots == 0:
         notes.append(f"{len(skipped)} kortsiktige signaler ført opp på papir.")
+    elif skipped and short_ends:
+        notes.append(f"{len(skipped)} kortsiktige signaler ført opp på papir: kontoen avsluttes før de rekker "
+                     f"{SHORT_HOLD} handelsdager.")
     elif skipped:
         notes.append(f"{len(skipped)} kortsiktige signaler ble ikke kjøpt: ingen ledig plass eller for lite penger.")
     return orders, notes
@@ -817,11 +839,13 @@ def _plan(state: dict[str, Any], policy: Policy, tonight: Scan, rebalance: bool,
 def _save(store: Store, version: Version, today: date, now: datetime, rebalance: bool, tonight: Scan,
           state: dict[str, Any], orders: list[dict[str, Any]], notes: list[str]) -> None:
     bought = {o["instrument_id"] for o in orders if o["side"] == "buy" and o["sleeve"] == "short"}
+    rates = _fx(store)
+    fx = {c: rate for c in FX_PAIRS if (rate := _rate(rates, c, today)) is not None}
     with store.engine.begin() as conn:
         conn.execute(insert(store.table("paper_days")).values(
             account=version.name, decided_on=today, decided_at=now, rebalance=rebalance,
             recommendation_id=tonight.recommendation_id, model_version=MODEL_VERSION, equity=state["equity"],
-            cash=state["cash"], orders=len(orders), notes=notes))
+            cash=state["cash"], orders=len(orders), notes=notes, fx=fx or None))
         if orders:
             conn.execute(insert(store.table("paper_orders")), [
                 {**o, "account": version.name, "decided_on": today, "decided_at": now,

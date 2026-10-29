@@ -200,6 +200,30 @@ def test_the_yardstick_holds_stockholm_in_kroner_and_waits_for_missing_days(stor
     assert y["equity"] == pytest.approx(paper.START * (1 + held * (2100 * 0.96 / (2000 * 0.95) - 1) / equity))
 
 
+def test_a_stale_mid_session_index_row_loses_to_the_bar_seen_last(store):
+    """Yahoo sometimes answers for ^OMXSBGI from a New York feed that stamps today's bar at the last trade: that row
+    keeps a mid-session level that no later fetch overwrites."""
+    bars = store.table("price_bars")
+    with store.engine.begin() as conn:
+        for ts, close, seen in ((oslo(MON, 8), 2442.94, oslo(TUE, 22)),  # the session's bar, refreshed every fetch
+                                (oslo(MON, 12, 28), 2429.20, oslo(MON, 12, 30))):  # the other feed, mid-session
+            conn.execute(bars.insert().values(symbol="^OMXSBGI", interval="1d", ts=int(ts.timestamp()),
+                                              open=2430.0, close=close, last_seen_at=seen))
+    assert paper._indexes(store)["SE"][MON] == (2430.0, 2442.94)
+
+
+def test_a_day_is_valued_at_the_rate_its_evening_saw(store):
+    """Yahoo's finished daily SEK/NOK close is about the start of the day, and replaces the evening's rate under the
+    same timestamp: the evening's rate, stored with the decision, wins."""
+    sek_rate(store, MON, 0.95)
+    with store.engine.begin() as conn:
+        conn.execute(store.table("paper_days").insert().values(
+            account=FIRST.name, decided_on=MON, decided_at=oslo(MON, 22), rebalance=False, fx={"SEK": 0.96}))
+    sek_rate(store, TUE, 0.94)
+    rates = paper._fx(store)
+    assert [paper._rate(rates, "SEK", day) for day in (MON, TUE)] == [0.96, 0.94]
+
+
 def test_the_daily_job_collects_the_yardsticks_indexes():
     from nordic_signals.jobs import INDEX_SYMBOLS
     assert INDEX_SYMBOLS == list(paper.INDEXES.values())
@@ -278,6 +302,7 @@ def test_the_first_evening_buys_the_top_twelve_and_two_short_term_signals(store)
     advisor.picks = [pick(100 + i, i + 1) for i in range(15)]
     advisor.signals = [pick(200 + i, 50 + i, signal="buyback_start") for i in range(3)]
     trading_day(store, MON, [100])
+    sek_rate(store, MON, 0.95)
 
     summary = paper.decide(store, oslo(MON, 22, 45), scanner=advisor)
 
@@ -294,6 +319,7 @@ def test_the_first_evening_buys_the_top_twelve_and_two_short_term_signals(store)
     day = store.get("paper_days", account=FIRST.name, decided_on=MON)
     assert day["rebalance"] and day["orders"] == 14 and day["recommendation_id"] == 7
     assert any("1 kortsiktige signaler" in note for note in day["notes"])
+    assert day["fx"] == {"SEK": 0.95}  # the evening's rate, kept with the decision
 
     assert paper.decide(store, oslo(MON, 23), scanner=advisor)["note"] == "Allerede bestemt i kveld"
 
@@ -581,11 +607,14 @@ def test_the_next_version_starts_with_its_own_rules_on_its_first_evening(store, 
     assert second["rebalance"]  # a new version starts with a rebalance
     placed = [o for o in orders(store) if o["account"] == SECOND.name]
     assert len(placed) == 12 and {o["sleeve"] for o in placed} == {"long"}  # all of it long-term; no signal bought
-    assert [o["sleeve"] for o in orders(store) if o["account"] == FIRST.name].count("short") == 1
+    # Thursday is too near the end for a short-term trade to finish its 5 days: the signal is only on paper.
+    assert [o["sleeve"] for o in orders(store) if o["account"] == FIRST.name].count("short") == 0
+    thursday = store.get("paper_days", account=FIRST.name, decided_on=last_friday - timedelta(days=1))
+    assert any("kontoen avsluttes før de rekker 5 handelsdager" in note for note in thursday["notes"])
     days = store.get("paper_days", account=SECOND.name, decided_on=first_monday)
     assert "1 kortsiktige signaler ført opp på papir." in days["notes"]
     logged = store.query(store.table("paper_signals").select())
-    assert [(r["account"], r["bought"]) for r in logged] == [(FIRST.name, True), (FIRST.name, False),
+    assert [(r["account"], r["bought"]) for r in logged] == [(FIRST.name, False), (FIRST.name, False),
                                                             (SECOND.name, False)]
 
     assert not paper._rebalance_due(store, date(2026, 12, 1), SECOND)  # then quarterly: January, April, ...

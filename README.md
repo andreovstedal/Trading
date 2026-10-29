@@ -67,7 +67,7 @@ The rules come in versions (`VERSIONS`), each a fresh account of 500,000 NOK fro
 | Version | From | Rules |
 |---|---|---|
 | `lekepenger-1` | 5 October 2026 | 90 % long-term and 10 % in the short-term signals, model v2 to v4 |
-| `lekepenger-2` | 2 November 2026 | all of it long-term, model v4, only shares an ASK can hold, rebalanced quarterly (January, April, July, October; B4 in `research/b4_turnover/`); the short-term signals followed on paper only |
+| `lekepenger-2` | 2 November 2026 | all of it long-term, model v4, only shares an ASK can hold (on a regulated market, in a company resident in the EEA by its ISIN; no depository receipts), rebalanced quarterly (January, April, July, October; B4 in `research/b4_turnover/`); the short-term signals followed on paper only |
 
 What it follows: at most 12 positions of at least 20,000 NOK, no cash part.
 - **Long-term part.** Rebalanced on the first trading evening of each month, from that evening's recommendation, which is logged like any other so the track record measures it too:
@@ -84,7 +84,7 @@ What it follows: at most 12 positions of at least 20,000 NOK, no cash part.
 - **Signals on paper.** Every evening's short-term signals are logged (`paper_signals`), bought or not, and followed on paper (`advisor/paper_signals.py`): bought at the opening of the stock's next trading day and sold at the close of its market's 5th trading day, with any dividend in between (Swedish after withholding tax), after Nordnet's costs for 25,000 NOK, against the market's index over the same days. Only days whose close is in count, so an event finishes after 18:00 on its last day, once the index has that close too. The same stock and signal within 7 days of its first evening is one event, ordered if the account ordered it on any of those evenings. The page shows each and the average; the export has them all.
 
 How it trades:
-- **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
+- **Timing.** Orders are decided in the evening, after both markets have closed and the nightly data is in (from 21:00 UTC). An account's short-term trades stop when fewer than 6 trading days remain before the next version takes over, since a trade needs 5 days and an evening to sell; its signals are then followed on paper only. They fill at the opening price of the stock's next trading day, in the opening auction, where every order gets the same price, so no spread is paid.
   - The evening's decision waits until Nordnet's evening snapshot has that day's closing prices from both Oslo and Stockholm. A decision retried after midnight, behind the nightly price job, still belongs to that evening.
   - An order waits while its stock doesn't trade, and lapses after 5 of its market's trading days.
   - Oslo Børs trades 09:00–16:25 and Nasdaq Stockholm 09:00–17:30, Norwegian time.
@@ -295,9 +295,9 @@ The web service runs the collection itself, in two background threads (`src/nord
 | krypto | `nordic-signals collect krypto` | every 15 minutes, around the clock: Firi's order books, and each coin's daily close once the day is over (midnight UTC) |
 | intraday | `nordic-signals collect intraday` | every 15 minutes, 05:00–18:59 on weekdays (07:00–20:59 Oslo summer time) |
 | nightly | `nordic-signals nightly` | from 20:30 on weekdays: after both closes and the evening owner-count update; then scores past recommendations |
-| lekepenger | none; `advisor.paper.decide` | right after the nightly set on weekdays: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
-| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks, SEK/NOK and the two indexes, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
 | MFN | `nordic-signals collect mfn --universe SE --days 3 --max-pages 1` | from 21:00 on weekdays |
+| lekepenger | none; `advisor.paper.decide` | from 21:00 on weekdays, after the nightly set and MFN, so a Swedish buyback start published that day is seen that evening: the play-money account's orders for the next opening. Tried again an hour later if that evening's closing prices are missing. |
+| lekepenger prices | `nordic-signals collect yahoo --symbol ...` for `advisor.paper.watched_symbols` | every 30 minutes, 07:00–17:59 on weekdays, while Oslo or Stockholm is open and for an hour after: the account's stocks, SEK/NOK and the two indexes, so its orders fill at the opening price during the day. Logged as `lekepenger-kurser`. |
 | prices | `nordic-signals collect yahoo --universe NO --universe SE --range 5d` | from 21:30 on weekdays: about 90 minutes at 4 s per symbol |
 | sektorer | `nordic-signals collect yahoo-sektor --universe NO --universe SE --limit 200` | right after the prices, on weekdays: each share's sector and industry, up to 200 a night not looked up in the last 30 days (about 13 minutes; the first fill takes 7 weeknights) |
 
