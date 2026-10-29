@@ -269,6 +269,20 @@ def test_dividends_are_credited_on_the_ex_date(store):
     assert account["dividends_nok"] == pytest.approx(200 + 200 * 0.95 * 0.85)
 
 
+def test_a_dividend_yahoo_moved_to_another_date_counts_once(store):
+    for day in (MON, TUE, WED, THU):
+        snapshot(store, 1, day, 100, 100)
+    order(store, MON, 1, "buy", 100, symbol="AAA")
+    with store.engine.begin() as conn:
+        conn.execute(store.table("dividends").insert(), [  # the same 2 NOK, first under Wednesday, then Thursday
+            {"symbol": "AAA.OL", "ts": int(oslo(day, 9).timestamp()), "ex_date": day, "amount": 2.0,
+             "currency": "NOK", "last_seen_at": seen}
+            for day, seen in ((WED, oslo(WED, 22)), (THU, oslo(THU, 22)))])
+
+    (paid,) = paper.account(store)["dividends"]
+    assert paid["day"] == THU and paid["nok"] == 200.0
+
+
 # The evening's decisions, with a stand-in for the advisor
 
 def pick(instrument_id, rank, *, eligible=True, price=100.0, signal=None, exclusion=None, sector=None):
@@ -330,6 +344,19 @@ def test_it_needs_both_markets_closing_prices(store):
     assert paper.decide(store, oslo(MON, 22, 45), scanner=advisor)["note"] == "Mangler sluttkurser fra i dag"
     snapshot(store, 2, MON, 50, 50, country="SE")
     assert paper.decide(store, oslo(MON, 22, 45), scanner=advisor)["ok"] and advisor.calls
+
+
+def test_it_waits_while_tonights_collection_is_cut_off_partway(store):
+    for instrument_id in range(1, 21):  # Monday evening: 20 stocks in Stockholm
+        snapshot(store, instrument_id, MON, 50, 50, country="SE")
+    snapshot(store, 99, MON, 100, 100)
+    for instrument_id in range(1, 11):  # Tuesday: the collection broke after half of them
+        snapshot(store, instrument_id, TUE, 50, 50, country="SE")
+    snapshot(store, 99, TUE, 100, 100)
+    assert not paper._closed_today(store, TUE)
+    for instrument_id in range(11, 19):  # 18 of 20 are enough
+        snapshot(store, instrument_id, TUE, 50, 50, country="SE")
+    assert paper._closed_today(store, TUE)
 
 
 def test_a_retry_after_midnight_belongs_to_the_evening_before(store):
@@ -540,6 +567,9 @@ def test_the_page_and_the_logs(store, make_client, monkeypatch):
     assert list(data) == ["meta", "days", "orders", "trades", "positions", "dividends", "equity", "signals",
                           "finished_accounts"]
     assert data["meta"]["fees"]["courtage_min_nok"] == 29.0 and len(data["equity"]) == 2
+    assert data["meta"]["provisional"] is False and data["equity"][-1]["provisional"] is False
+    assert paper_page._provisional({"valued_on": THU}, oslo(THU, 11))  # Thursday at prices during the day
+    assert not paper_page._provisional({"valued_on": THU}, oslo(THU, 18, 30))
     assert data["meta"]["yardstick"]["indexes"]["NO"]["yahoo"] == "OSEBX.OL" and data["equity"][-1]["yardstick"] > 0
     assert [o["status"] for o in data["orders"]] == ["utført", "utført", "delvis utført", "venter"]  # by evening
     assert data["orders"][2]["note"].endswith("aksjer: ikke nok penger ved åpningen")
@@ -717,3 +747,22 @@ def test_a_new_account_says_its_first_decision_is_tonight_while_the_evening_runs
     after_midnight = paper_page._first_evening(store, SECOND, oslo(first_monday + timedelta(days=1), 0, 30))
     assert at_noon == (datetime.combine(first_monday, paper.EVENING, paper.timezone.utc), False)
     assert late[1] and after_midnight[1]  # the nightly set may still run; the decision is made that same night
+
+
+def test_the_second_accounts_first_evening_runs_on_the_real_advisor(store):
+    """lekepenger-2's first evening through the real scan (a whole recommendation with its policy), not a stand-in."""
+    from conftest import seed_universe
+
+    from nordic_signals.advisor import Policy
+    now = seed_universe(store)
+    state = paper.account(store, now, SECOND)
+    policy = Policy(account_value=state["equity"], **SECOND.policy)
+
+    tonight = paper.scan(store, policy, True)
+    placed, notes = paper._plan(state, policy, tonight, True, SECOND.hold_rank)
+
+    picks = {p.symbol: p for p in tonight.picks}
+    assert picks["GRW"].exclusion == "Ikke notert på regulert marked (ikke tillatt på ASK)"
+    assert placed and {(o["side"], o["sleeve"]) for o in placed} == {("buy", "long")}
+    assert {o["symbol"] for o in placed} <= {p.symbol for p in tonight.picks if p.eligible}
+    assert tonight.signals  # BBB's buyback: no short-term order, whether or not it is also a long-term pick

@@ -16,7 +16,7 @@ personal use only, so never redistribute the data.
 from __future__ import annotations
 
 from collections.abc import Iterable
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select
@@ -27,6 +27,9 @@ from .base import NORDIC_TZ, Collector, RunSummary
 CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
 SEARCH_URL = "https://query2.finance.yahoo.com/v1/finance/search"
 SECTOR_MAX_AGE = timedelta(days=30)  # sectors rarely change: a share is looked up again after this
+# Yahoo converts a dividend declared in another currency (CMB.TECH's USD, on Oslo) at the rate when it is fetched,
+# so its amount keeps moving; one stored this long after its ex-date is kept as it is.
+DIVIDEND_SETTLES = timedelta(days=14)
 
 EXCHANGE_SUFFIX = {"NO": ".OL", "SE": ".ST", "DK": ".CO", "FI": ".HE"}
 
@@ -113,9 +116,20 @@ class YahooCollector(Collector):
                 self.warn(f"{symbol}: {exc}")
                 continue
             self.save("price_bars", bars, fetch_id)
-            self.save("dividends", dividends, fetch_id)
+            self.save("dividends", self._unsettled(symbol, dividends), fetch_id)
             self.save("splits", splits, fetch_id)
         return self.summary
+
+
+    def _unsettled(self, symbol: str, dividends: list[dict]) -> list[dict]:
+        """The dividend events to store: all but those already stored ``DIVIDEND_SETTLES`` after their ex-date."""
+        cutoff = (utcnow() - DIVIDEND_SETTLES).date()
+        if not any(date.fromisoformat(d["ex_date"]) < cutoff for d in dividends):
+            return dividends
+        t = self.store.table("dividends")
+        settled = {r["ts"] for r in self.store.query(select(t.c.ts).where(t.c.symbol == symbol,
+                                                                         t.c.ex_date < cutoff))}
+        return [d for d in dividends if d["ts"] not in settled]
 
 
 class SectorCollector(Collector):

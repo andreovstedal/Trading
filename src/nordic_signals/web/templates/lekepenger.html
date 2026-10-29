@@ -46,7 +46,7 @@
 
 <div class="tiles">
   <div class="tile"><div class="label">Kontoverdi</div><div class="value">{{ a.equity | nok }}</div>
-    <div class="sub">{% if a.valued_on == today and open_now %}til siste kurs i dag, mens børsen er åpen{% elif a.valued_on %}til sluttkurs {{ a.valued_on | day }}{% else %}startbeløp{% endif %}</div></div>
+    <div class="sub">{% if provisional %}til siste kurs i dag, før sluttkursene er inne{% elif a.valued_on %}til sluttkurs {{ a.valued_on | day }}{% else %}startbeløp{% endif %}</div></div>
   <div class="tile"><div class="label">Avkastning</div><div class="value">{{ arrow(a.result) }}{{ a.result | pct(2, True) }}</div>
     <div class="sub">{{ (a.equity - a.start) | num(0, True) }}&nbsp;NOK etter kurtasje og veksling</div></div>
   <div class="tile"><div class="label">Beholdning</div><div class="value">{{ a.positions | length }}</div>
@@ -54,7 +54,8 @@
   <div class="tile"><div class="label">Mot indeksene</div>
     {%- if y %}
     <div class="value">{{ arrow(y.excess) }}{{ (y.excess * 100) | num(2, True) }}&nbsp;poeng</div>
-    <div class="sub">indeksene {{ y.result | pct(2, True) }}, kontoen {{ y.account_result | pct(2, True) }}, til sluttkurs {{ y.valued_on | day }}</div>
+    <div class="sub">indeksene {{ y.result | pct(2, True) }}, kontoen {{ y.account_result | pct(2, True) }}, {% if provisional and y.valued_on == today %}til siste kurs i dag{% else %}til sluttkurs {{ y.valued_on | day }}{% endif %}.
+      Vanlig utslag etter {{ noise_days }} handelsdager: ±{{ (noise * 100) | num(1) }}&nbsp;poeng.</div>
     {%- else %}
     <div class="value">–</div>
     <div class="sub">venter på indeksenes kurser</div>
@@ -155,7 +156,7 @@
     <thead><tr><th>Kveld</th><th>Hva</th><th class="num">Ordre</th><th class="num">Kontoverdi</th><th>Merknader</th></tr></thead>
     <tbody>{% for d in days %}
       <tr><td class="nowrap">{{ d.decided_on | day }}</td>
-        <td>{% if d.rebalance %}Månedlig ombalansering{% if d.recommendation_id %} etter <a href="/recommendations/{{ d.recommendation_id }}">anbefaling {{ d.recommendation_id }}</a>{% endif %}{% else %}Kortsiktige signaler{% endif %}</td>
+        <td>{% if d.rebalance %}{% if d.decided_on == first_decided %}Første ombalansering{% elif version.rebalance_months %}Kvartalsvis ombalansering{% else %}Månedlig ombalansering{% endif %}{% if d.recommendation_id %} etter <a href="/recommendations/{{ d.recommendation_id }}">anbefaling {{ d.recommendation_id }}</a>{% endif %}{% else %}Kortsiktige signaler{% endif %}</td>
         <td class="num">{{ d.orders }}</td>
         <td class="num">{{ d.equity | nok }}</td>
         <td class="small">{{ (d.notes or []) | join(" ") }}</td></tr>
@@ -187,7 +188,7 @@
     <li><strong>Langsiktig del.</strong> Ombalanseres første handelsdag {% if rebalance_months %}i
       {{ rebalance_months[:-1] | join(", ") }} og {{ rebalance_months[-1] }}, og den første dagen kontoen var i gang{% else %}hver måned{% endif %}: aksjer som fortsatt er blant de
       {{ rules.hold_rank }} beste, beholdes, resten selges, og de høyest rangerte den ikke eier, kjøpes til den har
-      {{ policy.max_positions }}, høyst {{ rules.max_per_sector }} fra samme sektor. Strengere krav for å komme inn enn
+      {{ policy.max_positions }}, høyst {{ rules.max_per_sector }} fra samme sektor{% if not sector_cap_applied %} (kom med modell v4; denne kontoen har ikke ombalansert siden){% endif %}. Strengere krav for å komme inn enn
       for å bli holder handelen og kurtasjen nede.</li>
     {% if policy.short_pct %}
     <li><strong>Kortsiktig del.</strong> Kjøper rådgiverens hendelsessignaler, høyst {{ rules.max_new_short }} nye om
@@ -206,7 +207,12 @@
     <li><strong>Mot indeksene.</strong> De samme pengene i {{ indexes.NO }} og {{ indexes.SE }}, begge med utbytte,
       i samme fordeling mellom Oslo og Stockholm og til samme tider som kontoen: det kontoen eide ved en sluttkurs,
       følger indeksen fra den, og det den kjøpte ved åpningen, fra åpningen. Uten kurtasje og fondskostnader, så
-      forskjellen er det aksjevalget og kostnadene ga. Grå linje i grafen.</li>
+      forskjellen er det aksjevalget og kostnadene ga. Grå linje i grafen. Men 12 aksjer svinger mye rundt
+      indeksene: et vanlig utslag er rundt ±12&nbsp;poeng i året, så selv et godt modellvalg trenger mange år for å
+      skille seg fra flaks. Kontoen tester mekanikken (kursene, kurtasjen, åpningene); om modellen gir meravkastning,
+      svarer tilbaketestene i <code>research/</code> bedre på.</li>
+    <li><strong>Kildeskatt</strong> på utbytte regnes bare for aksjer notert i Stockholm. Andre lands kildeskatt er ikke
+      med, for eksempel Belgias 30&nbsp;% på utbyttedelen av CMB.TECHs utdeling i oktober (rundt 116&nbsp;kr).</li>
     <li><strong>Utbytte</strong> godskrives på eksdagen; svensk utbytte etter {{ (fees.dividend_tax * 100) | int }}&nbsp;%
       kildeskatt. Ingen norsk skatt, som på en aksjesparekonto.</li>
     <li><strong>Ikke med:</strong> at en stor ordre kan flytte kursen, og forsinkelsen fra du ser et signal til du
@@ -216,9 +222,11 @@
 
 <div class="card">
   <h2>Signalene på papiret</h2>
-  <p class="small muted">Hvert kortsiktige signal kontoene har sett, kjøpt eller ikke: kjøpt til åpningskurs neste
-    handelsdag og solgt til sluttkurs på {{ rules.short_hold }}. handelsdag, etter Nordnets kurtasje, mot børsens indeks
-    de samme dagene. Samme aksje og signal innen en uke regnes som ett signal.</p>
+  <p class="small muted">Hvert kortsiktige signal kontoene har sett siden {{ signals_from | day }}, kjøpt eller ikke:
+    kjøpt til åpningskurs neste handelsdag og solgt til sluttkurs på {{ rules.short_hold }}. handelsdag, med utbytte
+    underveis, etter Nordnets kurtasje, mot børsens indeks de samme dagene. Samme aksje og signal innen en uke regnes
+    som ett signal. Nye tilbakekjøpsprogram leses fra Oslo Børs' kategori for egne aksjer og fra MFN-meldinger merket
+    tilbakekjøp; et program som bare kunngjøres i en annen kategori, kommer ikke med.</p>
   {% if signals.total.n %}
   <p>{{ signals.total.n }} ferdige signaler: i snitt {{ arrow(signals.total.mean) }}{{ signals.total.mean | pct(2, True) }}
     mot indeksen per handel{% if signals.total.se %} (± {{ signals.total.se | pct(2) }}){% endif %},

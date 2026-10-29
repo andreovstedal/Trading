@@ -27,6 +27,7 @@ from ..collectors.base import NORDIC_TZ
 from ..store import Store
 from . import paper
 
+LOGGED_FROM = date(2026, 10, 9)  # the first evening logged; lekepenger-1's trades from 5 to 8 Oct are only in its log
 SAME_EVENT = timedelta(days=7)
 NOTIONAL = 25_000.0  # NOK: the costs are worked out for one short-term slot of the first account
 FOLLOW = timedelta(days=35)  # more than enough calendar days for an event's ORDER_DAYS and SHORT_HOLD, holidays too

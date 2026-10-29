@@ -614,14 +614,25 @@ def _fx(store: Store) -> dict[str, list[tuple[date, float]]]:
     return out
 
 
+SAME_DIVIDEND = timedelta(days=10)  # a dividend Yahoo re-dates is stored again under its new date
+
+
 def _dividends(store: Store, stocks: dict[int, dict[str, Any]], since: date) -> list[tuple[date, int, float, str]]:
+    """The stocks' dividends since ``since``. An event Yahoo moved to another date is stored twice: of two within
+    ``SAME_DIVIDEND`` of each other with about the same amount, the one seen last counts."""
     symbols = {yahoo_symbol(s["symbol"], s["country"]): (i, s["currency"]) for i, s in stocks.items()
                if s["symbol"] and s["country"] in EXCHANGE_SUFFIX}
     d = store.table("dividends")
     rows = store.query(select(d.c.symbol, d.c.ex_date, d.c.amount, d.c.currency)
-                       .where(d.c.symbol.in_(list(symbols)), d.c.ex_date > since, d.c.amount > 0))
+                       .where(d.c.symbol.in_(list(symbols)), d.c.ex_date > since, d.c.amount > 0)
+                       .order_by(d.c.last_seen_at.desc(), d.c.ts.desc()))
+    kept: list[dict[str, Any]] = []
+    for r in rows:
+        if not any(k["symbol"] == r["symbol"] and abs(k["ex_date"] - r["ex_date"]) <= SAME_DIVIDEND
+                   and abs(k["amount"] - r["amount"]) <= 0.1 * max(k["amount"], r["amount"]) for k in kept):
+            kept.append(r)
     return sorted((r["ex_date"], symbols[r["symbol"]][0], r["amount"], r["currency"] or symbols[r["symbol"]][1])
-                  for r in rows)
+                  for r in kept)
 
 
 # The evening's decisions
@@ -860,17 +871,41 @@ def _save(store: Store, version: Version, today: date, now: datetime, rebalance:
                 for p in signals.values()])
 
 
+COMPLETE = 0.9  # tonight's snapshots must cover this share of the stocks the last evening's did, in each market
+
+
 def _closed_today(store: Store, today: date) -> bool:
-    """Whether Nordnet snapshots taken after today's close show trades from today, for every market that was open:
-    a collection cut off after the Oslo pages does not pass for Stockholm's."""
+    """Whether Nordnet snapshots taken after today's close show trades from today, for every market that was open,
+    and cover nearly all the stocks the market's last evening did: a collection cut off partway through, after the
+    Oslo pages or within Stockholm's, does not pass."""
     t, i = store.table("nordnet_observations"), store.table("instruments")
     after = datetime.combine(today, AFTER_CLOSE, NORDIC_TZ)
     ticks = {r["country"]: r["tick"] for r in store.query(
         select(i.c.exchange_country.label("country"), func.max(t.c.tick_at).label("tick"))
         .join(i, i.c.instrument_id == t.c.instrument_id)
         .where(t.c.observed_at >= after).group_by(i.c.exchange_country))}
-    return all(ticks.get(country) is not None and trading_day(ticks[country], after) == today
-               for country in MARKETS if trading_hours(country, today))
+    open_today = [country for country in MARKETS if trading_hours(country, today)]
+    if not all(ticks.get(c) is not None and trading_day(ticks[c], after) == today for c in open_today):
+        return False
+    tonight = _evening_counts(store, today)
+    for country in open_today:
+        before = next((n for days in range(1, 8) if trading_hours(country, today - timedelta(days=days))
+                       and (n := _evening_counts(store, today - timedelta(days=days)).get(country))), None)
+        if before and tonight.get(country, 0) < COMPLETE * before:
+            return False
+    return True
+
+
+def _evening_counts(store: Store, day: date) -> dict[str, int]:
+    """How many stocks of each market have a snapshot from the evening of ``day`` (after its close, before the
+    next morning)."""
+    t, i = store.table("nordnet_observations"), store.table("instruments")
+    after = datetime.combine(day, AFTER_CLOSE, NORDIC_TZ)
+    return {r["country"]: r["n"] for r in store.query(
+        select(i.c.exchange_country.label("country"), func.count(func.distinct(t.c.instrument_id)).label("n"))
+        .join(i, i.c.instrument_id == t.c.instrument_id)
+        .where(t.c.observed_at >= after, t.c.observed_at < after + timedelta(hours=14))
+        .group_by(i.c.exchange_country))}
 
 
 def _rebalance_due(store: Store, today: date, version: Version) -> bool:

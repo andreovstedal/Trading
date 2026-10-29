@@ -27,6 +27,9 @@ MONTHS_EN = ("January", "February", "March", "April", "May", "June", "July", "Au
 MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september", "oktober", "november",
           "desember")
 VALUED_AT = time(17, 30)  # a day's value is at the close: Stockholm's, the later of the two
+# How far a 12-stock Nordic book usually strays from the indexes in a year (one standard deviation): measured on
+# lekepenger-1's holdings over six months, about 12-13 % (B2's book: 10 %).
+TRACKING_ERROR = 0.12
 
 
 def find(konto: str | None, now: datetime | None = None) -> paper.Version | None:
@@ -54,20 +57,24 @@ def context(store: Store, now: datetime | None = None, version: paper.Version | 
     version = account["version"]
     signals = paper_signals.record(store, now)
     earlier = version is not current
+    provisional = _provisional(account, now)
     first_evening, first_tonight = (None, False) if account["orders"] or earlier else _first_evening(store, version, now)
     return {
-        "a": account, "now": now, "markets": markets,
+        "a": account, "now": now, "markets": markets, "provisional": provisional,
+        "sector_cap_applied": _sector_cap_applied(store, version),
         "today": now.astimezone(NORDIC_TZ).date(), "open_now": any(m["open"] for m in markets),
         "chart": charts.account_chart(points, account["start"], money=text.nok, daily=True, yardstick=yardstick),
         "y": account["yardstick"], "indexes": INDEX_NAMES,
+        "noise": TRACKING_ERROR * (len(account["history"]) / 252) ** 0.5, "noise_days": len(account["history"]),
         "history": points, "pending": pending, "trades": account["trades"][::-1][:TRADE_ROWS],
         "days": paper.days(store, DAY_ROWS, version), "sleeves": SLEEVES, "sides": SIDES,
+        "first_decided": account["started_on"],
         "version": version, "policy": version.policy, "cut_keeps": paper.CUT_KEEPS,
         "rebalance_months": [MONTHS[m - 1] for m in version.rebalance_months or ()],
         "current": current, "earlier": earlier, "until": account["valued_on"] if earlier else None,
         "finished": [] if earlier else paper.finished(store, now),
         "signals": signals, "signal_rows": signals["events"][:SIGNAL_ROWS],
-        "signal_names": paper_signals.SIGNALS,
+        "signal_names": paper_signals.SIGNALS, "signals_from": paper_signals.LOGGED_FROM,
         "fees": {"courtage": paper.COURTAGE, "minimum": paper.COURTAGE_MIN, "exchange": paper.FX_SPREAD,
                  "dividend_tax": paper.SE_DIVIDEND_TAX},
         "rules": {"hold_rank": version.hold_rank * version.policy["max_positions"], "short_hold": paper.SHORT_HOLD,
@@ -75,6 +82,20 @@ def context(store: Store, now: datetime | None = None, version: paper.Version | 
                   "max_per_sector": paper.PARAMS["max_per_sector"]},
         "first_evening": first_evening, "first_tonight": first_tonight,
     }
+
+
+def _provisional(account: dict[str, Any], now: datetime) -> bool:
+    """Whether the latest value is from prices during the day: today's, before 18:00 Norwegian time, when the
+    closing prices are in (as the signals on paper count it)."""
+    local = now.astimezone(NORDIC_TZ)
+    return account["valued_on"] == local.date() and local.time() < paper.AFTER_CLOSE
+
+
+def _sector_cap_applied(store: Store, version: paper.Version) -> bool:
+    """Whether the cap on one sector (model v4) has acted on this account: on a rebalance under v4 or later, or
+    from its first one if it has had none."""
+    rebalances = [d for d in paper.days(store, None, version) if d["rebalance"]]
+    return not rebalances or any(d["model_version"] not in ("v1", "v2", "v3") for d in rebalances)
 
 
 def _first_evening(store: Store, version: paper.Version, now: datetime) -> tuple[datetime | None, bool]:
@@ -143,7 +164,9 @@ def export_json(store: Store, now: datetime | None = None, version: paper.Versio
     positions = [{k: p[k] for k in ("instrument_id", "symbol", "name", "country", "currency", "sleeve", "shares",
                                     "opened_on", "cost", "price", "rate", "value", "result", "result_pct",
                                     "held_days", "reason", "signal_type")} for p in account["positions"]]
-    yield '{"meta": ' + exports.to_json(_meta(account, now))
+    provisional = _provisional(account, now)
+    yield '{"meta": ' + exports.to_json(_meta(account, now, provisional,
+                                               _sector_cap_applied(store, account["version"])))
     yield ',\n"days": [' + ",\n".join(exports.to_json(d) for d in paper.days(store, None, account["version"])) + "]"
     yield ',\n"orders": [' + ",\n".join(exports.to_json(o) for o in orders) + "]"
     yield ',\n"trades": [' + ",\n".join(exports.to_json(t) for t in account["trades"]) + "]"
@@ -151,7 +174,8 @@ def export_json(store: Store, now: datetime | None = None, version: paper.Versio
     yield ',\n"dividends": [' + ",\n".join(exports.to_json(d) for d in account["dividends"]) + "]"
     beside = dict((account["yardstick"] or {}).get("history", []))
     yield ',\n"equity": [' + ",\n".join(exports.to_json({"day": day, "equity": equity, "cash": cash,
-                                                          "yardstick": beside.get(day)})
+                                                          "yardstick": beside.get(day),
+                                                          "provisional": provisional and day == account["valued_on"]})
                                         for day, equity, cash in account["history"]) + "]"
     signals = paper_signals.record(store, now)
     yield ',\n"signals": {"summary": ' + exports.to_json({"total": signals["total"], "types": signals["types"]})
@@ -172,10 +196,11 @@ def _cut(o: dict[str, Any], filled: dict[int, int]) -> str | None:
     return None
 
 
-def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
+def _meta(account: dict[str, Any], now: datetime, provisional: bool, sector_cap_applied: bool) -> dict[str, Any]:
     return {
         "exported_at": now,
         "account": account["account"],
+        "provisional": provisional,
         "versions": [{"account": v.name, "first_evening": v.first_evening, "about": v.about, "policy": v.policy,
                       "hold_rank": v.hold_rank * v.policy["max_positions"],
                       "rebalance_months": v.rebalance_months} for v in paper.VERSIONS],
@@ -194,7 +219,7 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
                                + (", ".join(MONTHS_EN[m - 1] for m in account["version"].rebalance_months)
                                   if account["version"].rebalance_months else "each month"),
                   "hold_rank": account["version"].hold_rank * account["version"].policy["max_positions"],
-                  "max_per_sector": paper.PARAMS["max_per_sector"],
+                  "max_per_sector": paper.PARAMS["max_per_sector"], "sector_cap_applied": sector_cap_applied,
                   "short_hold_trading_days": paper.SHORT_HOLD, "max_new_short_per_evening": paper.MAX_NEW_SHORT,
                   "order_lapses_after_trading_days": paper.ORDER_DAYS},
         "markets": {c: {"name": m.name, "opens": m.opens.isoformat("minutes"), "closes": m.closes.isoformat("minutes")}
@@ -212,6 +237,11 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
             "excess": (account["yardstick"] or {}).get("excess"),
         },
         "notes": {
+            "provisional": "true while the latest day's closing prices are not in: valued_on is today and its values "
+                           "(meta, the last equity row, positions, yardstick) are from prices during the day.",
+            "rules": "The rules in today's code for this version. The sector cap came with model v4 and acts on "
+                     "rebalance evenings; sector_cap_applied says whether it has acted on this account (lekepenger-1 "
+                     "rebalanced only on 5 Oct, under v2).",
             "days": "One row per evening the account decided, after both markets had closed: whether it was a "
                     "rebalance (meta.rules.rebalance), the recommendation it followed then, its value and cash at "
                     "that close, and notes.",
@@ -221,15 +251,22 @@ def _meta(account: dict[str, Any], now: datetime) -> dict[str, Any]:
                       "its prices) or bortfalt (see note).",
             "trades": "Fills at the opening price of the stock's next trading day (at_close: the opening price was "
                       "missing, so the closing price was used); planned is the order's shares, more than shares when "
-                      "a buy was cut to the cash at the opening. fx_rate is SEK/NOK at that day's close, not at the "
-                      "opening. value, courtage and exchange are NOK; cash is what the trade did to the cash; a "
+                      "a buy was cut to the cash at the opening. fx_rate is that day's SEK/NOK: from 29 Oct 2026 the rate "
+                      "the evening's decision saw (stored with it), before that Yahoo's daily rate, which for a "
+                      "finished day is about the day's start. value, courtage and exchange are NOK; cash is what the trade did to the cash; a "
                       "sale's result is against the purchase, fees included.",
             "positions": "Open holdings at the latest close (for a finished account, its last close). held_days "
                          "counts the market's trading days, the buying day being the first.",
-            "dividends": "Credited on the ex-date, from Yahoo's dividend events; Swedish ones after withholding tax.",
-            "equity": "The account's value at each trading day's close: cash plus holdings at their closing prices. "
+            "dividends": "Credited on the ex-date, from Yahoo's dividend events: Stockholm-listed shares' after 15 % "
+                         "Swedish withholding tax; other countries' withholding is not modelled (CMB.TECH's Belgian "
+                         "30 % on the dividend part of its October distribution, about 116 NOK, is missing). Yahoo "
+                         "converts a dividend declared in another currency at the rate when it is fetched; the "
+                         "amount stops changing two weeks after the ex-date.",
+            "equity": "The account's value at each trading day's close: cash plus holdings at their closing prices "
+                      "(the last row at prices during the day while provisional). "
                       "yardstick: the same money in the indexes (meta.yardstick), at the same times.",
-            "signals": "Every short-term signal the accounts saw, each event once (the same stock and signal within "
+            "signals": "Every short-term signal the accounts saw from 9 October 2026, when the logging started (the "
+                       "trades of 5-8 Oct are only in lekepenger-1's trades), each event once (the same stock and signal within "
                        "7 days of its first evening is the same event), followed on paper whether bought or not: "
                        "bought at the opening of its next trading day, sold at the close of its market's 5th "
                        "trading day, dividends in between included (dividend; Swedish after withholding tax); net "

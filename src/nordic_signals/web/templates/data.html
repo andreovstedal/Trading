@@ -41,7 +41,7 @@
         <td class="small">{% if s.error %}<span class="muted">{{ s.error }}</span>{% elif s.summary and s.summary.tables is defined %}
           {{ s.summary.fetches | num }} forespørsler{% for table, r in s.summary.tables.items() %}; {{ table }} +{{ r.inserted | num }}{% endfor %}
           {% for w in s.summary.warnings %}<div class="muted">{{ w }}</div>{% endfor %}
-          {%- elif s.summary %}{{ s.summary.note or ((s.summary.orders | num) ~ " ordre" ~ (", månedlig ombalansering" if s.summary.rebalance else "")) }}{% endif %}</td>
+          {%- elif s.summary %}{{ s.summary.note or ((s.summary.orders | num) ~ " ordre" ~ (", ombalansering" if s.summary.rebalance else "")) }}{% endif %}</td>
       </tr>
     {% endfor %}
     </tbody>

@@ -125,6 +125,17 @@ def test_ask_accounts_only_get_regulated_markets(store):
     assert scored["GRW"].exclusion == "Ikke notert på regulert marked (ikke tillatt på ASK)"
 
 
+def test_a_notice_starting_a_programme_announced_before_is_not_a_new_start():
+    title = "Entra ASA: Commencement of share buy-back programme"
+    body = ("27.10.2026 08:00:08 CET | Entra ASA | Acquisition or disposal of an issuer's own\nshares\n\nReference is made "
+            "to the stock exchange announcement by Entra ASA (\"Entra\" or\nthe \"Company\") on 15 October 2026 "
+            "regarding the Board of Directors' resolution\nto establish a share buy-back programme")
+    assert buyback_start(title) and not buyback_start(title, body)
+    # A new programme that refers to the general meeting's authorisation is still new.
+    assert buyback_start("DNB Bank ASA: Share buy-back programme initiated",
+                         "Reference is made to the authorisation granted by the annual general meeting.")
+
+
 def test_a_swedish_release_shows_a_start_in_either_language(store):
     """MFN sends a release in Swedish and English; it counts once, but the start can show in either title."""
     from nordic_signals.advisor.features import Stock, _add_mfn_buybacks

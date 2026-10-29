@@ -51,6 +51,13 @@ _NOT_A_START = re.compile(
     r"aksjeprogram|incentive|authori[sz]|fullmakt|bemyndig|threshold|flagg|correction|rättelse|korreksjon|rettelse",
     re.IGNORECASE,
 )
+# A notice that opens by referring to an earlier announcement starts, ends or changes a programme announced before
+# ("Reference is made to the stock exchange announcement ... on 15 October"): 7 of the 261 starts in B1.
+_EARLIER_ANNOUNCEMENT = re.compile(
+    r"(?:reference is made to|refer(?:s|ring)? to|det (?:vises|henvises) til|viser til)[^.]{0,80}?"
+    r"(?:announcement|børsmelding|melding|press release|pressemelding)",
+    re.IGNORECASE,
+)
 
 
 # Where the companies an aksjesparekonto may hold are resident: the EEA (the EU, Iceland, Liechtenstein, Norway).
@@ -286,18 +293,22 @@ def _add_newsweb(store: Store, stocks: list[Stock], asof: datetime) -> None:
                                      "title": r["title"], "message_id": r["message_id"]})
         if NEWSWEB_OWN_SHARES in categories and _BUYBACK_WORDS.search(text):
             stock.features["buyback_notices"] += 1
-            if fresh and buyback_start(r["title"] or ""):
+            if fresh and buyback_start(r["title"] or "", r["body"]):
                 stock.features["buyback_start"] = True
                 stock.events.append({"type": "buyback_start", "at": published.isoformat(), "title": r["title"],
                                      "message_id": r["message_id"]})
 
 
-def buyback_start(title: str) -> bool:
+def buyback_start(title: str, body: str | None = None) -> bool:
     """Whether a buyback notice's title announces a new programme, rather than reporting on one already running.
 
     Most notices are the weekly reports of programmes under way ("transactions in week 40", "status etter uke
-    40"), which say nothing new; the research's announcement effect is about the start."""
-    return bool(_BUYBACK_START.search(title)) and not _NOT_A_START.search(title)
+    40"), which say nothing new; the research's announcement effect is about the start. A notice whose text opens
+    by referring to an earlier announcement only starts buying under it (Entra, 27 Oct 2026), so it is not new
+    either."""
+    if not _BUYBACK_START.search(title) or _NOT_A_START.search(title):
+        return False
+    return not (body and _EARLIER_ANNOUNCEMENT.search(body[:700]))
 
 
 def insider_direction(text: str) -> int:

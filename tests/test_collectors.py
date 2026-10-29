@@ -7,7 +7,7 @@ import pytest
 from conftest import FI_AGGREGATE_ROWS, FI_POSITION_ROWS, fixture_bytes, fixture_json, make_ods
 
 from nordic_signals import cli
-from nordic_signals.collectors import COLLECTORS, fi_insider
+from nordic_signals.collectors import COLLECTORS, fi_insider, yahoo
 from nordic_signals.store import Store
 
 NEWSWEB = "https://api3.oslo.oslobors.no/v1/newsreader"
@@ -179,6 +179,28 @@ def test_yahoo_warns_on_bad_symbol_and_continues(server, store):
 
     assert summary.tables["price_bars"].inserted == 2
     assert [w.split(":")[0] for w in summary.warnings] == ["NOPE.OL", "GONE.OL"]  # a 404 does not stop the run
+
+
+def test_yahoo_keeps_a_settled_dividend_but_a_new_one_moves(server, store, monkeypatch):
+    """Yahoo converts a foreign-currency dividend at the rate when it is fetched; two weeks after its ex-date the
+    stored amount is kept."""
+    payload = fixture_json("yahoo_chart.json")
+    (event,) = payload["chart"]["result"][0]["events"]["dividends"].values()  # ex-date 28 Aug 2026
+    server.add("GET", f"{CHART}/MOWI.OL", httpx.Response(200, json=payload))
+    monkeypatch.setattr(yahoo, "utcnow", lambda: datetime(2026, 9, 1, tzinfo=timezone.utc))
+    run("yahoo", server, store, symbols=["MOWI.OL"])
+    event["amount"] = 2.25
+    server.add("GET", f"{CHART}/MOWI.OL", httpx.Response(200, json=payload))
+    run("yahoo", server, store, symbols=["MOWI.OL"])  # 4 days after: still moves
+    (row,) = store.query(store.table("dividends").select())
+    assert row["amount"] == 2.25
+
+    monkeypatch.setattr(yahoo, "utcnow", lambda: datetime(2026, 10, 1, tzinfo=timezone.utc))
+    event["amount"] = 2.2
+    server.add("GET", f"{CHART}/MOWI.OL", httpx.Response(200, json=payload))
+    run("yahoo", server, store, symbols=["MOWI.OL"])
+    (row,) = store.query(store.table("dividends").select())
+    assert row["amount"] == 2.25  # settled
 
 
 def test_cli_daily_runs_every_source_and_logs_runs(server, db_url, monkeypatch, capsys):
