@@ -119,7 +119,7 @@
           <span class="sym">{% if o.part == "pumpfun" %}SOL i lommebok{% else %}${{ o.symbol }} · {{ parts[o.part] }}{% endif %}</span>
         </div>
         {% if o.part == "pumpfun" %}<span class="badge">{{ o.sol | num(2) }} SOL</span>
-        {%- elif ruled.get(o.symbol) == false %}<span class="chip out" title="Trendregelen solgte den da den var under snittet ved en sjekk, og kjøper den tilbake ved en mandagssjekk over snittet">trendregelen: solgt</span>{% endif %}
+        {%- elif ruled.get(o.symbol) == false %}<span class="chip out" title="Trendregelen solgte den da den var under snittet, og kjøper den tilbake ved en senere sjekk (mandag eller den første i måneden) der den er over">solgt</span>{% endif %}
       </header>
       <div class="pnl-row">
         <p class="pnl">{% if o.units %}{{ arrow(o.result_pct) }}<span class="mono" data-tick="pos-{{ o.symbol }}" data-value="{{ o.result_pct }}">{{ o.result_pct | pct(1, True) }}</span>

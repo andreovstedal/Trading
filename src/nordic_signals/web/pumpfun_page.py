@@ -340,7 +340,12 @@ def _meta(p: dict[str, Any], now: datetime | None) -> dict[str, Any]:
                            "after scoring, price]: the checks, and the quotes of the open positions, fetched every "
                            "minute and stored when the price changed. Kept for 7 days.",
             "equity": "The main account's value after every collector run. account is null for the 24-hour "
-                      "account, the main account until 4 October 2026.",
+                      "account, the main account until 4 October 2026; take_profit_100 is the main account's old "
+                      "replay until 5 November 2026 (a token that left DexScreener counted as a total loss, and "
+                      "tokens scored together were bought in no fixed order, so its value could flip between "
+                      "states); take_profit_100_b and then take_profit_100_c the corrected replay from that day, "
+                      "starting at a different value. The Krypto account's pump.fun part carries its level across "
+                      "each change.",
             "hype": "features.links: social links added at launch; features.dex_profile and features.boosts: paid "
                     "promotion on DexScreener when scored (recorded from 3 October 2026).",
             "price_history": "Every price seen for tokens that passed, and the open positions' quotes; the "

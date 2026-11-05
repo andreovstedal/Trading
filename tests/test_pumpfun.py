@@ -14,6 +14,7 @@ from conftest import FakeServer
 from sqlalchemy import select
 
 from nordic_signals import cli, jobs, pumpfun
+from nordic_signals.collectors import pumpfun as collector_module
 from nordic_signals.collectors.pumpfun import PumpFunCollector
 from nordic_signals.web import app as web
 
@@ -194,6 +195,22 @@ def test_an_empty_answer_for_several_tokens_is_an_outage(server, store):
     run(server, store, T0)
     run(server, store, scored)
     market.prices = {}  # DexScreener answers with an empty list
+    for minutes in range(5, 125, 5):
+        run(server, store, scored + timedelta(minutes=minutes))
+    assert {r["status"] for r in tokens(store).values()} == {"tracking"}
+
+
+def test_an_outage_is_judged_on_the_whole_run_not_one_batch(server, store, monkeypatch):
+    """With 7 tokens asked in batches of 3, DexScreener's empty answers count against none, short last batch too."""
+    monkeypatch.setattr(collector_module, "DEX_BATCH", 3)
+    server.add("GET", COINS, httpx.Response(200, json=[coin(m, "x") for m in "abcdefg"]))
+    market = Market(server)
+    market.wallets = {"x": OLD_WALLET}
+    market.prices = {m: P for m in "abcdefg"}
+    scored = T0 + timedelta(minutes=10)
+    run(server, store, T0)
+    run(server, store, scored)
+    market.prices = {}
     for minutes in range(5, 125, 5):
         run(server, store, scored + timedelta(minutes=minutes))
     assert {r["status"] for r in tokens(store).values()} == {"tracking"}
@@ -411,6 +428,17 @@ def test_a_token_gone_without_a_price_sells_at_the_launch_price_on_the_curve(sto
     add_token(store, "gone", T0, "missing", last_checked=T0 + timedelta(hours=2), price_t=2 * pumpfun.LAUNCH_PRICE)
     (sold,) = pumpfun.paper(store)["closed"]
     assert sold["exit_price"] == pumpfun.LAUNCH_PRICE  # the bonding curve's floor
+
+
+def test_a_24_hour_price_seen_late_sells_then_and_does_not_rewrite_the_buys_before(store, monkeypatch):
+    """A token whose 24-hour price came some runs late frees its cash only then: a buy in between found no cash."""
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.1)
+    add_token(store, "a", T0, "done", price_24h=2.0, last_checked=T0 + timedelta(hours=24, minutes=20))
+    add_token(store, "b", T0 + timedelta(hours=24), "done", price_24h=3.0,
+              last_checked=T0 + timedelta(hours=48))
+    p = pumpfun.paper(store)
+    assert [c["mint"] for c in p["closed"]] == ["a"] and p["skipped"] == 1
+    assert p["closed"][0]["closed_at"] == T0 + timedelta(hours=24, minutes=20)
 
 
 def test_tokens_scored_in_the_same_run_are_bought_in_the_same_order_whatever_the_database(store, monkeypatch):

@@ -8,6 +8,7 @@ from conftest import FI_AGGREGATE_ROWS, FI_POSITION_ROWS, fixture_bytes, fixture
 
 from nordic_signals import cli
 from nordic_signals.collectors import COLLECTORS, fi_insider, yahoo
+from nordic_signals.http import FetchError
 from nordic_signals.store import Store
 
 NEWSWEB = "https://api3.oslo.oslobors.no/v1/newsreader"
@@ -281,3 +282,44 @@ def test_one_failing_mfn_feed_does_not_stop_the_others(server, store):
 
     assert summary.tables["mfn_items"].inserted == 2
     assert any("HTTP 400" in w for w in summary.warnings)
+
+
+def test_mfn_stops_at_once_when_mfn_itself_is_down(server, store):
+    """A server error is MFN's, not one company's: the run fails at the first feed instead of retrying them all."""
+    page = fixture_bytes("mfn_company_page.html")
+    other = page.replace(b"f9cedcd2-6006-4325-bb43-6ffb51e93b6b", b"00000000-0000-0000-0000-000000000503")
+    server.add("GET", "https://mfn.se/all/a/actic-group", httpx.Response(200, content=other))
+    server.add("GET", "https://mfn.se/all/a/nibe-industrier", httpx.Response(200, content=page))
+    server.add("GET", "https://feed.mfn.se/v1/feed/00000000-0000-0000-0000-000000000503.json", httpx.Response(503))
+    server.add("GET", MFN_FEED, httpx.Response(200, json=fixture_json("mfn_feed.json") | {"next_url": None}))
+
+    with pytest.raises(FetchError):
+        run("mfn", server, store, slugs=["actic-group", "nibe-industrier"])
+    assert not any("f9cedcd2" in str(r.url) for r in server.requests)  # the company after it was not asked
+
+
+def test_mfn_fails_when_most_feeds_fail(server, store):
+    page = fixture_bytes("mfn_company_page.html")
+    for n in range(3):
+        entity = f"00000000-0000-0000-0000-00000000040{n}".encode()
+        server.add("GET", f"https://mfn.se/all/a/bad-{n}",
+                   httpx.Response(200, content=page.replace(b"f9cedcd2-6006-4325-bb43-6ffb51e93b6b", entity)))
+        server.add("GET", f"https://feed.mfn.se/v1/feed/{entity.decode()}.json", httpx.Response(400))
+    server.add("GET", "https://mfn.se/all/a/nibe-industrier", httpx.Response(200, content=page))
+    server.add("GET", MFN_FEED, httpx.Response(200, json=fixture_json("mfn_feed.json") | {"next_url": None}))
+
+    with pytest.raises(RuntimeError, match="3 of 4 MFN feeds failed"):
+        run("mfn", server, store, slugs=["bad-0", "bad-1", "bad-2", "nibe-industrier"])
+    assert store.table_counts()["mfn_items"] == 2  # what the working feed brought is kept
+
+
+def test_a_company_page_mfn_refuses_is_skipped_and_asked_again_next_run(server, store):
+    server.add("GET", "https://mfn.se/all/a/acme", httpx.Response(403))
+    server.add("GET", "https://mfn.se/all/a/nibe-industrier",
+               httpx.Response(200, content=fixture_bytes("mfn_company_page.html")))
+    server.add("GET", MFN_FEED, httpx.Response(200, json=fixture_json("mfn_feed.json") | {"next_url": None}))
+
+    summary = run("mfn", server, store, company_names=["Acme", "NIBE Industrier"])
+
+    assert summary.tables["mfn_items"].inserted == 2 and any("Acme" in w for w in summary.warnings)
+    assert store.get("mfn_entities", slug="acme") is None  # not cached as missing: tried again next run

@@ -47,12 +47,12 @@ def rising(store, last_day, coins=crypto.COINS):
         closes(store, c.yahoo, last_day, [100.0 + i for i in range(240)])
 
 
-def pump(store, *points, version="pf3"):
+def pump(store, *points, version="pf3", account="take_profit_100_c"):
     """The pump.fun main account's value in SOL."""
     with store.engine.begin() as conn:
         conn.execute(store.table("pf_equity").insert(), [
             {"at": at, "cash": equity, "positions": 0.0, "equity": equity, "open_positions": 0,
-             "screen_version": v, "account": "take_profit_100"}
+             "screen_version": v, "account": account}
             for at, equity, v in ((p[0], p[1], p[2] if len(p) > 2 else version) for p in points)])
 
 
@@ -280,14 +280,21 @@ def test_the_pump_fun_index_carries_on_across_versions(store):
 def test_a_new_name_carries_on_from_the_old_names_usual_level_not_a_flipped_last_reading(store):
     """The old replay could flip between states (Nov 2026): a last reading far from the last hour's median."""
     start = T0 + timedelta(days=1)
-    pump(store, *[(start + timedelta(minutes=5 * i), 1.0) for i in range(11)], (start + timedelta(minutes=55), 0.2))
-    with store.engine.begin() as conn:
-        conn.execute(store.table("pf_equity").insert(), [
-            {"at": start + timedelta(hours=1, minutes=5 * i), "cash": e, "positions": 0.0, "equity": e,
-             "open_positions": 0, "screen_version": "pf3", "account": "take_profit_100_b"}
-            for i, e in enumerate((3.0, 3.3))])
+    pump(store, *[(start + timedelta(minutes=5 * i), 1.0) for i in range(11)], (start + timedelta(minutes=55), 0.2),
+         account="take_profit_100")
+    pump(store, *[(start + timedelta(hours=1, minutes=5 * i), e) for i, e in enumerate((3.0, 3.3))])
     _, index = crypto._pump_index(store, start)
     assert index[11] == pytest.approx(0.2) and index[12:] == pytest.approx([1.0, 1.1])
+
+
+def test_a_later_change_carries_the_last_level_and_a_replaced_name_never_counts_again(store):
+    """A real move just before a change is kept; old-name rows after a deploy (an overlap, a rollback) are not."""
+    start = T0 + timedelta(days=1)
+    pump(store, (start, 1.0), (start + timedelta(minutes=5), 1.4), account="take_profit_100_b")  # one 5x position
+    pump(store, (start + timedelta(minutes=10), 2.0), (start + timedelta(minutes=20), 2.2))
+    pump(store, (start + timedelta(minutes=15), 0.3), account="take_profit_100_b")  # the old code still running
+    _, index = crypto._pump_index(store, start)
+    assert index == pytest.approx([1.0, 1.4, 1.4, 1.54])
 
 
 # Collecting the prices
@@ -394,7 +401,7 @@ def test_the_page_marks_a_coin_the_trend_rule_has_sold(store, db_url, monkeypatc
         page = client.get("/krypto").text
 
     # The main account holds Bitcoin all along; the trend rule beside it sold it on the 12th.
-    assert page.count("trendregelen: solgt</span>") == 1 and "<strong>i kroner</strong>" in page
+    assert page.count('">solgt</span>') == 1 and "<strong>i kroner</strong>" in page
     assert "eier 4 av 5 mynter nå" in page
 
 
@@ -422,7 +429,7 @@ def test_the_page_and_its_log(store, db_url, monkeypatch):
     assert "📈 Trendregelen" in page and "💎 Kjøp og hold" in page and "🎰 pump.fun-delen" in page
     assert "Mot trendregelen" in page and "Hvorfor kjøp og hold?" in page
     assert page.count('<article class="pos ') == 6 and "$BTC · Store mynter" in page and "SOL i lommebok" in page
-    assert "under snittet</span>" not in page and "Start: 25 % av kontoen" in page  # every coin above its average
+    assert '">solgt</span>' not in page and "Start: 25 % av kontoen" in page  # every coin above its average
     assert 'class="chart' in page and "Ukesjekk" in page and "/krypto/export.json" in page
     assert 'data-periode="alt" class="on"' in page and 'href="/pumpfun" class=' not in page  # no pump.fun tab
     assert re.fullmatch(r'attachment; filename="krypto-\d{4}-\d\d-\d\d-\d{4}\.csv"',

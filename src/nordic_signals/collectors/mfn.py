@@ -23,7 +23,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
-from ..http import FetchError
+from ..http import RETRY_STATUSES, FetchError
 from .base import Collector, RunSummary
 
 COMPANY_PAGE = "https://mfn.se/all/a/{slug}"
@@ -31,6 +31,14 @@ FEED_URL = "https://feed.mfn.se/v1/feed/{entity_id}.json"
 
 _ENTITY_ID = re.compile(r'var entityId = "([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})"')
 _LEGAL_SUFFIXES = re.compile(r"\b(ab|asa|as|oyj|abp|a/s|plc|ltd|se)\b|\(publ\)", re.IGNORECASE)
+
+
+def _only_this_company(exc: FetchError) -> None:
+    """Re-raise unless the error is one company's own (a 4xx answer): a server error, a rate limit or no answer
+    means MFN is down or limiting us, and the run stops at once rather than retrying every company."""
+    status = exc.response.status if exc.response is not None else None
+    if status is None or status in RETRY_STATUSES or status >= 500:
+        raise exc
 
 
 def parse_entity_id(html: str) -> str | None:
@@ -105,6 +113,7 @@ class MfnCollector(Collector):
             try:
                 entity_id = next(filter(None, (self.resolve(s) for s in slug_candidates(name))), None)
             except FetchError as exc:  # not cached, so the next run asks again
+                _only_this_company(exc)
                 self.warn(f"{name!r}: {exc}")
                 continue
             if entity_id:
@@ -119,6 +128,7 @@ class MfnCollector(Collector):
             try:
                 self._read_feed(entity_id, since=since, page_size=page_size, max_pages=max_pages)
             except FetchError as exc:
+                _only_this_company(exc)
                 failed.append(label)
                 self.warn(f"feed for {label!r} ({entity_id}): {exc}")
         if failed and len(failed) * 2 > len(entities):

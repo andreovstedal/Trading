@@ -100,8 +100,10 @@ TAKE_PROFIT = 1.0  # the main account: sold once a position is up 100 % after fe
 PROFIT_LINE = (1 + TAKE_PROFIT) / (1 - FEE) ** 2  # ... which is this multiple of the buy price
 TRAIL = 0.25  # the trailing account: once at PROFIT_LINE, sold at the first price this far below its highest
 # The main account's history in pf_equity: a new name when its rules change, or its replay is corrected
-# ("take_profit_100" until 5 Nov 2026, when a token that disappeared counted as a total loss).
-MAIN_ACCOUNT = "take_profit_100_b"
+# ("take_profit_100" until 5 Nov 2026, when a token that disappeared counted as a total loss and tokens scored
+# together were bought in no fixed order; "take_profit_100_b" for some hours that day, before a sale after 24 hours
+# was dated when its price was seen).
+MAIN_ACCOUNT = "take_profit_100_c"
 # Result bins for closed trades: (upper limit, label, polarity) with the last one open-ended.
 RESULT_BINS = ((-0.9, "≤ −90", -1), (-0.5, "−90…−50", -1), (-0.1, "−50…−10", -1), (0.1, "±10", 0),
                (0.5, "+10…+50", 1), (1.0, "+50…+100", 1), (math.inf, "> +100", 1))
@@ -273,8 +275,8 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
         if exits:
             sold, kind = min(exits)  # the first rule to fire sells it
             events.append((sold, 0, kind, r))
-        elif r["status"] == "done":
-            events.append((opened + PAPER_HOLD, 0, "held", r))
+        elif r["status"] == "done":  # sold when its 24-hour price was seen, which can be some runs late
+            events.append((max(opened + PAPER_HOLD, _aware(r["last_checked_at"]) or opened), 0, "held", r))
         elif r["status"] == "missing":
             events.append((_aware(r["last_checked_at"]) or opened, 0, "lost", r))
     # Sales before purchases at the same moment, to free the cash; tokens scored in the same run by their address,
@@ -330,10 +332,9 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
 
 
 def _last_seen(r: dict[str, Any]) -> float:
-    """What a token that disappeared from DexScreener sells for: its last price seen, and never less than the
-    launch price while it is on the bonding curve."""
-    floor = 0.0 if r["graduated"] else LAUNCH_PRICE
-    return max(r["last_price"] or 0.0, floor)
+    """What a token that disappeared from DexScreener sells for: its last price seen; the launch price, the
+    bonding curve's floor, if it was never priced and had not graduated."""
+    return r["last_price"] or (0.0 if r["graduated"] else LAUNCH_PRICE)
 
 
 def snapshot(store: Store, now: datetime | None = None) -> None:
@@ -396,7 +397,7 @@ def histories(store: Store, positions: list[dict[str, Any]], now: datetime, *,
         prices = [(t, v) for t, v in observed.get(pos["mint"], []) if start < t <= end] or _checkpoints(pos, end)
         series = [(start, pos["price_t"]), *prices]
         if closed:
-            series.append((end, pos["exit_price"]))  # sold at the 24-hour price, or nothing if it disappeared
+            series.append((end, pos["exit_price"]))  # sold at the 24-hour price, or the last price if it disappeared
         elif series[-1][0] < now:
             series.append((now, series[-1][1]))
         out[pos["mint"]] = _thin([(t, net_return(pos["price_t"], v)) for t, v in series], slices)

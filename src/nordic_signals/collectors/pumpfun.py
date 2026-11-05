@@ -82,7 +82,7 @@ SERIAL_WINDOW = timedelta(hours=24)
 KEEP_SKIPPED = timedelta(days=7)
 PRICE_HISTORY = timedelta(days=7)  # pf_prices; the checkpoint prices in pf_tokens are kept for good
 DEX_BATCH = 30
-EMPTY_IS_OUTAGE = 5  # tokens asked for at once: an empty answer for this many counts against none of them
+EMPTY_IS_OUTAGE = 5  # tokens asked for in one run: empty answers for all of this many count against none
 SIGNATURE_LIMIT = 200  # enough to see a new wallet's first transaction, or a busy wallet's pace
 LAUNCH_FIELDS = ("market_cap", "usd_market_cap", "ath_market_cap", "complete", "reply_count", "real_sol_reserves",
                  "bonding_curve", "associated_bonding_curve", "pool_address", "program", "nsfw", "is_banned",
@@ -354,13 +354,19 @@ class PumpFunCollector(Collector):
         and the tokens whose request failed."""
         found: dict[str, dict[str, Any]] = {}
         unchecked: set[str] = set()
+        answers = []
         for i in range(0, len(mints), DEX_BATCH):
             chunk = mints[i:i + DEX_BATCH]
             data = self._request("GET", f"{DEXSCREENER}/{','.join(chunk)}")
-            # An empty answer for several tokens at once is an outage, not all of them vanishing.
-            if not isinstance(data, list) or (not data and len(chunk) >= EMPTY_IS_OUTAGE):
+            if isinstance(data, list):
+                answers.append((chunk, data))
+            else:
                 unchecked.update(chunk)
-                continue
+        # Empty answers for every one of several tokens asked at once are an outage, not all of them vanishing.
+        if not any(data for _, data in answers) and sum(len(chunk) for chunk, _ in answers) >= EMPTY_IS_OUTAGE:
+            unchecked.update(m for chunk, _ in answers for m in chunk)
+            return found, unchecked
+        for chunk, data in answers:
             for p in data:
                 mint = (p.get("baseToken") or {}).get("address")
                 if mint not in chunk or (p.get("quoteToken") or {}).get("symbol") not in ("SOL", "WSOL"):

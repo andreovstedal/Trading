@@ -82,8 +82,8 @@ FEE = 0.007  # Firi, on each trade (firi.com/no/priser, checked 5 October 2026)
 SOL_WITHDRAWAL = 0.05  # SOL, to send SOL from Firi to a wallet
 TREND_DAYS = 200
 TOLERANCE = 0.2  # the monthly rebalancing leaves a holding that is within this share of its target
-CARRY_READINGS = 12  # the pump.fun index's last hour (a reading every 5 minutes), when a new name carries on ...
-CARRY_TOLERANCE = 0.3  # ... from a last level this far from that hour's median
+CARRY_READINGS = 12  # the flipping replay's last hour (a reading every 5 minutes), whose median carries on
+FLIPPING = {("pf3", "take_profit_100")}  # until 5 Nov 2026 its readings could flip between states
 DECIDE_AT = time(0, 0)  # UTC: the day before has closed
 MIN_TRADE = 10.0  # NOK: smaller trades are left out
 CASH = "NOK"  # the monthly rebalancing's key for the cash of the coins the trend rule does not hold
@@ -143,22 +143,25 @@ def freshness(store: Store) -> tuple[str, datetime | None]:
 def _pump_index(store: Store, since: datetime) -> tuple[list[datetime], list[float]]:
     """The pump.fun main account's value from ``since`` as an index starting at 1. It moves with the account's
     value in SOL; a new screen version or account name (``pumpfun.MAIN_ACCOUNT``, for new rules or a corrected
-    replay) carries on from the level where the last one ended, so a change is never booked as a gain or a loss.
-    Until 5 Nov 2026 the old replay could flip between states from one reading to the next, so a last level far
-    from the old name's last hour is replaced by that hour's median."""
+    replay) carries on from the level where the last one ended, so a change is never booked as a gain or a loss, and
+    one that has been replaced never counts again (a deploy overlap, a rollback). The old replay could flip between
+    states from one reading to the next (``FLIPPING``), so where it ended its last hour's median carries on."""
     e = store.table("pf_equity")
     times: list[datetime] = []
     index: list[float] = []
-    level, last, recent = 1.0, None, []
+    level, last, recent, ended = 1.0, None, [], set()
     for r in store.query(select(e.c.at, e.c.equity, e.c.screen_version, e.c.account)
                          .where(e.c.at >= since).order_by(e.c.at)):
         key = (r["screen_version"], r["account"])
-        if last is not None and last[0] == key and last[1] > 0:
-            level *= r["equity"] / last[1]
+        if key in ended:
+            continue
+        if last is not None and last[0] == key:
+            if last[1] > 0:
+                level *= r["equity"] / last[1]
         elif last is not None:  # a new version or name carries on
-            typical = median(recent)
-            if abs(level / typical - 1) > CARRY_TOLERANCE:
-                level = typical
+            if last[0] in FLIPPING:
+                level = median(recent)
+            ended.add(last[0])
             recent = []
         last = (key, r["equity"])
         recent = [*recent[-(CARRY_READINGS - 1):], level]

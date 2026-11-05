@@ -766,3 +766,31 @@ def test_the_second_accounts_first_evening_runs_on_the_real_advisor(store):
     assert placed and {(o["side"], o["sleeve"]) for o in placed} == {("buy", "long")}
     assert {o["symbol"] for o in placed} <= {p.symbol for p in tonight.picks if p.eligible}
     assert tonight.signals  # BBB's buyback: no short-term order, whether or not it is also a long-term pick
+
+
+def test_the_signal_record_names_the_account_that_ordered_it_and_shows_a_spread_only_from_ten(store, make_client,
+                                                                                               monkeypatch):
+    monkeypatch.setattr(paper, "VERSIONS", (FIRST, SECOND))
+    events = [{"decided_on": FRI, "symbol": "S7", "name": "Stock 7", "signal_type": "buyback_start", "account": FIRST.name,
+               "bought": True, "status": "ferdig", "net": 0.02, "excess": 0.01},
+              {"decided_on": NEXT_MON, "symbol": "S8", "name": "Stock 8", "signal_type": "buyback_start",
+               "account": SECOND.name, "bought": False, "status": "venter", "net": None, "excess": None}]
+
+    def record(n):
+        return {"events": events, "types": [],
+                "total": {"n": n, "mean": 0.01, "se": 0.004, "t": 2.5, "won": n}}
+
+    later = oslo(SECOND.first_evening + timedelta(days=1), 12)
+    monkeypatch.setattr(paper_page, "utcnow", lambda: later)
+    with store.engine.begin() as conn:
+        conn.execute(store.table("paper_days").insert().values(
+            account=SECOND.name, decided_on=SECOND.first_evening + timedelta(days=1), decided_at=later,
+            rebalance=False, orders=0, notes=[]))
+    pages = {}
+    for n in (2, 10):
+        monkeypatch.setattr(paper_page.paper_signals, "record", lambda _store, _now, n=n: record(n))
+        with make_client() as client:
+            pages[n] = " ".join(client.get("/lekepenger").text.split())
+    assert f"<td>{FIRST.name}</td>" in pages[2] and "<td>–</td>" in pages[2]  # who ordered it, if anyone
+    assert "(± 0,40" not in pages[2] and "(± 0,40" in pages[10]
+    assert "Signaler på papir" in pages[2]  # lekepenger-2 buys no short-term signals
