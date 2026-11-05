@@ -115,7 +115,8 @@
     kjøpes for {{ p.stake | num(1) }}&nbsp;SOL til kursen da det ble vurdert (så lenge det er kontanter igjen), og
     selges så snart det er verdt det dobbelte etter gebyrer (+100&nbsp;%), ellers etter {{ p.hold_hours | num(0) }}
     timer. Pump.funs gebyr på {{ (fee * 100) | num(2) }}&nbsp;% trekkes ved
-    både kjøp og salg. Et token som forsvinner fra DexScreener, regnes som tapt. Glidning i kursen er ikke med, så
+    både kjøp og salg. Et token som forsvinner fra DexScreener, selges til siste kurs vi så: på kjøpskurven kan det alltid selges,
+    og aldri under lanseringskursen. Glidning i kursen er ikke med, så
     ekte handel blir dårligere.{% if p.skipped %} {{ p.skipped }} tokens ble hoppet over fordi kontantene var brukt
     opp.{% endif %}</p>
 </div>
@@ -184,7 +185,7 @@
       <tr><td>{{ c.name or c.mint[:8] }}<div class="ticker">${{ c.symbol }}</div></td>
         <td class="spark-cell">{{ c.chart }}</td>
         <td class="nowrap">{{ c.opened_at | when }}</td>
-        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, regnet som tapt</span>{% endif %}
+        <td class="nowrap">{{ c.closed_at | when }}{% if c.lost %} <span class="chip">forsvant, solgt til siste kurs</span>{% endif %}
           {%- if c.profit %} <span class="chip profit">gevinst sikret</span>{% endif %}</td>
         <td class="num nowrap">{{ c.proceeds | num(4) }}&nbsp;SOL</td>
         <td class="num nowrap">{{ arrow(c.result) }} {{ c.result | pct(0, True) }}{% if c.badge %} {{ badge(c.badge) }}{% endif %}</td></tr>

@@ -113,7 +113,7 @@ The **Krypto** page runs a crypto strategy with 100,000 NOK of play money on Fir
 The parts:
 - **Big coins, 50 %:** Bitcoin and Ether, 25 % each.
 - **Smaller coins, 30 %:** XRP, Cardano and Solana, 10 % each. Firi also trades Polkadot, Litecoin and BNB against NOK, but with wider spreads (Polkadot's was almost 5 %).
-- **pump.fun, 20 %:** SOL in a wallet that follows the [pump.fun page's](#pumpfun-measurement) main fake account up and down, as a share of it would, and the price of SOL. SOL is bought on Firi and sent to the wallet for 0.05 SOL (Firi's fee from 1 December 2026; 0.045 before); sending it back is free. A new filter version, whose account starts again at 10 SOL, carries on from where the last one ended.
+- **pump.fun, 20 %:** SOL in a wallet that follows the [pump.fun page's](#pumpfun-measurement) main fake account up and down, as a share of it would, and the price of SOL. SOL is bought on Firi and sent to the wallet for 0.05 SOL (Firi's fee from 1 December 2026; 0.045 before); sending it back is free. A new filter version or a new name for the main account (`pumpfun.MAIN_ACCOUNT`) carries on from the level where the last one ended, so a change is never booked as a gain or a loss; a last reading far from the old one's last hour is replaced by that hour's median. Renaming the account does not restart it: the replay always starts from the filter version's first token. On 5 November 2026 the replay was corrected (a token that left DexScreener had counted as a total loss, and tokens scored together were bought in no fixed order, so the account's value flipped between states) and the account renamed `take_profit_100_b`. The main fake account had lost about 99 % in October under the old replay; it buys 0.1 SOL a token, so with little cash left one position can be most of it.
 
 Two accounts make the same start:
 - **The main account holds every coin all the time** (buy and hold), chosen by the backtest below.
@@ -184,7 +184,7 @@ The 1-hour figures come about an hour after collection starts. The decision on r
 
 The page also runs the filter with fake money, in three accounts that buy by the same rule:
 - Each starts with 10 SOL. Every token that passes is bought for 0.1 SOL at its price when scored, while the cash lasts.
-- Fees are charged on both trades, and a token that disappears from DexScreener counts as lost. Cash from sales goes into new buys.
+- Fees are charged on both trades, and a token that disappears from DexScreener (12 checks in a row without a price) is sold at the last price seen: on the bonding curve it can always be sold, and never below the launch price. Until 5 November 2026 it counted as a total loss, and the misses were counted over a token's life rather than in a row. Cash from sales goes into new buys, tokens scored in the same run in the order of their addresses.
 - **The main account** sells a position as soon as it is worth twice its cost after fees (+100 %), and otherwise after 24 hours.
   - The sale is credited at exactly +100 %, even when the price jumped past the line between two looks, so the account never gets a lucky price.
   - It has run since 4 October 2026. In `pf2`'s day, 20 of the 149 tokens that passed reached +100 % within 24 hours, and held instead they ended at a median of −2 %. On the full log's minute-by-minute prices, this rule would have left that account at 8.25 SOL instead of 7.03.

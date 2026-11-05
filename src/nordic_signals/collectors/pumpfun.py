@@ -82,6 +82,7 @@ SERIAL_WINDOW = timedelta(hours=24)
 KEEP_SKIPPED = timedelta(days=7)
 PRICE_HISTORY = timedelta(days=7)  # pf_prices; the checkpoint prices in pf_tokens are kept for good
 DEX_BATCH = 30
+EMPTY_IS_OUTAGE = 5  # tokens asked for at once: an empty answer for this many counts against none of them
 SIGNATURE_LIMIT = 200  # enough to see a new wallet's first transaction, or a busy wallet's pace
 LAUNCH_FIELDS = ("market_cap", "usd_market_cap", "ath_market_cap", "complete", "reply_count", "real_sol_reserves",
                  "bonding_curve", "associated_bonding_curve", "pool_address", "program", "nsfw", "is_banned",
@@ -151,7 +152,7 @@ class PumpFunCollector(Collector):
             price = features["price"]
             passed = active and features["complete"] and not signs
             measured = active and features["complete"]  # only these are followed: nothing else is measured
-            self._update(r["mint"], status="tracking" if measured else "scored", scored_at=now,
+            self._update(r["mint"], status="tracking" if measured else "scored", scored_at=now, misses=0,
                          screen_version=pumpfun.SCREEN_VERSION,
                          features=features, warnings=signs, active=active, complete=features["complete"],
                          passed=passed, price_t=price, peak_after=price, low_after=price, last_price=price,
@@ -246,7 +247,7 @@ class PumpFunCollector(Collector):
             if r["passed"]:
                 prices.append({"mint": r["mint"], "at": now, "price": price})
             changes: dict[str, Any] = {
-                "last_price": price, "last_checked_at": now,
+                "last_price": price, "last_checked_at": now, "misses": 0,  # misses in a row, not in a lifetime
                 "peak_after": max(r["peak_after"] or price, price), "low_after": min(r["low_after"] or price, price),
                 "graduated": bool(r["graduated"]) or pair.get("dexId") == "pumpswap",
             }
@@ -356,7 +357,8 @@ class PumpFunCollector(Collector):
         for i in range(0, len(mints), DEX_BATCH):
             chunk = mints[i:i + DEX_BATCH]
             data = self._request("GET", f"{DEXSCREENER}/{','.join(chunk)}")
-            if not isinstance(data, list):
+            # An empty answer for several tokens at once is an outage, not all of them vanishing.
+            if not isinstance(data, list) or (not data and len(chunk) >= EMPTY_IS_OUTAGE):
                 unchecked.update(chunk)
                 continue
             for p in data:

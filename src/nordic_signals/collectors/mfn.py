@@ -23,6 +23,7 @@ from collections.abc import Iterable
 from datetime import datetime
 from typing import Any
 
+from ..http import FetchError
 from .base import Collector, RunSummary
 
 COMPANY_PAGE = "https://mfn.se/all/a/{slug}"
@@ -101,14 +102,27 @@ class MfnCollector(Collector):
             else:
                 self.warn(f"no MFN company page found for slug {slug!r}")
         for name in company_names:
-            entity_id = next(filter(None, (self.resolve(s) for s in slug_candidates(name))), None)
+            try:
+                entity_id = next(filter(None, (self.resolve(s) for s in slug_candidates(name))), None)
+            except FetchError as exc:  # not cached, so the next run asks again
+                self.warn(f"{name!r}: {exc}")
+                continue
             if entity_id:
                 entities[entity_id] = name
             else:
                 self.warn(f"could not match {name!r} to an MFN company page")
 
-        for entity_id in entities:
-            self._read_feed(entity_id, since=since, page_size=page_size, max_pages=max_pages)
+        # One company's feed failing (feed.mfn.se answers HTTP 400 for some, Actic Group's among them, Nov 2026) must
+        # not cost every company after it in the list; the run fails only when most feeds do (MFN down or blocking).
+        failed = []
+        for entity_id, label in entities.items():
+            try:
+                self._read_feed(entity_id, since=since, page_size=page_size, max_pages=max_pages)
+            except FetchError as exc:
+                failed.append(label)
+                self.warn(f"feed for {label!r} ({entity_id}): {exc}")
+        if failed and len(failed) * 2 > len(entities):
+            raise RuntimeError(f"{len(failed)} of {len(entities)} MFN feeds failed")
         return self.summary
 
     def resolve(self, slug: str) -> str | None:

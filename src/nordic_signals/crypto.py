@@ -43,7 +43,7 @@ from __future__ import annotations
 import bisect
 from dataclasses import dataclass, field
 from datetime import date, datetime, time, timedelta, timezone
-from statistics import fmean
+from statistics import fmean, median
 from typing import Any
 
 from sqlalchemy import func, select
@@ -82,6 +82,8 @@ FEE = 0.007  # Firi, on each trade (firi.com/no/priser, checked 5 October 2026)
 SOL_WITHDRAWAL = 0.05  # SOL, to send SOL from Firi to a wallet
 TREND_DAYS = 200
 TOLERANCE = 0.2  # the monthly rebalancing leaves a holding that is within this share of its target
+CARRY_READINGS = 12  # the pump.fun index's last hour (a reading every 5 minutes), when a new name carries on ...
+CARRY_TOLERANCE = 0.3  # ... from a last level this far from that hour's median
 DECIDE_AT = time(0, 0)  # UTC: the day before has closed
 MIN_TRADE = 10.0  # NOK: smaller trades are left out
 CASH = "NOK"  # the monthly rebalancing's key for the cash of the coins the trend rule does not hold
@@ -140,18 +142,26 @@ def freshness(store: Store) -> tuple[str, datetime | None]:
 
 def _pump_index(store: Store, since: datetime) -> tuple[list[datetime], list[float]]:
     """The pump.fun main account's value from ``since`` as an index starting at 1. It moves with the account's
-    value in SOL; a new screen version or set of rules, whose account starts again at 10 SOL, carries on from
-    where the last one ended."""
+    value in SOL; a new screen version or account name (``pumpfun.MAIN_ACCOUNT``, for new rules or a corrected
+    replay) carries on from the level where the last one ended, so a change is never booked as a gain or a loss.
+    Until 5 Nov 2026 the old replay could flip between states from one reading to the next, so a last level far
+    from the old name's last hour is replaced by that hour's median."""
     e = store.table("pf_equity")
     times: list[datetime] = []
     index: list[float] = []
-    level, last = 1.0, None
+    level, last, recent = 1.0, None, []
     for r in store.query(select(e.c.at, e.c.equity, e.c.screen_version, e.c.account)
                          .where(e.c.at >= since).order_by(e.c.at)):
         key = (r["screen_version"], r["account"])
         if last is not None and last[0] == key and last[1] > 0:
             level *= r["equity"] / last[1]
+        elif last is not None:  # a new version or name carries on
+            typical = median(recent)
+            if abs(level / typical - 1) > CARRY_TOLERANCE:
+                level = typical
+            recent = []
         last = (key, r["equity"])
+        recent = [*recent[-(CARRY_READINGS - 1):], level]
         times.append(_aware(r["at"]))
         index.append(level)
     return times, index

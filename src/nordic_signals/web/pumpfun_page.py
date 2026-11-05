@@ -103,7 +103,7 @@ def context(store: Store, periode: str, cache: Cache, now: datetime | None = Non
 def _decorate(position: dict[str, Any], path: list[tuple[datetime, float]], now: datetime, *, closed: bool) -> None:
     mint, result = position["mint"], position["result"]
     position["side"] = "up" if result >= 0 else "down"
-    position["badge"] = _badge(result, position.get("lost", False))
+    position["badge"] = _badge(result)
     opened, sale = position["opened_at"], position["opened_at"] + pumpfun.PAPER_HOLD
     until = position["closed_at"] if closed else min(max(now, opened + FIRST_HOUR), sale)
     position["chart"] = charts.sparkline(path, opened=opened, until=until, key=mint,
@@ -119,10 +119,10 @@ def _decorate(position: dict[str, Any], path: list[tuple[datetime, float]], now:
                                    "?").upper()
 
 
-def _badge(result: float, lost: bool) -> tuple[str, str, str] | None:
+def _badge(result: float) -> tuple[str, str, str] | None:
     """Emoji, visible word and what it means, for the cards and the closed trades. Doubled or more is
     written as a multiple, the way crypto traders say it: 3x."""
-    if lost or result <= -0.9:
+    if result <= -0.9:
         return ("💀", "rekt", "Ned 90 % eller mer")
     if result >= 1.0:
         multiple = math.floor(1 + result)

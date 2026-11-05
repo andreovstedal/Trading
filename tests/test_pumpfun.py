@@ -171,6 +171,34 @@ def test_slow_phase_and_missing_prices(server, store):
     assert tokens(store)["a"]["last_checked_at"] != checked
 
 
+def test_misses_count_in_a_row_so_a_token_dexscreener_skips_now_and_then_is_kept(server, store):
+    server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x"), coin("b", "y")]))
+    market = Market(server)
+    market.wallets = {"x": OLD_WALLET, "y": OLD_WALLET}
+    market.prices = {"a": P, "b": P}
+    scored = T0 + timedelta(minutes=10)
+    run(server, store, T0)
+    run(server, store, scored)
+    for minutes in range(5, 125, 5):  # "a" is left out of every second answer: 12 misses, never two in a row
+        market.prices = {"b": P} if minutes % 10 else {"a": P, "b": P}
+        run(server, store, scored + timedelta(minutes=minutes))
+    assert tokens(store)["a"]["status"] == "tracking"
+
+
+def test_an_empty_answer_for_several_tokens_is_an_outage(server, store):
+    server.add("GET", COINS, httpx.Response(200, json=[coin(m, "x") for m in "abcde"]))
+    market = Market(server)
+    market.wallets = {"x": OLD_WALLET}
+    market.prices = {m: P for m in "abcde"}
+    scored = T0 + timedelta(minutes=10)
+    run(server, store, T0)
+    run(server, store, scored)
+    market.prices = {}  # DexScreener answers with an empty list
+    for minutes in range(5, 125, 5):
+        run(server, store, scored + timedelta(minutes=minutes))
+    assert {r["status"] for r in tokens(store).values()} == {"tracking"}
+
+
 def test_a_dexscreener_outage_counts_against_no_token(server, store):
     server.add("GET", COINS, httpx.Response(200, json=[coin("a", "x")]))
     market = Market(server)
@@ -345,19 +373,20 @@ def test_measurement_page(server, store, db_url, monkeypatch):
 
 
 def add_token(store, mint, scored, status, *, price_24h=None, last_price=None, last_checked=None, passed=True,
-              **columns):
+              price_t=1.0, **columns):
     with store.engine.begin() as conn:
         conn.execute(store.table("pf_tokens").insert().values(
             mint=mint, name=f"{mint} coin", symbol=mint.upper(), creator="c", created_at=scored, discovered_at=scored,
             sampled=True, status=status, scored_at=scored, screen_version=pumpfun.SCREEN_VERSION, active=True,
-            complete=True, passed=passed, warnings=[], price_t=1.0, price_24h=price_24h, last_price=last_price,
+            complete=True, passed=passed, warnings=[], price_t=price_t, price_24h=price_24h, last_price=last_price,
             last_checked_at=last_checked, misses=0, **columns))
 
 
 def test_paper_portfolio_replays_the_tokens_that_passed(store, monkeypatch):
     monkeypatch.setattr(pumpfun, "PAPER_START", 0.3)  # room for three positions
     add_token(store, "won", T0, "done", price_24h=2.0)
-    add_token(store, "lost", T0 + timedelta(hours=1), "missing", last_checked=T0 + timedelta(hours=3))
+    add_token(store, "lost", T0 + timedelta(hours=1), "missing", last_checked=T0 + timedelta(hours=3),
+              last_price=0.4)  # gone from DexScreener: sold at the last price seen
     add_token(store, "open", T0 + timedelta(hours=2), "tracking", last_price=0.5)
     add_token(store, "late", T0 + timedelta(hours=2, minutes=30), "tracking", last_price=1.0)  # no cash left
     add_token(store, "stopped", T0, "done", price_24h=9.0, passed=False)  # never bought
@@ -368,13 +397,34 @@ def test_paper_portfolio_replays_the_tokens_that_passed(store, monkeypatch):
     won = next(c for c in p["closed"] if c["mint"] == "won")
     assert won["result"] == pytest.approx(2.0 * kept - 1)
     lost = next(c for c in p["closed"] if c["mint"] == "lost")
-    assert lost["lost"] and lost["result"] == -1.0
+    assert lost["lost"] and lost["result"] == pytest.approx(0.4 * kept - 1)
     assert [o["mint"] for o in p["open"]] == ["open"] and p["open"][0]["result"] == pytest.approx(0.5 * kept - 1)
     assert p["skipped"] == 1 and p["trades"] == 2 and p["win_rate"] == 0.5
-    assert p["cash"] == pytest.approx(0.1 * 2.0 * kept)
-    assert p["equity"] == pytest.approx(0.1 * 2.0 * kept + 0.1 * 0.5 * kept)
+    assert p["cash"] == pytest.approx(0.1 * 2.0 * kept + 0.1 * 0.4 * kept)
+    assert p["equity"] == pytest.approx(0.1 * 2.0 * kept + 0.1 * 0.4 * kept + 0.1 * 0.5 * kept)
     counts = {b["label"]: b["count"] for b in p["bins"]}
-    assert counts["≤ −90"] == 1 and counts["+50…+100"] == 1 and sum(counts.values()) == 2
+    assert counts["≤ −90"] == 0 and counts["+50…+100"] == 1 and sum(counts.values()) == 2
+
+
+def test_a_token_gone_without_a_price_sells_at_the_launch_price_on_the_curve(store, monkeypatch):
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.1)
+    add_token(store, "gone", T0, "missing", last_checked=T0 + timedelta(hours=2), price_t=2 * pumpfun.LAUNCH_PRICE)
+    (sold,) = pumpfun.paper(store)["closed"]
+    assert sold["exit_price"] == pumpfun.LAUNCH_PRICE  # the bonding curve's floor
+
+
+def test_tokens_scored_in_the_same_run_are_bought_in_the_same_order_whatever_the_database(store, monkeypatch):
+    """With cash for one of two tokens scored together, the replay must not depend on the row order."""
+    monkeypatch.setattr(pumpfun, "PAPER_START", 0.1)
+    results = []
+    for order in (("aaa", "zzz"), ("zzz", "aaa")):
+        with store.engine.begin() as conn:
+            conn.execute(store.table("pf_tokens").delete())
+        for mint in order:
+            add_token(store, mint, T0, "done", price_24h={"aaa": 0.2, "zzz": 3.0}[mint])
+        p = pumpfun.paper(store)
+        results.append(([c["mint"] for c in p["closed"]], p["equity"]))
+    assert results[0] == results[1] and results[0][0] == ["aaa"]
 
 
 def test_account_value_is_recorded_and_thinned_for_the_chart(store):

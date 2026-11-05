@@ -156,7 +156,7 @@
     <thead><tr><th>Kveld</th><th>Hva</th><th class="num">Ordre</th><th class="num">Kontoverdi</th><th>Merknader</th></tr></thead>
     <tbody>{% for d in days %}
       <tr><td class="nowrap">{{ d.decided_on | day }}</td>
-        <td>{% if d.rebalance %}{% if d.decided_on == first_decided %}Første ombalansering{% elif version.rebalance_months %}Kvartalsvis ombalansering{% else %}Månedlig ombalansering{% endif %}{% if d.recommendation_id %} etter <a href="/recommendations/{{ d.recommendation_id }}">anbefaling {{ d.recommendation_id }}</a>{% endif %}{% else %}Kortsiktige signaler{% endif %}</td>
+        <td>{% if d.rebalance %}{% if d.decided_on == first_decided %}Første ombalansering{% elif version.rebalance_months %}Kvartalsvis ombalansering{% else %}Månedlig ombalansering{% endif %}{% if d.recommendation_id %} etter <a href="/recommendations/{{ d.recommendation_id }}">anbefaling {{ d.recommendation_id }}</a>{% endif %}{% elif policy.short_pct and not policy.short_paper_only %}Kortsiktige signaler{% else %}Signaler på papir{% endif %}</td>
         <td class="num">{{ d.orders }}</td>
         <td class="num">{{ d.equity | nok }}</td>
         <td class="small">{{ (d.notes or []) | join(" ") }}</td></tr>
@@ -213,7 +213,7 @@
       svarer tilbaketestene i <code>research/</code> bedre på.</li>
     <li><strong>Kildeskatt</strong> på utbytte regnes bare for aksjer notert i Stockholm. Andre lands kildeskatt er ikke
       med, for eksempel Belgias 30&nbsp;% på utbytte fra CMB.TECH.</li>
-    <li><strong>Utbytte</strong> godskrives på eksdagen; svensk utbytte etter {{ (fees.dividend_tax * 100) | int }}&nbsp;%
+    <li><strong>Utbytte</strong> godskrives på eksdagen; utbytte fra aksjer notert i Stockholm etter {{ (fees.dividend_tax * 100) | int }}&nbsp;% svensk
       kildeskatt. Ingen norsk skatt, som på en aksjesparekonto.</li>
     <li><strong>Ikke med:</strong> at en stor ordre kan flytte kursen, og forsinkelsen fra du ser et signal til du
       handler. Ordrene er små i forhold til omsetningen, siden rådgiveren bare velger aksjer med god likviditet.</li>
@@ -229,17 +229,17 @@
     tilbakekjøp; et program som bare kunngjøres i en annen kategori, kommer ikke med.</p>
   {% if signals.total.n %}
   <p>{{ signals.total.n }} ferdige signaler: i snitt {{ arrow(signals.total.mean) }}{{ signals.total.mean | pct(2, True) }}
-    mot indeksen per handel{% if signals.total.se %} (± {{ signals.total.se | pct(2) }}){% endif %},
+    mot indeksen per handel{% if signals.total.se and signals.total.n >= 10 %} (± {{ signals.total.se | pct(2) }}){% endif %},
     {{ signals.total.won }} av {{ signals.total.n }} over indeksen.{% if signals.total.n < 30 %} For få til å si
     noe ennå.{% endif %}</p>
   {% endif %}
   {% if signal_rows %}
   <div class="table-wrap"><table>
-    <thead><tr><th>Kveld</th><th>Aksje</th><th>Signal</th><th>Bestilt av kontoen</th><th class="num">Etter kostnader</th>
+    <thead><tr><th>Kveld</th><th>Aksje</th><th>Signal</th><th>Bestilt av</th><th class="num">Etter kostnader</th>
       <th class="num">Mot indeksen</th></tr></thead>
     <tbody>{% for e in signal_rows %}
       <tr><td class="nowrap">{{ e.decided_on | day }}</td><td>{{ e.name }}<div class="ticker">{{ e.symbol }}</div></td>
-        <td class="small">{{ signal_names.get(e.signal_type, e.signal_type) }}</td><td>{{ "ja" if e.bought else "nei" }}</td>
+        <td class="small">{{ signal_names.get(e.signal_type, e.signal_type) }}</td><td>{{ e.account if e.bought else "–" }}</td>
         {% if e.status == "ferdig" %}
         <td class="num">{{ arrow(e.net) }}{{ e.net | pct(2, True) }}</td>
         <td class="num">{% if e.excess is not none %}{{ arrow(e.excess) }}{{ e.excess | pct(2, True) }}{% else %}–{% endif %}</td>

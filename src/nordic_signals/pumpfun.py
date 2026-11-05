@@ -23,8 +23,11 @@ early; the decision uses 24 hours. With about 98 % of launches ending as pump-an
 catch well over 99 % of them before the tokens that pass are mostly honest.
 
 ``paper`` turns the same data into fake-money portfolios: 10 SOL, 0.1 SOL into every token that passes
-(while the cash lasts), sold after 24 hours, fees on both trades, and a token whose price disappears
-counted as lost. Open positions are valued at the latest price, including the live quotes. ``accounts``
+(while the cash lasts), sold after 24 hours, fees on both trades, and a token whose price disappears from
+DexScreener sold at the last price seen (on the bonding curve it can always be sold, and never below the launch
+price). Until 5 November 2026 such a token counted as a total loss, and tokens scored in the same run were
+bought in whatever order the database returned them, so the main account's value flipped between states once
+its cash was short; its value since then is recorded under a new name (``MAIN_ACCOUNT``). Open positions are valued at the latest price, including the live quotes. ``accounts``
 gives the three on the page, which buy by the same rule:
 
 * the main account (from 4 October 2026) also sells a position as soon as it is worth twice its cost
@@ -96,7 +99,9 @@ CLIFF = 0.5  # the stup line, recorded for the log: the first price seen at or b
 TAKE_PROFIT = 1.0  # the main account: sold once a position is up 100 % after fees, worth twice its cost ...
 PROFIT_LINE = (1 + TAKE_PROFIT) / (1 - FEE) ** 2  # ... which is this multiple of the buy price
 TRAIL = 0.25  # the trailing account: once at PROFIT_LINE, sold at the first price this far below its highest
-MAIN_ACCOUNT = "take_profit_100"  # the main account's history in pf_equity: a new name when its rules change
+# The main account's history in pf_equity: a new name when its rules change, or its replay is corrected
+# ("take_profit_100" until 5 Nov 2026, when a token that disappeared counted as a total loss).
+MAIN_ACCOUNT = "take_profit_100_b"
 # Result bins for closed trades: (upper limit, label, polarity) with the last one open-ended.
 RESULT_BINS = ((-0.9, "≤ −90", -1), (-0.5, "−90…−50", -1), (-0.1, "−50…−10", -1), (0.1, "±10", 0),
                (0.5, "+10…+50", 1), (1.0, "+50…+100", 1), (math.inf, "> +100", 1))
@@ -256,7 +261,7 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
     rows = [dict(r) for r in store.query(
         select(t.c.mint, t.c.name, t.c.symbol, t.c.status, t.c.scored_at, t.c.price_t, t.c.price_1h, t.c.price_6h,
                t.c.price_24h, t.c.last_price, t.c.last_checked_at, t.c.cliff_at, t.c.profit_at, t.c.trail_at,
-               t.c.trail_price)  # cliff_at and profit_at: the quotes record the lines a position crosses
+               t.c.trail_price, t.c.graduated)  # cliff_at and profit_at: the quotes record the lines a position crosses
         .where(t.c.sampled.is_(True), t.c.screen_version == SCREEN_VERSION, t.c.passed.is_(True)))]
     events = []
     for r in rows:
@@ -272,7 +277,9 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
             events.append((opened + PAPER_HOLD, 0, "held", r))
         elif r["status"] == "missing":
             events.append((_aware(r["last_checked_at"]) or opened, 0, "lost", r))
-    events.sort(key=lambda e: (e[0], e[1]))  # sales before purchases at the same moment, to free the cash
+    # Sales before purchases at the same moment, to free the cash; tokens scored in the same run by their address,
+    # so the replay does not depend on the order the database returns them in.
+    events.sort(key=lambda e: (e[0], e[1], e[3]["mint"]))
 
     cash, holding, closed, skipped = PAPER_START, {}, [], 0
     for at, _, kind, r in events:
@@ -284,7 +291,7 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
             holding[r["mint"]] = {**r, "opened_at": at, "qty": PAPER_STAKE * (1 - FEE) / r["price_t"]}
         elif (position := holding.pop(r["mint"], None)) is not None:
             exit_price = {"profit": PROFIT_LINE * r["price_t"], "trail": r["trail_price"],
-                          "lost": 0.0}.get(kind, r["price_24h"])
+                          "lost": _last_seen(r)}.get(kind, r["price_24h"])
             # At the take-profit line a sale brings exactly the stake times 1 + TAKE_PROFIT; worked out from the
             # price, rounding can leave it a hair below.
             proceeds = (PAPER_STAKE * (1 + TAKE_PROFIT) if kind == "profit"
@@ -320,6 +327,13 @@ def paper(store: Store, *, take_profit: bool = False, trail: bool = False) -> di
         "skipped": skipped,
         "bins": _bins([c["result"] for c in closed]),
     }
+
+
+def _last_seen(r: dict[str, Any]) -> float:
+    """What a token that disappeared from DexScreener sells for: its last price seen, and never less than the
+    launch price while it is on the bonding curve."""
+    floor = 0.0 if r["graduated"] else LAUNCH_PRICE
+    return max(r["last_price"] or 0.0, floor)
 
 
 def snapshot(store: Store, now: datetime | None = None) -> None:

@@ -277,6 +277,19 @@ def test_the_pump_fun_index_carries_on_across_versions(store):
     assert index == pytest.approx([1.0, 1.2, 1.2, 0.6]) and times[-1] == T0 + timedelta(hours=3)
 
 
+def test_a_new_name_carries_on_from_the_old_names_usual_level_not_a_flipped_last_reading(store):
+    """The old replay could flip between states (Nov 2026): a last reading far from the last hour's median."""
+    start = T0 + timedelta(days=1)
+    pump(store, *[(start + timedelta(minutes=5 * i), 1.0) for i in range(11)], (start + timedelta(minutes=55), 0.2))
+    with store.engine.begin() as conn:
+        conn.execute(store.table("pf_equity").insert(), [
+            {"at": start + timedelta(hours=1, minutes=5 * i), "cash": e, "positions": 0.0, "equity": e,
+             "open_positions": 0, "screen_version": "pf3", "account": "take_profit_100_b"}
+            for i, e in enumerate((3.0, 3.3))])
+    _, index = crypto._pump_index(store, start)
+    assert index[11] == pytest.approx(0.2) and index[12:] == pytest.approx([1.0, 1.1])
+
+
 # Collecting the prices
 
 def depth(bid, ask):
@@ -381,7 +394,7 @@ def test_the_page_marks_a_coin_the_trend_rule_has_sold(store, db_url, monkeypatc
         page = client.get("/krypto").text
 
     # The main account holds Bitcoin all along; the trend rule beside it sold it on the 12th.
-    assert page.count("under snittet</span>") == 1 and "<strong>i kroner</strong>" in page
+    assert page.count("trendregelen: solgt</span>") == 1 and "<strong>i kroner</strong>" in page
     assert "eier 4 av 5 mynter nå" in page
 
 

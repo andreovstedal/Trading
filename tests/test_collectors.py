@@ -263,3 +263,21 @@ def test_cli_refuses_to_run_on_railway_without_a_database(monkeypatch, tmp_path)
 
     assert cli.main(["status"]) == 2
     assert not (tmp_path / "data").exists()  # no throwaway SQLite file was created
+
+
+def test_one_failing_mfn_feed_does_not_stop_the_others(server, store):
+    """feed.mfn.se answers HTTP 400 for some companies' feeds (Actic Group's, 5 Nov 2026); the rest are still read."""
+    page = fixture_bytes("mfn_company_page.html")
+    other = page.replace(b"f9cedcd2-6006-4325-bb43-6ffb51e93b6b", b"00000000-0000-0000-0000-000000000400")
+    server.add("GET", "https://mfn.se/all/a/actic-group", httpx.Response(200, content=other))
+    server.add("GET", "https://mfn.se/all/a/nibe-industrier", httpx.Response(200, content=page))
+    server.add("GET", "https://feed.mfn.se/v1/feed/00000000-0000-0000-0000-000000000400.json",
+               httpx.Response(400, content=b"400 Bad Request"))
+    feed = fixture_json("mfn_feed.json")
+    feed["next_url"] = None
+    server.add("GET", MFN_FEED, httpx.Response(200, json=feed))
+
+    summary = run("mfn", server, store, slugs=["actic-group", "nibe-industrier"])
+
+    assert summary.tables["mfn_items"].inserted == 2
+    assert any("HTTP 400" in w for w in summary.warnings)
